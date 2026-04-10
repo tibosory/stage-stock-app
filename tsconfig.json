@@ -1,0 +1,12 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "customConditions": ["react-native"],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  }
+}

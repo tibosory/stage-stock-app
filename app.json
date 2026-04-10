@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "Stage Stock",
+    "slug": "stage-stock",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#111827"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.vellein.stagestock",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Nécessaire pour scanner les QR codes et photographier le matériel",
+        "NSPhotoLibraryUsageDescription": "Nécessaire pour accéder aux photos du matériel",
+        "NFCReaderUsageDescription": "Nécessaire pour lire et écrire les puces NFC du matériel"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#111827"
+      },
+      "package": "com.vellein.stagestock",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "NFC",
+        "VIBRATE",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Nécessaire pour scanner les QR codes et photographier le matériel"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Nécessaire pour accéder aux photos du matériel",
+          "cameraPermission": "Nécessaire pour photographier le matériel"
+        }
+      ],
+      "expo-notifications"
+    ]
+  }
+}
