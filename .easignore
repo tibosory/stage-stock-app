@@ -1,0 +1,10 @@
+node_modules
+android/.gradle
+android/local.properties
+android/app/build
+android/build
+.expo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.git

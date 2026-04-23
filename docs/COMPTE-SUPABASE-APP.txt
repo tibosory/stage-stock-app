@@ -1,0 +1,47 @@
+Compte Supabase dans l'app Stage Stock
+=====================================
+
+L'app peut utiliser Supabase (Auth + table profiles) en parallele du service
+"Stage Stock" (API sur votre serveur). Ce sont deux blocs differents sur
+l'ecran de connexion.
+
+1) Rendre la section "Compte Supabase" visible
+----------------------------------------------
+Sans ces variables, la section Supabase est masquee (isSupabaseConfigured).
+
+- Developpement local : creer StageStock/.env avec :
+  EXPO_PUBLIC_SUPABASE_URL=https://<votre-projet>.supabase.co
+  EXPO_PUBLIC_SUPABASE_ANON_KEY=<cle anon du projet>
+
+  Redemarrer Expo (npx expo start) apres modification.
+
+- Build EAS : definir les memes variables dans le profil EAS (secrets ou
+  eas.json env) pour que le binaire les contienne.
+
+2) Creer le compte dans l'app
+-----------------------------
+- Ouvrir l'ecran Connexion.
+- Descendre jusqu'a "Compte Supabase (optionnel)".
+- Appuyer sur "Creer un compte Supabase", saisir email et mot de passe.
+
+Supabase cree l'utilisateur dans auth.users ; les migrations du depot
+creent la ligne dans public.profiles (trigger on_auth_user_created).
+
+3) Si l'email doit etre confirme
+--------------------------------
+Dans le tableau Supabase : Authentication > Providers > Email :
+selon la config, l'inscription peut exiger un clic sur le lien recu par mail
+avant que la connexion fonctionne.
+
+4) Connexion sur cet appareil (PIN)
+-----------------------------------
+Apres le compte cloud (Stage Stock ou Supabase selon ce que vous utilisez),
+utilisez "Sur cet appareil" pour definir un PIN : les donnees locales
+restent dans SQLite ; le compte Supabase sert surtout a l'auth cloud et
+aux profils/sync lies a Supabase.
+
+5) Ne pas confondre avec "Service Stage Stock"
+----------------------------------------------
+Le bloc "Service Stage Stock" (email / mot de passe) appelle l'API du
+backend Node (EXPO_PUBLIC_STAGE_STOCK_API_URL), pas l'API Supabase Auth.
+Pour un compte uniquement Supabase, utilisez le bloc "Compte Supabase".

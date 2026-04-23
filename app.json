@@ -3,14 +3,14 @@
     "name": "Stage Stock",
     "slug": "stage-stock",
     "scheme": "stagestock",
-    "version": "1.0.3",
+    "version": "1.0.7",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0B0C0F"
+      "backgroundColor": "#09090B"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -31,9 +31,23 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0B0C0F"
+        "backgroundColor": "#09090B"
       },
       "package": "com.vellein.stagestock",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "stagestock",
+              "host": "auth",
+              "pathPrefix": "/callback"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -79,12 +93,14 @@
       "eas": {
         "projectId": "0b1c50f3-1781-4d5e-8b21-841b8ecfb802"
       },
-      "consumerApp": true
-    "windowsInstallerUrl": "https://github.com/tibosory/stage-stock-app/releases/latest/download/Stagestock-Installer.exe"
+      "consumerApp": true,
+      "windowsInstallerUrl": "https://github.com/tibosory/stage-stock-app/releases/latest/download/Stagestock-Installer.exe",
+      "privacyPolicyUrl": "",
+      "termsOfServiceUrl": ""
     },
-    "runtimeVersion": "1.0.3",
+    "runtimeVersion": "1.0.7",
     "updates": {
-      "url": "https://u.expo.dev/7952971c-27c4-4fee-83d7-81c722620f94"
+      "enabled": false
     },
     "owner": "tibo1980"
   }

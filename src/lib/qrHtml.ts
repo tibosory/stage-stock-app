@@ -9,9 +9,13 @@ const qrcode = require('qrcode-generator') as (
   createImgTag: (cellSize?: number, margin?: number) => string;
 };
 
-export function qrCodeImgTagForHtml(payload: string): string {
+export function qrCodeImgTagForHtml(
+  payload: string,
+  cellSize: number = 5,
+  margin: number = 2
+): string {
   const qr = qrcode(0, 'M');
   qr.addData(payload);
   qr.make();
-  return qr.createImgTag(5, 2);
+  return qr.createImgTag(cellSize, margin);
 }

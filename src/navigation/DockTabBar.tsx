@@ -1,34 +1,24 @@
-import React, { useCallback } from 'react';
-import {
-  Alert,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { ScrollView } from 'react-native-gesture-handler';
+import React, { useCallback, useMemo } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import type { Route } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors } from '../theme/colors';
-import { useAuth } from '../context/AuthContext';
-import { isConsumerApp } from '../config/appMode';
+import { Colors, Shadow } from '../theme/colors';
+import { Typography } from '../theme/typography';
+import { useAppAuth } from '../context/AuthContext';
+import {
+  EMPRUNTEUR_VISIBLE_TAB_NAMES,
+  menuHubTabIsFocused,
+  staffVisibleTabNames,
+} from './mainMenuConfig';
 
-/**
- * Largeur mini par onglet (aligné sur tabBarItemStyle max ~140 / labels FR).
- */
-const TAB_MIN_PX = 82;
-
-/** Même logique que App.tsx MainTabs — barre du bas lisible sur Samsung / nav 3 boutons */
 const ANDROID_BOTTOM_NAV_MIN_DP = 52;
 
+type TabRoute = Route<string>;
+
 /**
- * Barre d’onglets en défilement horizontal.
- *
- * Ne pas imbriquer le `BottomTabBar` du router dans un `ScrollView` RN : sur Android
- * (ex. Samsung One UI) le layout interne utilise souvent toute la largeur écran et le
- * scroll ne prend pas. Ici chaque onglet est un bouton explicite (`flexShrink: 0`) dans
- * un `ScrollView` de react-native-gesture-handler.
+ * Barre fixe : peu d’onglets (Scanner, Stock, Prêts, [Demandes], Menu) — pas de défilement ni de ⋮.
+ * Les autres écrans s’ouvrent depuis l’écran « Menu » ; l’onglet Menu reste visuellement actif sur ces routes.
  */
 export function DockTabBar({
   state,
@@ -36,50 +26,117 @@ export function DockTabBar({
   navigation,
 }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  const { logout, user } = useAuth();
+  const { user } = useAppAuth();
+
   const bottomPad =
     Platform.OS === 'android'
       ? Math.max(insets.bottom, ANDROID_BOTTOM_NAV_MIN_DP)
       : Math.max(insets.bottom, 12);
   const tabBarHeight = 60 + bottomPad;
 
-  const openOverflowMenu = useCallback(() => {
-    const netLabel = isConsumerApp() ? 'Connexion (serveur)' : 'Réseau';
-    Alert.alert(
-      'Menu rapide',
-      user?.nom
-        ? `Connecté : ${user.nom}\nParamètres, serveur ou autre compte — sans défiler les onglets.`
-        : 'Paramètres, serveur ou déconnexion.',
-      [
-        {
-          text: 'Paramètres',
-          onPress: () => navigation.navigate('Params' as never),
-        },
-        {
-          text: netLabel,
-          onPress: () => navigation.navigate('Réseau' as never),
-        },
-        {
-          text: 'Notice',
-          onPress: () => navigation.navigate('Notice' as never),
-        },
-        {
-          text: 'Se déconnecter…',
-          onPress: () => {
-            Alert.alert(
-              'Déconnexion',
-              'Changer d’utilisateur ou de compte : vous reverrez l’écran de connexion.',
-              [
-                { text: 'Annuler', style: 'cancel' },
-                { text: 'Se déconnecter', style: 'destructive', onPress: () => void logout() },
-              ]
-            );
-          },
-        },
-        { text: 'Fermer', style: 'cancel' },
-      ]
-    );
-  }, [logout, navigation, user?.nom]);
+  const visibleNames = useMemo(() => {
+    if (user?.role === 'emprunteur') {
+      return [...EMPRUNTEUR_VISIBLE_TAB_NAMES];
+    }
+    return staffVisibleTabNames(user?.role === 'admin');
+  }, [user?.role]);
+
+  const currentRouteName = state.routes[state.index]?.name ?? '';
+
+  const renderTab = useCallback(
+    (routeName: string) => {
+      const route = state.routes.find(r => r.name === routeName) as TabRoute | undefined;
+      if (!route) return null;
+
+      const { options } = descriptors[route.key];
+      /** Surbrillance : l’onglet Menu reste « actif » sur IA, Consommables, etc. */
+      const visualFocused =
+        routeName === 'MenuHub'
+          ? menuHubTabIsFocused(currentRouteName, user?.role)
+          : currentRouteName === routeName;
+
+      const activeColor = options.tabBarActiveTintColor ?? Colors.textPrimary;
+      const inactiveColor = options.tabBarInactiveTintColor ?? Colors.tabBarInactive;
+      const color = visualFocused ? activeColor : inactiveColor;
+
+      const rawLabel =
+        options.tabBarLabel !== undefined
+          ? options.tabBarLabel
+          : options.title !== undefined
+            ? options.title
+            : route.name;
+      const label =
+        typeof rawLabel === 'string'
+          ? rawLabel
+          : typeof rawLabel === 'function'
+            ? String(route.name)
+            : String(route.name);
+
+      const icon = options.tabBarIcon?.({
+        focused: visualFocused,
+        color,
+        size: visualFocused ? 26 : 24,
+      });
+
+      const onPress = (): void => {
+        const e = navigation.emit({
+          type: 'tabPress',
+          target: route.key,
+          canPreventDefault: true,
+        });
+        if (e.defaultPrevented) return;
+
+        if (routeName === 'MenuHub') {
+          if (currentRouteName !== 'MenuHub') {
+            navigation.navigate('MenuHub' as never);
+          }
+          return;
+        }
+
+        if (currentRouteName !== routeName) {
+          navigation.navigate(route.name as never);
+        }
+      };
+
+      const onLongPress = (): void => {
+        navigation.emit({
+          type: 'tabLongPress',
+          target: route.key,
+        });
+      };
+
+      return (
+        <Pressable
+          key={route.key}
+          accessibilityRole="button"
+          accessibilityState={visualFocused ? { selected: true } : {}}
+          accessibilityLabel={options.tabBarAccessibilityLabel ?? label}
+          onPress={onPress}
+          onLongPress={onLongPress}
+          style={({ pressed }) => [
+            styles.tabBtn,
+            { opacity: pressed ? 0.88 : 1 },
+          ]}
+        >
+          <View style={styles.tabInner}>
+            {icon}
+            <Text
+              numberOfLines={1}
+              style={[
+                Typography.tabLabel,
+                styles.tabText,
+                options.tabBarLabelStyle as object,
+                { color },
+              ]}
+            >
+              {label}
+            </Text>
+          </View>
+        </Pressable>
+      );
+    },
+    [currentRouteName, descriptors, navigation, state.routes, user?.role]
+  );
 
   return (
     <View
@@ -91,104 +148,8 @@ export function DockTabBar({
         },
       ]}
     >
-      <View style={styles.barRow}>
-        <ScrollView
-          horizontal
-          scrollEnabled
-          nestedScrollEnabled
-          keyboardShouldPersistTaps="handled"
-          showsHorizontalScrollIndicator={Platform.OS === 'android'}
-          bounces={Platform.OS === 'ios'}
-          alwaysBounceHorizontal={false}
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          removeClippedSubviews={false}
-        >
-        {state.routes.map((route, index) => {
-          const { options } = descriptors[route.key];
-          const isFocused = state.index === index;
-          const activeColor = options.tabBarActiveTintColor ?? Colors.textPrimary;
-          const inactiveColor = options.tabBarInactiveTintColor ?? Colors.tabBarInactive;
-          const color = isFocused ? activeColor : inactiveColor;
-
-          const rawLabel =
-            options.tabBarLabel !== undefined
-              ? options.tabBarLabel
-              : options.title !== undefined
-                ? options.title
-                : route.name;
-          const label =
-            typeof rawLabel === 'string'
-              ? rawLabel
-              : typeof rawLabel === 'function'
-                ? String(route.name)
-                : String(route.name);
-
-          const icon = options.tabBarIcon?.({
-            focused: isFocused,
-            color,
-            size: isFocused ? 26 : 24,
-          });
-
-          const onPress = (): void => {
-            const e = navigation.emit({
-              type: 'tabPress',
-              target: route.key,
-              canPreventDefault: true,
-            });
-            if (!isFocused && !e.defaultPrevented) {
-              navigation.navigate(route.name as never);
-            }
-          };
-
-          const onLongPress = (): void => {
-            navigation.emit({
-              type: 'tabLongPress',
-              target: route.key,
-            });
-          };
-
-          return (
-            <Pressable
-              key={route.key}
-              accessibilityRole="button"
-              accessibilityState={isFocused ? { selected: true } : {}}
-              accessibilityLabel={options.tabBarAccessibilityLabel ?? label}
-              onPress={onPress}
-              onLongPress={onLongPress}
-              style={({ pressed }) => [
-                styles.tabBtn,
-                { opacity: pressed ? 0.88 : 1 },
-              ]}
-            >
-              <View style={styles.tabInner}>
-                {icon}
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.tabText,
-                    options.tabBarLabelStyle as object,
-                    { color },
-                  ]}
-                >
-                  {label}
-                </Text>
-              </View>
-            </Pressable>
-          );
-        })}
-        </ScrollView>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Menu rapide, déconnexion"
-          onPress={openOverflowMenu}
-          style={({ pressed }) => [styles.moreBtn, { opacity: pressed ? 0.85 : 1 }]}
-        >
-          <Text style={styles.moreBtnText} allowFontScaling={false}>
-            ⋮
-          </Text>
-          <Text style={styles.moreBtnHint}>Menu</Text>
-        </Pressable>
+      <View style={styles.barInner}>
+        <View style={styles.barRow}>{visibleNames.map(name => renderTab(name))}</View>
       </View>
     </View>
   );
@@ -197,51 +158,30 @@ export function DockTabBar({
 const styles = StyleSheet.create({
   outer: {
     width: '100%',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.separator,
+    backgroundColor: 'transparent',
+    paddingTop: 8,
+    paddingHorizontal: 10,
+  },
+  barInner: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     backgroundColor: Colors.tabBar,
-    paddingTop: 6,
-    paddingHorizontal: 4,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderBottomWidth: 0,
+    overflow: 'hidden',
+    ...Shadow.dock,
   },
   barRow: {
     flexDirection: 'row',
     alignItems: 'stretch',
-  },
-  scroll: {
-    flex: 1,
-    minWidth: 0,
-  },
-  moreBtn: {
-    flexShrink: 0,
-    width: 44,
-    paddingVertical: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: Colors.separator,
-  },
-  moreBtnText: {
-    color: Colors.textSecondary,
-    fontSize: 20,
-    lineHeight: 22,
-    marginTop: -2,
-  },
-  moreBtnHint: {
-    color: Colors.tabBarInactive,
-    fontSize: 9,
-    fontWeight: '600',
-    marginTop: 0,
-  },
-  scrollContent: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    /** Indispensable sur certains Android : sans ça le contenu peut s’étirer à la largeur du ScrollView et bloquer le scroll. */
-    flexGrow: 0,
+    width: '100%',
+    paddingTop: 4,
+    paddingHorizontal: 2,
   },
   tabBtn: {
-    flexShrink: 0,
-    minWidth: TAB_MIN_PX,
-    maxWidth: 140,
+    flex: 1,
+    minWidth: 0,
     paddingVertical: 4,
     paddingHorizontal: 2,
     justifyContent: 'center',
@@ -251,9 +191,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   tabText: {
-    fontSize: 12,
-    fontWeight: '600',
-    lineHeight: 14,
     marginTop: 2,
     marginBottom: 2,
     textAlign: 'center',

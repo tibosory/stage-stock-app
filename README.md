@@ -4,13 +4,14 @@ Application Android de gestion d'inventaire pour le matériel de scène et spect
 
 ## Fonctionnalités
 
-- **Scanner** : QR codes, codes-barres (tous formats), puces NFC, saisie manuelle, mode lot
-- **Stock** : matériels avec photo, état, statut, catégorie, localisation
+- **Scanner** : QR codes, codes-barres (tous formats), puces NFC, saisie manuelle, mode lot ; rafale consommables avec pavé numérique optionnel par article
+- **Stock** : matériels avec photo, état, statut, catégorie, localisation ; étiquettes QR en lot ; **fiches matériel PDF (A4)** (photo, infos, QR) depuis le détail ou par sélection (appui long) dans la liste
 - **Prêts** : feuilles de prêt avec suivi retour
 - **Consommables** : gestion stock avec alertes seuil
 - **Alertes** : stocks bas, prêts en retard
-- **Paramètres** : catégories, localisations, alertes email, sync cloud
-- **Offline/Online** : SQLite local + sync Supabase
+- **Paramètres** : catégories, localisations, alertes e-mail, tests notif / push / SMTP, profil & entêtes PDF, sync inventaire (API HTTP) et Supabase optionnel
+- **Premier lancement** : assistant optionnel (lieu, serveur, coordonnées), une fois par installation
+- **Offline/Online** : SQLite local + sync via API serveur et/ou Supabase
 
 ---
 

@@ -1,6 +1,6 @@
 // src/hooks/useNfc.ts
 import { useState, useEffect, useCallback } from 'react';
-import { Platform, Alert } from 'react-native';
+import { AppState, Alert } from 'react-native';
 
 // Import conditionnel NFC (ne fonctionne pas sur Expo Go standard)
 let NfcManager: any = null;
@@ -21,6 +21,47 @@ export const useNfc = () => {
   const [nfcEnabled, setNfcEnabled] = useState(false);
   const [scanning, setScanning] = useState(false);
 
+  const normalizeTagId = (id: unknown): string | null => {
+    if (!id) return null;
+    if (Array.isArray(id)) {
+      return id
+        .map((b: number) => Number(b).toString(16).padStart(2, '0'))
+        .join(':')
+        .toLowerCase();
+    }
+    if (typeof id === 'string') return id.toLowerCase();
+    return null;
+  };
+
+  const decodeTagPayload = (tag: any): string | null => {
+    if (!tag?.ndefMessage?.length || !Ndef) return null;
+    for (const record of tag.ndefMessage) {
+      try {
+        if (record?.tnf === Ndef.TNF_WELL_KNOWN && record?.type?.[0] === 0x54) {
+          const txt = Ndef.text.decodePayload(record.payload);
+          if (txt?.trim()) return txt.trim();
+        }
+      } catch {}
+      try {
+        if (record?.tnf === Ndef.TNF_WELL_KNOWN && record?.type?.[0] === 0x55) {
+          const uri = Ndef.uri.decodePayload(record.payload);
+          if (uri?.trim()) return uri.trim();
+        }
+      } catch {}
+    }
+    return null;
+  };
+
+  const refreshNfcState = useCallback(async () => {
+    if (!NfcManager || typeof NfcManager.isEnabled !== 'function') return;
+    try {
+      const enabled = await NfcManager.isEnabled();
+      setNfcEnabled(enabled);
+    } catch {
+      setNfcEnabled(false);
+    }
+  }, []);
+
   useEffect(() => {
     const hasRuntimeNfc =
       !!NfcManager &&
@@ -34,18 +75,23 @@ export const useNfc = () => {
         setNfcSupported(supported);
         if (supported) {
           await NfcManager.start();
-          const enabled = await NfcManager.isEnabled();
-          setNfcEnabled(enabled);
+          await refreshNfcState();
         }
       } catch {
         // Keep NFC disabled without noisy logs in unsupported environments.
       }
     };
     init();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        refreshNfcState();
+      }
+    });
     return () => {
+      sub.remove();
       if (NfcManager) NfcManager.cancelTechnologyRequest().catch(() => {});
     };
-  }, []);
+  }, [refreshNfcState]);
 
   // Lit un tag NFC et retourne son identifiant ou son contenu texte
   const readNfcTag = useCallback(async (): Promise<string | null> => {
@@ -63,22 +109,8 @@ export const useNfc = () => {
       await NfcManager.requestTechnology(NfcTech.Ndef);
       const tag = await NfcManager.getTag();
 
-      // Essai de lecture du payload texte
-      let tagValue: string | null = null;
-      if (tag?.ndefMessage && tag.ndefMessage.length > 0) {
-        const record = tag.ndefMessage[0];
-        try {
-          tagValue = Ndef.text.decodePayload(record.payload);
-        } catch {
-          tagValue = null;
-        }
-      }
-
-      // Fallback sur l'ID matériel du tag
-      if (!tagValue && tag?.id) {
-        tagValue = tag.id.map((b: number) => b.toString(16).padStart(2, '0')).join(':');
-      }
-
+      let tagValue = decodeTagPayload(tag);
+      if (!tagValue) tagValue = normalizeTagId(tag?.id);
       return tagValue;
     } catch (e) {
       return null;
@@ -90,7 +122,9 @@ export const useNfc = () => {
 
   // Écrit un texte sur un tag NFC vierge
   const writeNfcTag = useCallback(async (text: string): Promise<boolean> => {
-    if (!NfcManager || !nfcSupported || !nfcEnabled) return false;
+    if (!NfcManager || !nfcSupported) return false;
+    await refreshNfcState();
+    if (!nfcEnabled) return false;
 
     try {
       setScanning(true);
@@ -104,27 +138,26 @@ export const useNfc = () => {
       NfcManager.cancelTechnologyRequest().catch(() => {});
       setScanning(false);
     }
-  }, [nfcSupported, nfcEnabled]);
+  }, [nfcSupported, nfcEnabled, refreshNfcState]);
 
   // Récupère juste l'ID hardware du tag (sans lecture NDEF)
   const readNfcTagId = useCallback(async (): Promise<string | null> => {
-    if (!NfcManager || !nfcSupported || !nfcEnabled) return null;
+    if (!NfcManager || !nfcSupported) return null;
+    await refreshNfcState();
+    if (!nfcEnabled) return null;
 
     try {
       setScanning(true);
       await NfcManager.requestTechnology([NfcTech.Ndef, NfcTech.NfcA, NfcTech.NfcB, NfcTech.NfcF, NfcTech.NfcV]);
       const tag = await NfcManager.getTag();
-      if (tag?.id) {
-        return tag.id.map((b: number) => b.toString(16).padStart(2, '0')).join(':');
-      }
-      return null;
+      return normalizeTagId(tag?.id);
     } catch {
       return null;
     } finally {
       NfcManager.cancelTechnologyRequest().catch(() => {});
       setScanning(false);
     }
-  }, [nfcSupported, nfcEnabled]);
+  }, [nfcSupported, nfcEnabled, refreshNfcState]);
 
   return { nfcSupported, nfcEnabled, scanning, readNfcTag, readNfcTagId, writeNfcTag };
 };

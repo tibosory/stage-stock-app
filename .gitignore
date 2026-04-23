@@ -4,3 +4,14 @@ dist/
 web-build/
 *.log
 *.tmp
+
+# Secrets & env (Expo charge EXPO_PUBLIC_* depuis .env à la racine)
+.env
+.env.local
+.env.*.local
+
+# Artifacts / natif généré
+android/
+ios/
+*.apk
+*.aab
