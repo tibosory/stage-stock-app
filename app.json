@@ -43,6 +43,10 @@
               "scheme": "stagestock",
               "host": "auth",
               "pathPrefix": "/callback"
+            },
+            {
+              "scheme": "stagestock",
+              "host": "pair"
             }
           ],
           "category": ["BROWSABLE", "DEFAULT"]
@@ -94,7 +98,7 @@
         "projectId": "0b1c50f3-1781-4d5e-8b21-841b8ecfb802"
       },
       "consumerApp": true,
-      "windowsInstallerUrl": "https://github.com/tibosory/stage-stock-app/releases/latest/download/Stagestock-Installer.exe",
+      "windowsInstallerUrl": "https://github.com/tibosory/stagestock/releases/latest/download/Stagestock-Installer.exe",
       "privacyPolicyUrl": "",
       "termsOfServiceUrl": ""
     },

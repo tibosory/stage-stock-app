@@ -14,7 +14,7 @@ Après chaque modification des textes dans `legal/`, **recopiez** les deux fichi
 
 ## Option A — GitHub Pages (gratuit, HTTPS)
 
-1. Créez un dépôt GitHub (ex. `stage-stock-legal`) **ou** utilisez le dépôt existant `stage-stock-app`.
+1. Créez un dépôt GitHub (ex. `stage-stock-legal`) **ou** le dépôt d’appli (`tibosory/stagestock`).
 2. Placez le **contenu** du dossier `docs/` à la racine du site Pages :
    - soit le dossier `/docs` du dépôt : mettez ces fichiers dans **`[repo]/docs/`** à la racine du repo ;
    - dans **Settings → Pages**, source : **Deploy from a branch**, dossier **`/docs`** sur la branche `main`.

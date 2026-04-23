@@ -7,10 +7,10 @@ import { fetchWithTimeout } from '../lib/fetchWithTimeout';
  * `Stagestock-Installer.exe` (sans `.git` dans l’URL de téléchargement).
  */
 export const GITHUB_WINDOWS_INSTALLER_RELEASE_URL =
-  'https://github.com/tibosory/stage-stock-app/releases/latest/download/Stagestock-Installer.exe';
+  'https://github.com/tibosory/stagestock/releases/latest/download/Stagestock-Installer.exe';
 
 const GITHUB_OWNER = 'tibosory';
-const GITHUB_REPO = 'stage-stock-app';
+const GITHUB_REPO = 'stagestock';
 const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=30`;
 const WINDOWS_INSTALLER_FILENAME = 'Stagestock-Installer.exe';
 
