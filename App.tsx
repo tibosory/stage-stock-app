@@ -30,6 +30,7 @@ import { initSupabaseFromStorage } from './src/lib/supabase';
 import { Colors } from './src/theme/colors';
 import { AppAuthProvider, useAppAuth } from './src/context/AuthContext';
 import { AuthProvider } from './src/context/AuthProvider';
+import { SpecialtyProvider } from './src/context/SpecialtyContext';
 import {
   reschedulePretReturnReminders,
   requestNotificationPermission,
@@ -514,10 +515,12 @@ export default function App() {
         <ConnectionProvider>
           <PairingDeepLinkSubscriber />
           <AppAuthProvider>
-            <AuthProvider>
-              <AppAutoUpdateSubscriber />
-              <AppNavigation />
-            </AuthProvider>
+            <SpecialtyProvider>
+              <AuthProvider>
+                <AppAutoUpdateSubscriber />
+                <AppNavigation />
+              </AuthProvider>
+            </SpecialtyProvider>
           </AppAuthProvider>
         </ConnectionProvider>
       </SafeAreaProvider>

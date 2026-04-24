@@ -18,6 +18,8 @@ import {
   Input, SelectPicker, BottomModal, FormButtons, DateField,
 } from './UI';
 import { useNfc } from '../hooks/useNfc';
+import { useSpecialty } from '../context/SpecialtyContext';
+import { getSpecialtyDef } from '../config/specialties';
 
 interface Props {
   visible: boolean;
@@ -81,6 +83,11 @@ export default function MaterielModal({
   const [newLocalisationName, setNewLocalisationName] = useState('');
 
   const { nfcSupported, nfcEnabled, scanning, readNfcTagId } = useNfc();
+  const { specialtyId, ready: specialtyReady } = useSpecialty();
+  const specialtyHint =
+    specialtyReady && specialtyId !== 'neutre'
+      ? getSpecialtyDef(specialtyId).materielHint.trim()
+      : '';
 
   useEffect(() => {
     if (!visible) return;
@@ -337,6 +344,13 @@ export default function MaterielModal({
           </Text>
         </View>
       )}
+
+      {specialtyHint ? (
+        <View style={s.specialtyHintBox}>
+          <Text style={s.specialtyHintLabel}>Rappel ({getSpecialtyDef(specialtyId).label})</Text>
+          <Text style={s.specialtyHintText}>{specialtyHint}</Text>
+        </View>
+      ) : null}
 
       <Input label="Nom" value={nom} onChangeText={setNom} placeholder="" required />
 
@@ -634,6 +648,16 @@ const s = StyleSheet.create({
     marginBottom: 14,
   },
   sameNameInfoText: { color: Colors.textSecondary, fontSize: 13, lineHeight: 19 },
+  specialtyHintBox: {
+    backgroundColor: Colors.bgCardAlt,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 10,
+    marginBottom: 12,
+  },
+  specialtyHintLabel: { color: Colors.textMuted, fontSize: 11, fontWeight: '700', marginBottom: 4 },
+  specialtyHintText: { color: Colors.textSecondary, fontSize: 12, lineHeight: 17 },
   maintActionsRow: { flexDirection: 'row', gap: 8, marginBottom: 12, marginTop: 2 },
   maintBtn: {
     flex: 1,

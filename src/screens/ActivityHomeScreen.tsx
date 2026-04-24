@@ -19,6 +19,8 @@ import { Typography } from '../theme/typography';
 import { useAppAuth } from '../context/AuthContext';
 import { useConnection } from '../context/ConnectionContext';
 import { isConsumerApp } from '../config/appMode';
+import { useSpecialty } from '../context/SpecialtyContext';
+import { getSpecialtyDef } from '../config/specialties';
 
 /** Couleurs type drapeau arc-en-ciel / inclusive (accessibles sur texte blanc ou texte foncé) */
 const PRIDE_TILES_STAFF: { key: string; label: string; route: string; bg: string; textOn: 'light' | 'dark' }[] = [
@@ -49,8 +51,10 @@ export default function ActivityHomeScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAppAuth();
   const { status } = useConnection();
+  const { specialtyId, ready: specialtyReady } = useSpecialty();
   const { width } = useWindowDimensions();
   const [searchText, setSearchText] = useState('');
+  const specialty = getSpecialtyDef(specialtyId);
 
   const isEmp = user?.role === 'emprunteur';
   const tiles = isEmp ? PRIDE_TILES_EMPRUNTEUR : PRIDE_TILES_STAFF;
@@ -113,6 +117,20 @@ export default function ActivityHomeScreen() {
         <Text style={s.subtitle}>
           Gros boutons : un domaine et le scan (onglet) à côté. « Tout » ouvre l’app avec la barre d’onglets complète.
         </Text>
+
+        {specialtyReady && specialtyId !== 'neutre' && specialty.homeHint ? (
+          <TouchableOpacity
+            style={s.specialtyPill}
+            onPress={() => navigation.navigate('WorkspaceParams' as never)}
+            activeOpacity={0.88}
+            accessibilityRole="button"
+            accessibilityLabel="Ouvrir les paramètres pour changer la spécialité métier"
+          >
+            <Text style={s.specialtyPillTitle}>Profil : {specialty.label}</Text>
+            <Text style={s.specialtyPillHint}>{specialty.homeHint}</Text>
+            <Text style={s.specialtyPillLink}>Modifier dans Paramètres →</Text>
+          </TouchableOpacity>
+        ) : null}
 
         <View style={s.searchBlock}>
           <Text style={s.searchLabel}>{iaReachable ? 'Recherche assistant (réseau OK)' : 'Recherche locale'}</Text>
@@ -177,6 +195,28 @@ const s = StyleSheet.create({
   },
   title: { ...Typography.screenTitle, fontSize: 20, flex: 1, marginRight: 8 },
   subtitle: { ...Typography.caption, color: Colors.textMuted, marginBottom: 12, lineHeight: 18 },
+  specialtyPill: {
+    marginBottom: 14,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.35)',
+    backgroundColor: 'rgba(52, 211, 153, 0.08)',
+  },
+  specialtyPillTitle: {
+    color: Colors.green,
+    fontWeight: '800',
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  specialtyPillHint: { color: Colors.textSecondary, fontSize: 12, lineHeight: 17 },
+  specialtyPillLink: {
+    color: Colors.green,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 8,
+    textDecorationLine: 'underline',
+  },
   logoutPill: {
     borderWidth: 1,
     borderColor: Colors.red,

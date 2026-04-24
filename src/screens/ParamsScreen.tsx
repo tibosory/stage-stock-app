@@ -35,6 +35,8 @@ import {
   clampVgpAdvanceDays,
 } from '../lib/vgpPrefs';
 import { resetWorkspaceOnboardingCompleted } from '../lib/workspaceOnboardingStorage';
+import { useSpecialty } from '../context/SpecialtyContext';
+import { SPECIALTIES, type SpecialtyId } from '../config/specialties';
 import {
   scheduleTestLocalNotification,
   sendTestExpoPushToStaff,
@@ -73,6 +75,7 @@ export default function ParamsScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { can, refreshSession } = useAppAuth();
+  const { specialtyId, setSpecialtyId } = useSpecialty();
   const [categories, setCategories] = useState<Categorie[]>([]);
   const [localisations, setLocalisations] = useState<Localisation[]>([]);
   const [alertes, setAlertes] = useState<AlerteEmail[]>([]);
@@ -256,6 +259,27 @@ export default function ParamsScreen() {
             onPress={() => navigation.navigate('Consom.', { filterLowStock: true })}
           />
         </View>
+
+        <Card style={{ marginBottom: 16 }}>
+          <Text style={s.sectionTitle}>Spécialité métier</Text>
+          <Text style={{ color: Colors.textMuted, fontSize: 12, marginBottom: 10, lineHeight: 18 }}>
+            Indépendamment du compte (admin / technicien / emprunteur), choisissez votre métier pour des rappels
+            contextuels sur l’accueil et dans les fiches matériel. Les données restent les mêmes pour toute
+            l’équipe.
+          </Text>
+          <SelectPicker
+            label="Profil d’usage"
+            value={specialtyId}
+            options={SPECIALTIES.map(sp => ({
+              value: sp.id,
+              label: sp.label,
+            }))}
+            onChange={v => void setSpecialtyId(v as SpecialtyId)}
+          />
+          <Text style={{ color: Colors.textSecondary, fontSize: 12, marginTop: 4, lineHeight: 17 }}>
+            {SPECIALTIES.find(sp => sp.id === specialtyId)?.shortDescription ?? ''}
+          </Text>
+        </Card>
 
         <Card style={{ marginBottom: 16 }}>
           <Text style={s.sectionTitle}>Didacticiel de configuration</Text>
