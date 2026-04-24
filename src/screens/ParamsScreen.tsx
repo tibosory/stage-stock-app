@@ -34,6 +34,7 @@ import {
   setVgpNotificationAdvanceDays,
   clampVgpAdvanceDays,
 } from '../lib/vgpPrefs';
+import { resetWorkspaceOnboardingCompleted } from '../lib/workspaceOnboardingStorage';
 import {
   scheduleTestLocalNotification,
   sendTestExpoPushToStaff,
@@ -255,6 +256,22 @@ export default function ParamsScreen() {
             onPress={() => navigation.navigate('Consom.', { filterLowStock: true })}
           />
         </View>
+
+        <Card style={{ marginBottom: 16 }}>
+          <Text style={s.sectionTitle}>Didacticiel de configuration</Text>
+          <Text style={{ color: Colors.textMuted, fontSize: 12, marginBottom: 10, lineHeight: 18 }}>
+            Si vous voulez revoir l’assistant de démarrage (pas à pas), vous pouvez le relancer ici.
+          </Text>
+          <TouchableOpacity
+            style={s.syncBtn}
+            onPress={async () => {
+              await resetWorkspaceOnboardingCompleted();
+              navigation.navigate('WorkspaceOnboarding');
+            }}
+          >
+            <Text style={s.syncBtnText}>Relancer le didacticiel</Text>
+          </TouchableOpacity>
+        </Card>
 
         <Card style={{ marginBottom: 16 }}>
           <Text style={s.sectionTitle}>Notifications & e-mails</Text>

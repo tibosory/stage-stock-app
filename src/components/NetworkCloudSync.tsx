@@ -9,39 +9,96 @@ import { getConsommablesAlerte, getMateriel } from '../db/database';
 import { rescheduleVgpDueReminders } from '../lib/vgpNotifications';
 import { rescheduleSeuilBasReminders } from '../lib/seuilNotifications';
 import { isConsumerApp } from '../config/appMode';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { isSupabaseConfigured, syncFromSupabase, syncToSupabase } from '../lib/supabase';
 import {
+  getDualBackendSyncEnabled,
   getSyncAfterEachActionEnabled,
+  setDualBackendSyncEnabled,
   setSyncAfterEachActionEnabled,
 } from '../lib/syncAfterAction';
+import { loadSyncTelemetry, recordSyncTelemetry, type SyncStamp, type SyncTelemetry } from '../lib/syncTelemetry';
 
 export function NetworkCloudSync() {
   const { can, refreshSession } = useAppAuth();
   const [syncing, setSyncing] = useState(false);
   const [syncAfterEachAction, setSyncAfterEachAction] = useState(false);
+  const [dualBackendSync, setDualBackendSync] = useState(false);
+  const [telemetry, setTelemetry] = useState<SyncTelemetry>({ api: {}, supabase: {} });
+
+  const refreshTelemetry = useCallback(async () => {
+    setTelemetry(await loadSyncTelemetry());
+  }, []);
+
+  const formatStamp = useCallback((stamp?: SyncStamp) => {
+    if (!stamp?.at) return '—';
+    const when = new Date(stamp.at);
+    const date = Number.isNaN(when.getTime()) ? stamp.at : when.toLocaleString('fr-FR');
+    const statusLabel =
+      stamp.status === 'ok' ? 'OK' : stamp.status === 'error' ? 'Échec' : 'Ignoré';
+    return stamp.message ? `${date} · ${statusLabel} · ${stamp.message}` : `${date} · ${statusLabel}`;
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      void getSyncAfterEachActionEnabled().then(setSyncAfterEachAction);
-    }, [])
+      void Promise.all([getSyncAfterEachActionEnabled(), getDualBackendSyncEnabled()]).then(
+        ([autoSync, dualSync]) => {
+          setSyncAfterEachAction(autoSync);
+          setDualBackendSync(dualSync);
+        }
+      );
+      void refreshTelemetry();
+    }, [refreshTelemetry])
   );
 
   const handleSync = async (direction: 'push' | 'pull') => {
     setSyncing(true);
-    const fn = direction === 'push' ? syncToInventoryApi : syncFromInventoryApi;
-    const result = await fn();
+    const fnApi = direction === 'push' ? syncToInventoryApi : syncFromInventoryApi;
+    const apiResult = await fnApi();
+    await recordSyncTelemetry('api', direction, apiResult.ok ? 'ok' : 'error', apiResult.error);
+    let supabaseResult: { ok: boolean; error?: string } | null = null;
+    if (dualBackendSync && isSupabaseConfigured()) {
+      const fnSb = direction === 'push' ? syncToSupabase : syncFromSupabase;
+      supabaseResult = await fnSb();
+      await recordSyncTelemetry(
+        'supabase',
+        direction,
+        supabaseResult.ok ? 'ok' : 'error',
+        supabaseResult.error
+      );
+    } else if (dualBackendSync && !isSupabaseConfigured()) {
+      await recordSyncTelemetry('supabase', direction, 'skipped', 'Supabase non configuré');
+    }
     setSyncing(false);
-    if (result.ok) {
+    await refreshTelemetry();
+    const syncedOk = apiResult.ok || supabaseResult?.ok;
+    if (syncedOk) {
       await refreshSession();
       const [m, seuils] = await Promise.all([getMateriel(), getConsommablesAlerte()]);
       await rescheduleVgpDueReminders(m);
       await rescheduleSeuilBasReminders(seuils);
-      Alert.alert(
-        '✓ Sync réussie',
-        direction === 'push' ? 'Données envoyées vers le cloud' : 'Données reçues depuis le cloud'
-      );
+      const lines = [
+        `API inventaire: ${apiResult.ok ? 'OK' : `Échec (${apiResult.error ?? 'inconnu'})`}`,
+      ];
+      if (dualBackendSync) {
+        if (isSupabaseConfigured()) {
+          lines.push(`Supabase: ${supabaseResult?.ok ? 'OK' : `Échec (${supabaseResult?.error ?? 'inconnu'})`}`);
+        } else {
+          lines.push('Supabase: non configuré');
+        }
+      }
+      Alert.alert('✓ Sync terminée', lines.join('\n'));
     } else {
-      Alert.alert('Erreur sync', result.error ?? 'Erreur inconnue');
+      const lines = [
+        `API inventaire: ${apiResult.error ?? 'Erreur inconnue'}`,
+      ];
+      if (dualBackendSync) {
+        lines.push(
+          isSupabaseConfigured()
+            ? `Supabase: ${supabaseResult?.error ?? 'Erreur inconnue'}`
+            : 'Supabase: non configuré'
+        );
+      }
+      Alert.alert('Erreur sync', lines.join('\n'));
     }
   };
 
@@ -71,9 +128,36 @@ export function NetworkCloudSync() {
       </Card>
 
       <Card style={{ marginBottom: 14 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardTitle}>Synchro double backend</Text>
+            <Text style={styles.hint}>
+              En plus de l’API inventaire, synchronise aussi Supabase (si configuré) pour garder les deux backends à jour.
+            </Text>
+          </View>
+          <Switch
+            value={dualBackendSync}
+            onValueChange={async v => {
+              await setDualBackendSyncEnabled(v);
+              setDualBackendSync(v);
+            }}
+            trackColor={{ false: Colors.border, true: Colors.greenMuted }}
+            thumbColor={dualBackendSync ? Colors.green : Colors.textMuted}
+          />
+        </View>
+        {dualBackendSync && !isSupabaseConfigured() ? (
+          <Text style={[styles.hintMuted, { marginTop: 8 }]}>
+            Supabase n’est pas configuré sur cet appareil : seule l’API inventaire sera utilisée.
+          </Text>
+        ) : null}
+      </Card>
+
+      <Card style={{ marginBottom: 14 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
           <Text style={{ fontSize: 16 }}>☁️</Text>
-          <Text style={styles.cardTitle}>Synchronisation cloud (API)</Text>
+          <Text style={styles.cardTitle}>
+            Synchronisation cloud ({dualBackendSync ? 'API + Supabase' : 'API'})
+          </Text>
         </View>
         {syncing ? (
           <ActivityIndicator color={Colors.green} />
@@ -90,6 +174,17 @@ export function NetworkCloudSync() {
             </TouchableOpacity>
           </View>
         )}
+        <View style={styles.syncMetaBox}>
+          <Text style={styles.syncMetaTitle}>Dernières synchronisations</Text>
+          <Text style={styles.syncMetaLine}>API ↑ {formatStamp(telemetry.api.push)}</Text>
+          <Text style={styles.syncMetaLine}>API ↓ {formatStamp(telemetry.api.pull)}</Text>
+          {dualBackendSync ? (
+            <>
+              <Text style={styles.syncMetaLine}>Supabase ↑ {formatStamp(telemetry.supabase.push)}</Text>
+              <Text style={styles.syncMetaLine}>Supabase ↓ {formatStamp(telemetry.supabase.pull)}</Text>
+            </>
+          ) : null}
+        </View>
         {isConsumerApp() ? (
           <>
             <Text style={[styles.hintMuted, { marginTop: 10 }]}>
@@ -142,4 +237,16 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.greenMuted,
   },
   secondaryBtnText: { color: Colors.green, fontWeight: '600', fontSize: 15 },
+  syncMetaBox: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.bgCard,
+    borderRadius: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    gap: 4,
+  },
+  syncMetaTitle: { color: Colors.textSecondary, fontSize: 12, fontWeight: '700' },
+  syncMetaLine: { color: Colors.textMuted, fontSize: 11, lineHeight: 16 },
 });

@@ -107,7 +107,7 @@ export async function exportFichePretPdf(
     lignes.length > 0
       ? `<tr class="totalrow">` +
         `<td colspan="2"><strong>Totaux (matériel prêté)</strong></td>` +
-        `<td style="text-align:right">${totalMontantCell}</td>` +
+        `<td class="total-amount" style="text-align:right">${totalMontantCell}</td>` +
         `<td style="text-align:right">${totalPoidsCell}</td>` +
         `<td colspan="2"></td>` +
         `</tr>`
@@ -156,8 +156,9 @@ export async function exportFichePretPdf(
       border: 1px solid #6b7280;
       border-radius: 7px;
       padding: 7px 8px;
-      background: #e5e7eb;
+      background: #ffffff;
     }
+    .meta-item.gray-zone { background: #e5e7eb; }
     .meta-label { color: #374151; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; }
     .meta-value { margin-top: 2px; color: #111827; font-weight: 600; word-break: break-word; }
     .wide { grid-column: 1 / span 2; }
@@ -178,14 +179,15 @@ export async function exportFichePretPdf(
     }
     .mats th, .mats td { padding: 6px 7px; text-align: left; border-bottom: 1px solid #9ca3af; vertical-align: top; }
     .mats th {
-      background: #9ca3af;
+      background: #ffffff;
       color: #111827;
       font-size: 9px;
       letter-spacing: 0.2px;
       text-transform: uppercase;
     }
-    .mats tbody tr:nth-child(even) td { background: #e5e7eb; }
-    .mats tr.totalrow td { background: #d1d5db; font-size: 10px; border-bottom: none; }
+    .mats tbody tr:nth-child(even) td { background: #ffffff; }
+    .mats tr.totalrow td { background: #ffffff; font-size: 10px; border-bottom: none; }
+    .mats tr.totalrow td.total-amount { background: #d1d5db; }
     .hint { font-size: 9.5px; color: #374151; margin: 6px 0 0 0; font-style: italic; }
     .sig {
       margin-top: 16px;
@@ -235,14 +237,14 @@ export async function exportFichePretPdf(
   <div class="meta-grid">
     <div class="meta-item"><div class="meta-label">N° feuille</div><div class="meta-value">${esc(pret.numero_feuille ?? '—')}</div></div>
     <div class="meta-item"><div class="meta-label">Statut</div><div class="meta-value">${esc(pret.statut)}</div></div>
-    <div class="meta-item"><div class="meta-label">Emprunteur</div><div class="meta-value">${esc(pret.emprunteur)}</div></div>
-    <div class="meta-item"><div class="meta-label">Organisation</div><div class="meta-value">${esc(pret.organisation ?? '—')}</div></div>
-    <div class="meta-item"><div class="meta-label">Téléphone</div><div class="meta-value">${esc(pret.telephone ?? '—')}</div></div>
-    <div class="meta-item"><div class="meta-label">E-mail</div><div class="meta-value">${esc(pret.email ?? '—')}</div></div>
+    <div class="meta-item gray-zone"><div class="meta-label">Emprunteur</div><div class="meta-value">${esc(pret.emprunteur)}</div></div>
+    <div class="meta-item gray-zone"><div class="meta-label">Organisation</div><div class="meta-value">${esc(pret.organisation ?? '—')}</div></div>
+    <div class="meta-item gray-zone"><div class="meta-label">Téléphone</div><div class="meta-value">${esc(pret.telephone ?? '—')}</div></div>
+    <div class="meta-item gray-zone"><div class="meta-label">E-mail</div><div class="meta-value">${esc(pret.email ?? '—')}</div></div>
     <div class="meta-item"><div class="meta-label">Date de départ</div><div class="meta-value">${esc(pret.date_depart)}</div></div>
     <div class="meta-item"><div class="meta-label">Retour prévu</div><div class="meta-value">${esc(pret.retour_prevu ?? '—')}</div></div>
     <div class="meta-item"><div class="meta-label">Retour réel</div><div class="meta-value">${esc(pret.retour_reel ?? '—')}</div></div>
-    <div class="meta-item"><div class="meta-label">Valeur estimée (feuille)</div><div class="meta-value">${(() => {
+    <div class="meta-item gray-zone"><div class="meta-label">Valeur estimée (feuille)</div><div class="meta-value">${(() => {
       const v = parseNumeric(pret.valeur_estimee as unknown);
       return v != null ? esc(fmtEuro(v)) : pret.valeur_estimee != null && String(pret.valeur_estimee).trim() !== ''
         ? esc(String(pret.valeur_estimee).trim()) + ' €'

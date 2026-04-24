@@ -1,6 +1,7 @@
 import React, { useCallback } from 'react';
 import {
   Alert,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -8,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../theme/colors';
 import { Typography } from '../theme/typography';
 import { ScreenHeader, TabScreenSafeArea } from '../components/UI';
@@ -21,8 +23,13 @@ import {
 
 export default function MenuHubScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const { user, logout } = useAppAuth();
   const netLabel = isConsumerApp() ? 'Connexion' : 'Réseau';
+  const bottomMenuPad =
+    Platform.OS === 'android'
+      ? Math.max(insets.bottom, 52) + 72
+      : Math.max(insets.bottom, 12) + 24;
 
   const destinations =
     user?.role === 'emprunteur'
@@ -43,7 +50,7 @@ export default function MenuHubScreen() {
   return (
     <TabScreenSafeArea style={styles.container}>
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[styles.scroll, { paddingBottom: bottomMenuPad }]}
         showsVerticalScrollIndicator
         keyboardShouldPersistTaps="handled"
       >

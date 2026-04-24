@@ -11,8 +11,11 @@ import { rescheduleSeuilBasReminders } from './seuilNotifications';
 import { syncFromInventoryApi, syncToInventoryApi } from './inventoryApiSync';
 import { runRefreshSessionAfterInventoryPullIfRegistered } from './foregroundInventorySync';
 import { maybeSendAutoAlertEmailsIfNeeded } from './autoAlertEmails';
+import { isSupabaseConfigured, syncFromSupabase, syncToSupabase } from './supabase';
+import { recordSyncTelemetry } from './syncTelemetry';
 
 const STORAGE_KEY = 'stagestock_sync_after_each_action';
+const STORAGE_KEY_DUAL_BACKEND_SYNC = 'stagestock_sync_dual_backend';
 
 export async function getSyncAfterEachActionEnabled(): Promise<boolean> {
   const v = await AsyncStorage.getItem(STORAGE_KEY);
@@ -21,6 +24,15 @@ export async function getSyncAfterEachActionEnabled(): Promise<boolean> {
 
 export async function setSyncAfterEachActionEnabled(enabled: boolean): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEY, enabled ? '1' : '0');
+}
+
+export async function getDualBackendSyncEnabled(): Promise<boolean> {
+  const v = await AsyncStorage.getItem(STORAGE_KEY_DUAL_BACKEND_SYNC);
+  return v === '1';
+}
+
+export async function setDualBackendSyncEnabled(enabled: boolean): Promise<void> {
+  await AsyncStorage.setItem(STORAGE_KEY_DUAL_BACKEND_SYNC, enabled ? '1' : '0');
 }
 
 let lastTriggerAt = 0;
@@ -34,10 +46,31 @@ export async function triggerSyncAfterActionIfEnabled(): Promise<void> {
   lastTriggerAt = now;
 
   try {
-    if (!(await checkServerReachableQuick())) return;
-    await syncToInventoryApi();
-    const pull = await syncFromInventoryApi();
-    if (pull.ok) {
+    const dualBackend = await getDualBackendSyncEnabled();
+    let gotFreshData = false;
+
+    if (await checkServerReachableQuick()) {
+      const pushApi = await syncToInventoryApi();
+      await recordSyncTelemetry('api', 'push', pushApi.ok ? 'ok' : 'error', pushApi.error);
+      const pull = await syncFromInventoryApi();
+      await recordSyncTelemetry('api', 'pull', pull.ok ? 'ok' : 'error', pull.error);
+      if (pull.ok) gotFreshData = true;
+    }
+
+    if (dualBackend && isSupabaseConfigured()) {
+      const pushSb = await syncToSupabase();
+      await recordSyncTelemetry('supabase', 'push', pushSb.ok ? 'ok' : 'error', pushSb.error);
+      if (pushSb.ok) {
+        const pullSb = await syncFromSupabase();
+        await recordSyncTelemetry('supabase', 'pull', pullSb.ok ? 'ok' : 'error', pullSb.error);
+        if (pullSb.ok) gotFreshData = true;
+      }
+    } else if (dualBackend && !isSupabaseConfigured()) {
+      await recordSyncTelemetry('supabase', 'push', 'skipped', 'Supabase non configuré');
+      await recordSyncTelemetry('supabase', 'pull', 'skipped', 'Supabase non configuré');
+    }
+
+    if (gotFreshData) {
       await runRefreshSessionAfterInventoryPullIfRegistered();
       const [prets, mats, seuils] = await Promise.all([
         getPrets(),

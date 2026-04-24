@@ -2,17 +2,40 @@ import Constants from 'expo-constants';
 import * as Application from 'expo-application';
 import { fetchWithTimeout } from '../lib/fetchWithTimeout';
 
-/**
- * Dépôt où le workflow `.github/workflows/release-windows-local-installer.yml` publie
- * `Stagestock-Installer.exe` (sans `.git` dans l’URL de téléchargement).
- */
-export const GITHUB_WINDOWS_INSTALLER_RELEASE_URL =
-  'https://github.com/tibosory/stagestock/releases/latest/download/Stagestock-Installer.exe';
-
-const GITHUB_OWNER = 'tibosory';
-const GITHUB_REPO = 'stagestock';
-const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=30`;
 const WINDOWS_INSTALLER_FILENAME = 'Stagestock-Installer.exe';
+
+type Extra = {
+  windowsInstallerUrl?: string;
+  /** "owner/name" — URL dérivée : https://github.com/owner/name/releases/latest/download/Stagestock-Installer.exe */
+  installerGitHubRepo?: string;
+};
+
+/**
+ * Dépôt GitHub public où le workflow `release-windows-local-installer` publie l'EXE.
+ * Surchargé par `expo.extra.installerGitHubRepo` ou `EXPO_PUBLIC_INSTALLER_GITHUB_REPO` (même forme "owner/name").
+ */
+function getInstallerGitHubOwnerRepo(): { owner: string; repo: string } | null {
+  const fromEnv = process.env.EXPO_PUBLIC_INSTALLER_GITHUB_REPO?.trim();
+  const raw = fromEnv || (Constants.expoConfig?.extra as Extra | undefined)?.installerGitHubRepo?.trim();
+  if (!raw || !raw.includes('/')) return null;
+  const [owner, ...rest] = raw.split('/').map((s: string) => s.trim());
+  const repo = rest.join('/').replace(/\/+$/, '');
+  if (!owner || !repo) return null;
+  return { owner, repo };
+}
+
+function buildGitHubLatestDownloadUrl(owner: string, repo: string): string {
+  return `https://github.com/${owner}/${repo}/releases/latest/download/${WINDOWS_INSTALLER_FILENAME}`;
+}
+
+/**
+ * @deprecated Préférez getWindowsServerInstallerUrl(). Conservé pour compat d'import.
+ */
+export const GITHUB_WINDOWS_INSTALLER_RELEASE_URL = (() => {
+  const p = getInstallerGitHubOwnerRepo();
+  if (p) return buildGitHubLatestDownloadUrl(p.owner, p.repo);
+  return '';
+})();
 
 export type WindowsInstallerResolved = {
   url: string;
@@ -22,16 +45,21 @@ export type WindowsInstallerResolved = {
 };
 
 /**
- * URL HTTPS vers l’installateur Windows (`Stagestock-Installer.exe`) ou page de téléchargement.
- * Définir `EXPO_PUBLIC_WINDOWS_INSTALLER_URL` au build (EAS / .env) ou `expo.extra.windowsInstallerUrl` dans app.json.
+ * URL HTTPS de l'installateur Windows. Priorité :
+ * 1) EXPO_PUBLIC_WINDOWS_INSTALLER_URL
+ * 2) expo.extra.windowsInstallerUrl (URL complète)
+ * 3) dérivé de EXPO_PUBLIC_INSTALLER_GITHUB_REPO ou extra.installerGitHubRepo
+ * 4) chaîne vide (le flux « Téléchargement » doit proposer l'envoi PC / autre hébergeur)
  */
 export function getWindowsServerInstallerUrl(): string {
   const fromEnv = process.env.EXPO_PUBLIC_WINDOWS_INSTALLER_URL?.trim();
   if (fromEnv) return fromEnv;
-  const extra = Constants.expoConfig?.extra as { windowsInstallerUrl?: string } | undefined;
+  const extra = Constants.expoConfig?.extra as Extra | undefined;
   const fromExtra = extra?.windowsInstallerUrl?.trim();
   if (fromExtra) return fromExtra;
-  return GITHUB_WINDOWS_INSTALLER_RELEASE_URL;
+  const gh = getInstallerGitHubOwnerRepo();
+  if (gh) return buildGitHubLatestDownloadUrl(gh.owner, gh.repo);
+  return '';
 }
 
 function detectAppVersion(): string | null {
@@ -86,20 +114,26 @@ function pickReleaseAssetUrl(
 }
 
 /**
- * Tente de récupérer l’installateur Windows compatible avec la version de l’APK.
- * Fallback robuste vers l’URL "latest/download".
+ * Tente l'URL directe d'un release asset ; sinon l'URL "latest/download" cohérente avec le dépôt configuré.
  */
 export async function resolveWindowsServerInstallerUrl(): Promise<WindowsInstallerResolved> {
-  const explicit = process.env.EXPO_PUBLIC_WINDOWS_INSTALLER_URL?.trim()
-    || ((Constants.expoConfig?.extra as { windowsInstallerUrl?: string } | undefined)?.windowsInstallerUrl?.trim() ?? '');
+  const extra = Constants.expoConfig?.extra as Extra | undefined;
+  const explicit = process.env.EXPO_PUBLIC_WINDOWS_INSTALLER_URL?.trim() || extra?.windowsInstallerUrl?.trim() || '';
   const appVersion = detectAppVersion();
   if (explicit) {
     return { url: explicit, source: 'custom', appVersion };
   }
 
+  const gh = getInstallerGitHubOwnerRepo();
+  if (!gh) {
+    return { url: '', source: 'latest-fallback', appVersion };
+  }
+  const releasesApi = `https://api.github.com/repos/${gh.owner}/${gh.repo}/releases?per_page=30`;
+  const fallback = buildGitHubLatestDownloadUrl(gh.owner, gh.repo);
+
   try {
     const r = await fetchWithTimeout(
-      GITHUB_RELEASES_API,
+      releasesApi,
       { method: 'GET', headers: { Accept: 'application/vnd.github+json' } },
       7000
     );
@@ -117,11 +151,11 @@ export async function resolveWindowsServerInstallerUrl(): Promise<WindowsInstall
       }
     }
   } catch {
-    // fallback silencieux
+    // fallback
   }
 
   return {
-    url: GITHUB_WINDOWS_INSTALLER_RELEASE_URL,
+    url: fallback,
     source: 'latest-fallback',
     appVersion,
   };

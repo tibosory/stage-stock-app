@@ -8,8 +8,10 @@ import {
   TextInput,
   Alert,
   useWindowDimensions,
+  Platform,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { TabScreenSafeArea } from '../components/UI';
 import { Colors } from '../theme/colors';
@@ -44,6 +46,7 @@ const PRIDE_TILES_EMPRUNTEUR: { key: string; label: string; route: string; bg: s
 
 export default function ActivityHomeScreen() {
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   const { user, logout } = useAppAuth();
   const { status } = useConnection();
   const { width } = useWindowDimensions();
@@ -54,6 +57,10 @@ export default function ActivityHomeScreen() {
   const gap = 10;
   const col = 2;
   const tileW = (width - 16 * 2 - gap) / col;
+  const bottomMenuPad =
+    Platform.OS === 'android'
+      ? Math.max(insets.bottom, 52) + 72
+      : Math.max(insets.bottom, 12) + 24;
 
   const iaReachable = !isConsumerApp() || status === 'ok';
 
@@ -91,7 +98,7 @@ export default function ActivityHomeScreen() {
   return (
     <TabScreenSafeArea style={s.safe}>
       <ScrollView
-        contentContainerStyle={s.scroll}
+        contentContainerStyle={[s.scroll, { paddingBottom: bottomMenuPad }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >

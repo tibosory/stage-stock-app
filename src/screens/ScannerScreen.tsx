@@ -11,7 +11,11 @@ import { Colors, Shadow } from '../theme/colors';
 import {
   getMaterielByQr, getMaterielByNfc, searchMateriels, searchConsommables,
   getConsommableByQr, getStats, ajusterStock,
+  createMaterielStubWithScannedCode,
+  createConsommableStubWithScannedCode,
 } from '../db/database';
+import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
+import { openMaterielFicheFromAlerte, openConsoFicheFromAlerte } from '../navigation/openFicheFromAlerte';
 import { useNfc } from '../hooks/useNfc';
 import { EtatBadge, Card, BottomModal, Input, TabScreenSafeArea } from '../components/UI';
 import { BurstQtyNumpadModal } from '../components/BurstQtyNumpadModal';
@@ -243,23 +247,42 @@ export default function ScannerScreen() {
         return;
       }
       if (editInventory) {
+        const code = result.data;
         Alert.alert(
           'Code inconnu',
-          `${result.data}\n\nConsommable ?`,
+          `${code}\n\nAucune fiche ne correspond. Créer une nouvelle fiche avec ce code ?`,
           [
             { text: 'Annuler', style: 'cancel', onPress: () => setScanned(false) },
             {
-              text: 'Oui',
+              text: 'Fiche matériel (stock)',
               onPress: () => {
-                navigation.navigate('Consom.', { newQr: result.data });
-                setScanned(false);
+                void (async () => {
+                  try {
+                    const id = await createMaterielStubWithScannedCode({ qrCode: code });
+                    await triggerSyncAfterActionIfEnabled();
+                    openMaterielFicheFromAlerte(navigation, id, 'stock');
+                  } catch (e) {
+                    Alert.alert('Création impossible', e instanceof Error ? e.message : String(e));
+                  } finally {
+                    setScanned(false);
+                  }
+                })();
               },
             },
             {
-              text: 'Non',
+              text: 'Fiche consommable',
               onPress: () => {
-                navigation.navigate('Stock', { newQr: result.data });
-                setScanned(false);
+                void (async () => {
+                  try {
+                    const id = await createConsommableStubWithScannedCode({ qrCode: code });
+                    await triggerSyncAfterActionIfEnabled();
+                    openConsoFicheFromAlerte(navigation, id);
+                  } catch (e) {
+                    Alert.alert('Création impossible', e instanceof Error ? e.message : String(e));
+                  } finally {
+                    setScanned(false);
+                  }
+                })();
               },
             },
           ]
@@ -301,16 +324,36 @@ export default function ScannerScreen() {
     } else if (editInventory) {
       Alert.alert(
         'Tag NFC non associé',
-        `${tagValue}\n\nConsommable ?`,
+        `${tagValue}\n\nAucune fiche ne correspond. Créer une nouvelle fiche avec ce tag ?`,
         [
           { text: 'Annuler', style: 'cancel' },
           {
-            text: 'Oui',
-            onPress: () => navigation.navigate('Consom.', { newNfc: tagValue }),
+            text: 'Fiche matériel (stock)',
+            onPress: () => {
+              void (async () => {
+                try {
+                  const id = await createMaterielStubWithScannedCode({ nfcTagId: tagValue });
+                  await triggerSyncAfterActionIfEnabled();
+                  openMaterielFicheFromAlerte(navigation, id, 'stock');
+                } catch (e) {
+                  Alert.alert('Création impossible', e instanceof Error ? e.message : String(e));
+                }
+              })();
+            },
           },
           {
-            text: 'Non',
-            onPress: () => navigation.navigate('Stock', { newNfc: tagValue }),
+            text: 'Fiche consommable',
+            onPress: () => {
+              void (async () => {
+                try {
+                  const id = await createConsommableStubWithScannedCode({ nfcTagId: tagValue });
+                  await triggerSyncAfterActionIfEnabled();
+                  openConsoFicheFromAlerte(navigation, id);
+                } catch (e) {
+                  Alert.alert('Création impossible', e instanceof Error ? e.message : String(e));
+                }
+              })();
+            },
           },
         ]
       );

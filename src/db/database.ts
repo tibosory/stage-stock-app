@@ -626,6 +626,41 @@ export const insertConsommable = async (data: Omit<Consommable, 'id' | 'created_
   return id;
 };
 
+/** Fiche matériel minimale : le code scanné devient le QR (ou l’ID NFC le `nfc_tag_id`). */
+export async function createMaterielStubWithScannedCode(opts: {
+  qrCode?: string;
+  nfcTagId?: string;
+}): Promise<string> {
+  const q = opts.qrCode?.trim();
+  const n = opts.nfcTagId?.trim();
+  if (!q && !n) throw new Error('Code QR ou ID NFC requis');
+  return insertMateriel({
+    nom: 'Nouveau matériel',
+    etat: 'bon',
+    statut: 'en stock',
+    qr_code: q || undefined,
+    nfc_tag_id: n || undefined,
+  });
+}
+
+/** Fiche consommable minimale : le code scanné est enregistré sur la fiche. */
+export async function createConsommableStubWithScannedCode(opts: {
+  qrCode?: string;
+  nfcTagId?: string;
+}): Promise<string> {
+  const q = opts.qrCode?.trim();
+  const n = opts.nfcTagId?.trim();
+  if (!q && !n) throw new Error('Code QR ou ID NFC requis');
+  return insertConsommable({
+    nom: 'Nouveau consommable',
+    unite: 'pièce',
+    stock_actuel: 0,
+    seuil_minimum: 1,
+    qr_code: q || undefined,
+    nfc_tag_id: n || undefined,
+  });
+}
+
 export const updateConsommable = async (id: string, data: Partial<Consommable>): Promise<void> => {
   const database = await getDB();
   const now = new Date().toISOString();

@@ -17,3 +17,8 @@ export async function hasCompletedWorkspaceOnboarding(): Promise<boolean> {
 export async function setWorkspaceOnboardingCompleted(): Promise<void> {
   await AsyncStorage.setItem(KEY, '1');
 }
+
+/** Force la réapparition de l’assistant au prochain affichage de la navigation connectée. */
+export async function resetWorkspaceOnboardingCompleted(): Promise<void> {
+  await AsyncStorage.removeItem(KEY);
+}

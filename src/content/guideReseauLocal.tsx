@@ -4,6 +4,17 @@ import { Colors } from '../theme/colors';
 
 const SECTIONS: { title: string; body: string }[] = [
   {
+    title: '0. Installation facile (comme une recette)',
+    body:
+      'Objectif: installer le serveur local sans connaissance informatique.\n\n' +
+      'Etape A: sur le telephone, appuyez "Installer le serveur sur PC".\n' +
+      'Etape B: sur le PC, ouvrez le fichier telecharge puis cliquez "Suivant", "Installer", "Terminer".\n' +
+      'Etape C: lancez "StageStock Local" depuis le bureau du PC.\n' +
+      'Etape D: sur le telephone, scannez le QR affiche par le PC.\n' +
+      'Etape E: appuyez sur "Tester la connexion".\n\n' +
+      'Si vous etes perdu, retenez juste ceci: 1) installer l EXE, 2) ouvrir StageStock Local, 3) scanner le QR.',
+  },
+  {
     title: '1. Principe',
     body:
       'Sur le Wi‑Fi du théâtre (ou tout réseau local), un PC ou un mini‑serveur peut héberger l’API Stage Stock. ' +
@@ -113,6 +124,16 @@ export function GuideReseauLocalContent() {
 export function GuideReseauPublicContent() {
   return (
     <View style={g.wrap}>
+      <View style={g.block}>
+        <Text style={g.title}>Installer le serveur local (tres simple)</Text>
+        <Text style={g.body}>
+          1) Sur le telephone, ouvrez Connexion puis touchez "Installer le serveur sur PC".{'\n'}
+          2) Sur le PC, ouvrez le fichier telecharge et cliquez "Suivant", "Installer", "Terminer".{'\n'}
+          3) Sur le PC, ouvrez StageStock Local depuis le bureau.{'\n'}
+          4) Sur le telephone, scannez le QR affiche par le PC.{'\n'}
+          5) Touchez "Tester la connexion". C est fini.
+        </Text>
+      </View>
       <View style={g.block}>
         <Text style={g.title}>Connexion automatique</Text>
         <Text style={g.body}>

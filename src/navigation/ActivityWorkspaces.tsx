@@ -53,14 +53,14 @@ const WS_TAB_BAR = {
 function WorkspaceHomeFab() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  /** Bas gauche : évite de recouvrir le titre (ScreenHeader) des écrans. */
-  const bottom = Math.max(insets.bottom, 8) + 64;
+  /** Haut gauche : ne recouvre plus la zone de défilement des listes. */
+  const top = Math.max(insets.top, 8) + 10;
   return (
     <Pressable
       onPress={() => goActivityHome(navigation)}
       style={({ pressed }) => [
         styles.homeFab,
-        { bottom, left: 12, top: undefined, opacity: pressed ? 0.85 : 1 },
+        { top, left: 12, bottom: undefined, opacity: pressed ? 0.85 : 1 },
       ]}
       accessibilityRole="button"
       accessibilityLabel="Retour au menu d'accueil des activités"

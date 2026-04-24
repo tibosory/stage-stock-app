@@ -4,6 +4,7 @@
  * Silencieux (pas d’alerte) — échoue proprement si l’API est injoignable.
  */
 import { AppState, type AppStateStatus } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { checkServerReachableQuick } from '../config/stageStockApi';
 import { runAutoLanDiscoveryWhenUnreachable } from './consumerAutoConnect';
 import { getConsommablesAlerte, getPrets, getMateriel } from '../db/database';
@@ -12,10 +13,13 @@ import { rescheduleVgpDueReminders } from './vgpNotifications';
 import { rescheduleSeuilBasReminders } from './seuilNotifications';
 import { syncFromInventoryApi, syncToInventoryApi } from './inventoryApiSync';
 import { maybeSendAutoAlertEmailsIfNeeded } from './autoAlertEmails';
+import { isSupabaseConfigured, syncFromSupabase, syncToSupabase } from './supabase';
+import { recordSyncTelemetry } from './syncTelemetry';
 
 let lastRunAt = 0;
 /** Évite double exécution (connexion + bascule d’état) sur le même retour d’app. */
 const MIN_MS_BETWEEN_RUNS = 4_000;
+const STORAGE_KEY_DUAL_BACKEND_SYNC = 'stagestock_sync_dual_backend';
 
 /** Enregistré depuis App.tsx pour rafraîchir la session après sync (comptes utilisateurs). */
 let refreshSessionAfterSync: (() => Promise<void>) | null = null;
@@ -40,12 +44,32 @@ export async function runForegroundInventorySync(): Promise<void> {
 
   try {
     await runAutoLanDiscoveryWhenUnreachable();
-    const reachable = await checkServerReachableQuick();
-    if (!reachable) return;
+    const dualBackend = (await AsyncStorage.getItem(STORAGE_KEY_DUAL_BACKEND_SYNC)) === '1';
+    let gotFreshData = false;
 
-    await syncToInventoryApi();
-    const pull = await syncFromInventoryApi();
-    if (pull.ok) {
+    const reachable = await checkServerReachableQuick();
+    if (reachable) {
+      const pushApi = await syncToInventoryApi();
+      await recordSyncTelemetry('api', 'push', pushApi.ok ? 'ok' : 'error', pushApi.error);
+      const pull = await syncFromInventoryApi();
+      await recordSyncTelemetry('api', 'pull', pull.ok ? 'ok' : 'error', pull.error);
+      if (pull.ok) gotFreshData = true;
+    }
+
+    if (dualBackend && isSupabaseConfigured()) {
+      const pushSb = await syncToSupabase();
+      await recordSyncTelemetry('supabase', 'push', pushSb.ok ? 'ok' : 'error', pushSb.error);
+      if (pushSb.ok) {
+        const pullSb = await syncFromSupabase();
+        await recordSyncTelemetry('supabase', 'pull', pullSb.ok ? 'ok' : 'error', pullSb.error);
+        if (pullSb.ok) gotFreshData = true;
+      }
+    } else if (dualBackend && !isSupabaseConfigured()) {
+      await recordSyncTelemetry('supabase', 'push', 'skipped', 'Supabase non configuré');
+      await recordSyncTelemetry('supabase', 'pull', 'skipped', 'Supabase non configuré');
+    }
+
+    if (gotFreshData) {
       await runRefreshSessionAfterInventoryPullIfRegistered();
       const [prets, mats, seuils] = await Promise.all([
         getPrets(),

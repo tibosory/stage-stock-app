@@ -187,7 +187,7 @@ export default function NetworkScreen() {
       );
       return;
     }
-    const pairUrl = `${base}/pair`;
+    const pairUrl = `${base}/pair.html`;
     try {
       const ok = await Linking.canOpenURL(pairUrl);
       if (!ok) {
@@ -263,7 +263,7 @@ export default function NetworkScreen() {
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.secondaryBtn} onPress={onOpenPairingQrPage}>
-                  <Text style={styles.secondaryBtnText}>Ouvrir la page de jumelage QR (/pair)</Text>
+                  <Text style={styles.secondaryBtnText}>Ouvrir la page de jumelage (/pair.html)</Text>
                 </TouchableOpacity>
               </Card>
 
@@ -438,7 +438,7 @@ export default function NetworkScreen() {
                 )}
               </TouchableOpacity>
               <TouchableOpacity style={styles.secondaryBtn} onPress={onOpenPairingQrPage}>
-                <Text style={styles.secondaryBtnText}>Ouvrir la page de jumelage QR (/pair)</Text>
+                <Text style={styles.secondaryBtnText}>Ouvrir la page de jumelage (/pair.html)</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.dangerOutline} disabled={saving} onPress={onReset}>
                 <Text style={styles.dangerOutlineText}>Réinitialiser les surcharges</Text>

@@ -20,6 +20,11 @@ import { Consommable, Pret, Materiel } from '../types';
 import { BottomModal, BtnPrimary, BtnSecondary, Card, TabScreenSafeArea } from '../components/UI';
 import { vgpProchaineEcheanceIso, isVgpEnRetard, isVgpEpi } from '../lib/vgp';
 import { maybeSendAutoAlertEmailsIfNeeded } from '../lib/autoAlertEmails';
+import {
+  openConsoFicheFromAlerte,
+  openMaterielFicheFromAlerte,
+  openPretFicheFromAlerte,
+} from '../navigation/openFicheFromAlerte';
 
 type AlerteRow =
   | { type: 'pret'; data: Pret }
@@ -170,22 +175,19 @@ export default function AlertesScreen() {
   const vgpAutres = useMemo(() => vgp.filter(m => !isVgpEpi(m)), [vgp]);
   const openMaterielForEdit = useCallback(
     (materielId: string) => {
-      navigation.navigate('Stock', {
-        screen: 'MaterielDetail',
-        params: { materielId },
-      });
+      openMaterielFicheFromAlerte(navigation, materielId, 'stock');
     },
     [navigation]
   );
   const openPretForEdit = useCallback(
     (pretId: string) => {
-      navigation.navigate('Prêts', { openPretEditId: pretId });
+      openPretFicheFromAlerte(navigation, pretId);
     },
     [navigation]
   );
   const openConsoForEdit = useCallback(
     (consoId: string) => {
-      navigation.navigate('Consom.', { openConsoEditId: consoId });
+      openConsoFicheFromAlerte(navigation, consoId);
     },
     [navigation]
   );
@@ -275,7 +277,7 @@ export default function AlertesScreen() {
               return (
                 <TouchableOpacity
                   activeOpacity={0.85}
-                  onPress={() => navigation.navigate('VGP', { screen: 'MaterielDetail', params: { materielId: m.id } })}
+                  onPress={() => openMaterielFicheFromAlerte(navigation, m.id, 'vgp')}
                 >
                   <Card style={[s.alertCard, { borderColor: retard ? Colors.red : Colors.yellow }]}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>

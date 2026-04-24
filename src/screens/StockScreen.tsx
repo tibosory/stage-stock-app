@@ -25,7 +25,13 @@ import {
   getStats,
 } from '../db/database';
 import { Materiel, Categorie, Localisation, StatutMateriel } from '../types';
-import { EtatBadge, StatutBadge, Card, ScreenHeader, TabScreenSafeArea } from '../components/UI';
+import {
+  EtatBadge,
+  StatutBadge,
+  Card,
+  ScreenHeader,
+  TabScreenSafeArea,
+} from '../components/UI';
 import MaterielModal from '../components/MaterielModal';
 import MaterielSerieModal from '../components/MaterielSerieModal';
 import BulkQrPrintModal from '../components/BulkQrPrintModal';
@@ -126,7 +132,6 @@ export default function StockScreen({ navigation, route }: any) {
   }, [materiels, infoFocusItem]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-
   const exitSelectMode = useCallback(() => {
     setSelectMode(false);
     setSelectedIds([]);
@@ -213,6 +218,10 @@ export default function StockScreen({ navigation, route }: any) {
   const handleSearch = (q: string) => {
     setSearch(q);
   };
+
+  const handleBrowseOpen = useCallback(() => {
+    navigation.navigate('StockBrowse');
+  }, [navigation]);
 
   const FILTER_CHIPS: { key: typeof statutFilter; label: string }[] = [
     { key: 'tous', label: 'Tous' },
@@ -391,10 +400,7 @@ export default function StockScreen({ navigation, route }: any) {
               activeOpacity={0.85}
             >
               <Text style={s.stockActionIcon}>📝</Text>
-              <Text style={s.stockActionTitleOutline}>Série de saisie</Text>
-              <Text style={s.stockActionSub}>
-                Même marque / modèle, n° de série et QR distincts pour chaque fiche
-              </Text>
+              <Text style={s.stockActionTitleOutline}>Saisie série</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[s.stockActionBtn, s.stockActionBtnPrimary]}
@@ -403,9 +409,6 @@ export default function StockScreen({ navigation, route }: any) {
             >
               <Text style={s.stockActionIcon}>🖨</Text>
               <Text style={s.stockActionTitlePrimary}>Impression QR</Text>
-              <Text style={s.stockActionSubOnPrimary}>
-                Sélection, famille (bacs, marques, Avery…), taille, mise en page A4 ou A3
-              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[s.stockActionBtn, s.stockActionBtnOutline]}
@@ -413,13 +416,14 @@ export default function StockScreen({ navigation, route }: any) {
               activeOpacity={0.85}
             >
               <Text style={s.stockActionIcon}>🏷</Text>
-              <Text style={s.stockActionTitleOutline}>Étiquettes rayonnage</Text>
-              <Text style={s.stockActionSub}>
-                Texte éditable, formats 210×40 et 90×30, en lot depuis la liste filtrée
-              </Text>
+              <Text style={s.stockActionTitleOutline}>Étiquettes</Text>
             </TouchableOpacity>
           </View>
         )}
+        <TouchableOpacity style={s.browseBtn} onPress={handleBrowseOpen} activeOpacity={0.85}>
+          <Text style={s.browseBtnIcon}>🧭</Text>
+          <Text style={s.browseBtnText}>Visualiser le stock (catégories / sous-catégories)</Text>
+        </TouchableOpacity>
 
         <View style={s.searchRow}>
           <Text style={{ position: 'absolute', left: 14, zIndex: 1, color: Colors.textMuted }}>🔍</Text>
@@ -656,15 +660,15 @@ const s = StyleSheet.create({
   stockActionsRow: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 6,
-    marginBottom: 12,
+    marginTop: 4,
+    marginBottom: 8,
   },
   stockActionBtn: {
     flex: 1,
-    minHeight: 100,
+    minHeight: 66,
     borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -678,17 +682,17 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.green,
   },
-  stockActionIcon: { fontSize: 26, marginBottom: 6 },
+  stockActionIcon: { fontSize: 20, marginBottom: 4 },
   stockActionTitleOutline: {
     color: Colors.green,
     fontWeight: '800',
-    fontSize: 14,
+    fontSize: 13,
     textAlign: 'center',
   },
   stockActionTitlePrimary: {
     color: Colors.white,
     fontWeight: '800',
-    fontSize: 14,
+    fontSize: 13,
     textAlign: 'center',
   },
   stockActionSub: {
@@ -704,6 +708,25 @@ const s = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     lineHeight: 15,
+  },
+  browseBtn: {
+    marginBottom: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.45)',
+    backgroundColor: 'rgba(52, 211, 153, 0.12)',
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  browseBtnIcon: { fontSize: 16 },
+  browseBtnText: {
+    color: Colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '700',
+    flex: 1,
   },
   chipsRow: { flexDirection: 'row', gap: 8, paddingVertical: 4 },
   chip: {

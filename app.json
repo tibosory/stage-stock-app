@@ -98,7 +98,7 @@
         "projectId": "0b1c50f3-1781-4d5e-8b21-841b8ecfb802"
       },
       "consumerApp": true,
-      "windowsInstallerUrl": "https://github.com/tibosory/stagestock/releases/latest/download/Stagestock-Installer.exe",
+      "installerGitHubRepo": "tibosory/stagestock",
       "privacyPolicyUrl": "",
       "termsOfServiceUrl": ""
     },
