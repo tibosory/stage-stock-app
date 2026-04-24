@@ -15,10 +15,16 @@
       },
       "cache": {
         "disabled": true
+      },
+      "env": {
+        "EXPO_PUBLIC_INSTALLER_GITHUB_REPO": "tibosory/stage-stock-app"
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_INSTALLER_GITHUB_REPO": "tibosory/stage-stock-app"
+      }
     }
   },
   "submit": {

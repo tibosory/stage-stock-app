@@ -11,8 +11,8 @@ type Extra = {
 };
 
 /**
- * Dépôt GitHub public où le workflow `release-windows-local-installer` publie l'EXE.
- * Surchargé par `expo.extra.installerGitHubRepo` ou `EXPO_PUBLIC_INSTALLER_GITHUB_REPO` (même forme "owner/name").
+ * Dépôt GitHub public dont la dernière **release** contient `Stagestock-Installer.exe` (souvent stage-stock-app).
+ * Surchargé par `expo.extra.installerGitHubRepo` ou `EXPO_PUBLIC_INSTALLER_GITHUB_REPO` (forme "owner/name").
  */
 function getInstallerGitHubOwnerRepo(): { owner: string; repo: string } | null {
   const fromEnv = process.env.EXPO_PUBLIC_INSTALLER_GITHUB_REPO?.trim();

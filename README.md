@@ -30,6 +30,15 @@ cd StageStock
 npm install
 ```
 
+### Hébergement de l’installateur Windows (`Stagestock-Installer.exe`)
+
+L’app Android peut télécharger l’EXE (carte **Serveur sur votre PC**). La **release** utilisée par défaut est celle de **ce** dépôt public [stage-stock-app](https://github.com/tibosory/stage-stock-app) (asset `Stagestock-Installer.exe` sur la dernière release). L’URL dérivée est  
+`https://github.com/tibosory/stage-stock-app/releases/latest/download/Stagestock-Installer.exe`.
+
+- Le **source** de l’installateur (PocketBase, scripts Inno) se trouve en général dans le monorepo *stagestock* ; il faut **joindre** l’EXE généré (`Build-Installer.ps1`) aux releases **ici** quand vous publiez une version, pour que le lien ci-dessus reste valide.
+- Côté build : `expo.extra.installerGitHubRepo` = `tibosory/stage-stock-app` et `EXPO_PUBLIC_INSTALLER_GITHUB_REPO` (EAS, `eas.json`) — aligné avec l’exemple.
+- Hébergement ailleurs (dépôt privé, autre domaine) : **`EXPO_PUBLIC_WINDOWS_INSTALLER_URL`** en remplacement, puis regénérer l’APK. Voir `.env.example`.
+
 ### Configuration Supabase (optionnel)
 
 1. Créez un projet sur https://supabase.com
