@@ -316,8 +316,9 @@ export default function AlertesScreen() {
                       <View style={{ flex: 1 }}>
                         <Text style={s.alertName}>{m.nom}</Text>
                         <Text style={s.alertSub}>
-                          {m.date_validite ? `Validité : ${formatDateCourt(m.date_validite)} · ` : ''}
-                          {m.prochain_controle ? `Contrôle : ${formatDateCourt(m.prochain_controle)}` : ''}
+                          {m.prochain_controle ? `Dernière maintenance : ${formatDateCourt(m.prochain_controle)}` : 'Maintenance jamais horodatée'}
+                          {m.intervalle_controle_jours ? ` · Tous les ${m.intervalle_controle_jours} j` : ''}
+                          {m.maintenance_todo ? ` · À faire : ${m.maintenance_todo}` : ''}
                         </Text>
                       </View>
                     </View>

@@ -243,11 +243,12 @@ export const syncFromSupabase = async (): Promise<{ ok: boolean; error?: string 
           INSERT OR REPLACE INTO materiels (
             id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id,
             etat, statut, date_achat, date_validite, prochain_controle, intervalle_controle_jours,
+            maintenance_todo, maintenance_last_comment,
             technicien, qr_code, nfc_tag_id, photo_url, photo_local,
             notice_pdf_local, notice_photo_local, notice_pdf_url, notice_photo_url,
             vgp_actif, vgp_periodicite_jours, vgp_derniere_visite, vgp_libelle, vgp_epi,
             created_at, updated_at, synced
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
         `,
           [
             m.id,
@@ -264,6 +265,8 @@ export const syncFromSupabase = async (): Promise<{ ok: boolean; error?: string 
             m.date_validite ?? null,
             m.prochain_controle ?? null,
             m.intervalle_controle_jours ?? null,
+            (m as any).maintenance_todo ?? null,
+            (m as any).maintenance_last_comment ?? null,
             m.technicien ?? null,
             m.qr_code ?? null,
             m.nfc_tag_id ?? null,

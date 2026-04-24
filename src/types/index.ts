@@ -23,8 +23,14 @@ export interface Materiel {
   statut: StatutMateriel;
   date_achat?: string;
   date_validite?: string;
+  /** Dernier horodatage d'opération de maintenance (yyyy-MM-dd). */
   prochain_controle?: string;
+  /** Fréquence de maintenance (jours) ; vide/null => aucune alerte périodique. */
   intervalle_controle_jours?: number;
+  /** Opération / contrôle à effectuer (consignes de maintenance). */
+  maintenance_todo?: string;
+  /** Commentaire saisi lors de la dernière opération horodatée. */
+  maintenance_last_comment?: string;
   technicien?: string;
   qr_code?: string;
   nfc_tag_id?: string;

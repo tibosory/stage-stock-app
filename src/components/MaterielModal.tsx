@@ -66,6 +66,8 @@ export default function MaterielModal({
   const [dateValidite, setDateValidite] = useState('');
   const [prochainControle, setProchainControle] = useState('');
   const [intervalleControle, setIntervalleControle] = useState('');
+  const [maintenanceTodo, setMaintenanceTodo] = useState('');
+  const [maintenanceLastComment, setMaintenanceLastComment] = useState('');
   const [technicien, setTechnicien] = useState('');
   const [qrCode, setQrCode] = useState('');
   const [nfcTagId, setNfcTagId] = useState('');
@@ -98,6 +100,8 @@ export default function MaterielModal({
       setIntervalleControle(
         item.intervalle_controle_jours != null ? String(item.intervalle_controle_jours) : ''
       );
+      setMaintenanceTodo(item.maintenance_todo ?? '');
+      setMaintenanceLastComment(item.maintenance_last_comment ?? '');
       setTechnicien(item.technicien ?? '');
       setQrCode(item.qr_code ?? '');
       setNfcTagId(item.nfc_tag_id ?? '');
@@ -109,6 +113,7 @@ export default function MaterielModal({
       setPoids(''); setCategorieId(''); setLocalisationId('');
       setEtat('bon'); setStatut('en stock');
       setDateAchat(''); setDateValidite(''); setProchainControle(''); setIntervalleControle('');
+      setMaintenanceTodo(''); setMaintenanceLastComment('');
       setTechnicien('');
       setQrCode(initialQr ?? '');
       setNfcTagId(initialNfc ?? '');
@@ -259,6 +264,8 @@ export default function MaterielModal({
           const n = parseInt(intervalleControle, 10);
           return Number.isFinite(n) ? n : undefined;
         })(),
+        maintenance_todo: maintenanceTodo.trim() || undefined,
+        maintenance_last_comment: maintenanceLastComment.trim() || undefined,
         technicien: technicien || undefined,
         qr_code: qrCode || undefined,
         nfc_tag_id: nfcTagId || undefined,
@@ -288,6 +295,11 @@ export default function MaterielModal({
     } finally {
       setSaving(false);
     }
+  };
+
+  const stampMaintenanceNow = () => {
+    const iso = new Date().toISOString().slice(0, 10);
+    setProchainControle(iso);
   };
 
   const catOptions = [
@@ -407,18 +419,49 @@ export default function MaterielModal({
 
       <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
         <View style={{ flex: 1 }}>
-          <DateField label="Prochain contrôle" value={prochainControle} onChange={setProchainControle} allowClear />
-        </View>
-        <View style={{ flex: 1 }}>
           <Input
-            label="Intervalle (jours)"
+            label="Fréquence maintenance (jours)"
             value={intervalleControle}
             onChangeText={setIntervalleControle}
             keyboardType="numeric"
-            placeholder="ex. 90"
+            placeholder="vide = pas d'alerte"
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Input
+            label="Dernière maintenance (auto)"
+            value={prochainControle}
+            onChangeText={setProchainControle}
+            placeholder="yyyy-mm-dd"
           />
         </View>
       </View>
+      <View style={s.maintActionsRow}>
+        <TouchableOpacity style={s.maintBtn} onPress={stampMaintenanceNow}>
+          <Text style={s.maintBtnText}>Horodater maintenance maintenant</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={s.maintBtnGhost}
+          onPress={() => {
+            setProchainControle('');
+            setMaintenanceLastComment('');
+          }}
+        >
+          <Text style={s.maintBtnGhostText}>Effacer horodatage</Text>
+        </TouchableOpacity>
+      </View>
+      <Input
+        label="Maintenance à effectuer"
+        value={maintenanceTodo}
+        onChangeText={setMaintenanceTodo}
+        placeholder="Opération prévue, consignes..."
+      />
+      <Input
+        label="Commentaire dernière maintenance"
+        value={maintenanceLastComment}
+        onChangeText={setMaintenanceLastComment}
+        placeholder="Action réalisée, pièces changées..."
+      />
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
@@ -591,4 +634,22 @@ const s = StyleSheet.create({
     marginBottom: 14,
   },
   sameNameInfoText: { color: Colors.textSecondary, fontSize: 13, lineHeight: 19 },
+  maintActionsRow: { flexDirection: 'row', gap: 8, marginBottom: 12, marginTop: 2 },
+  maintBtn: {
+    flex: 1,
+    backgroundColor: Colors.green,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  maintBtnText: { color: Colors.white, fontWeight: '700', fontSize: 12 },
+  maintBtnGhost: {
+    backgroundColor: Colors.bgCardAlt,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+  },
+  maintBtnGhostText: { color: Colors.textSecondary, fontSize: 12, fontWeight: '600' },
 });

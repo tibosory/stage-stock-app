@@ -421,11 +421,13 @@ export default function MaterielDetailScreen() {
           <InfoRow label="Poids" value={mat.poids_kg ? mat.poids_kg + ' kg' : undefined} />
           <InfoRow label="Date achat" value={mat.date_achat} />
           <InfoRow label="Date validité" value={mat.date_validite} />
-          <InfoRow label="Prochain contrôle" value={mat.prochain_controle} />
+          <InfoRow label="Dernière maintenance" value={mat.prochain_controle} />
           <InfoRow
-            label="Intervalle contrôle (j)"
+            label="Fréquence maintenance (j)"
             value={mat.intervalle_controle_jours != null ? String(mat.intervalle_controle_jours) : undefined}
           />
+          <InfoRow label="Maintenance à effectuer" value={mat.maintenance_todo} />
+          <InfoRow label="Commentaire dernière maintenance" value={mat.maintenance_last_comment} />
           <InfoRow label="Technicien" value={mat.technicien} />
           <InfoRow label="QR Code" value={mat.qr_code} />
         </Card>

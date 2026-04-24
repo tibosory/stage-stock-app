@@ -280,6 +280,8 @@ export async function exportMaterielsExcel(): Promise<void> {
     'date_validite',
     'prochain_controle',
     'intervalle_controle_jours',
+    'maintenance_todo',
+    'maintenance_last_comment',
     'qr_code',
     'nfc_tag_id',
     'technicien',
@@ -476,6 +478,8 @@ export async function exportMaterielsCsv(): Promise<void> {
     'date_validite',
     'prochain_controle',
     'intervalle_controle_jours',
+    'maintenance_todo',
+    'maintenance_last_comment',
     'qr_code',
     'nfc_tag_id',
     'technicien',
@@ -580,7 +584,7 @@ export async function importMaterielsFromCsv(): Promise<{ ok: number; err: strin
           notice_pdf_local, notice_photo_local, notice_pdf_url, notice_photo_url,
           vgp_actif, vgp_periodicite_jours, vgp_derniere_visite, vgp_libelle, vgp_epi,
           gel_brand, gel_code, gel_instead_of_photo,
-          prochain_controle, intervalle_controle_jours
+          prochain_controle, intervalle_controle_jours, maintenance_todo, maintenance_last_comment
          FROM materiels WHERE id = ?`,
         [id]
       );
@@ -627,18 +631,25 @@ export async function importMaterielsFromCsv(): Promise<{ ok: number; err: strin
       const intervalle_controle_jours = has('intervalle_controle_jours')
         ? parseOptionalInt(g('intervalle_controle_jours'))
         : (existing?.intervalle_controle_jours ?? null);
+      const maintenance_todo = has('maintenance_todo')
+        ? emptyToNull(g('maintenance_todo'))
+        : (existing?.maintenance_todo ?? null);
+      const maintenance_last_comment = has('maintenance_last_comment')
+        ? emptyToNull(g('maintenance_last_comment'))
+        : (existing?.maintenance_last_comment ?? null);
       const created_at = existing?.created_at ?? now;
 
       await database.runAsync(
         `INSERT OR REPLACE INTO materiels (
           id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id,
           etat, statut, date_achat, date_validite, prochain_controle, intervalle_controle_jours,
+          maintenance_todo, maintenance_last_comment,
           technicien, qr_code, nfc_tag_id, photo_url, photo_local,
           notice_pdf_local, notice_photo_local, notice_pdf_url, notice_photo_url,
           vgp_actif, vgp_periodicite_jours, vgp_derniere_visite, vgp_libelle, vgp_epi,
           gel_brand, gel_code, gel_instead_of_photo,
           created_at, updated_at, synced
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
         [
           id,
           g('nom') || 'Sans nom',
@@ -654,6 +665,8 @@ export async function importMaterielsFromCsv(): Promise<{ ok: number; err: strin
           g('date_validite') || null,
           prochain_controle,
           intervalle_controle_jours,
+          maintenance_todo,
+          maintenance_last_comment,
           g('technicien') || null,
           g('qr_code') || null,
           nfc_tag_id,

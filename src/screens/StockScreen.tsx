@@ -132,6 +132,11 @@ export default function StockScreen({ navigation, route }: any) {
   }, [materiels, infoFocusItem]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const filteredIds = useMemo(() => filtered.map(m => m.id), [filtered]);
+  const allFilteredSelected = useMemo(
+    () => filteredIds.length > 0 && filteredIds.every(id => selectedSet.has(id)),
+    [filteredIds, selectedSet]
+  );
   const exitSelectMode = useCallback(() => {
     setSelectMode(false);
     setSelectedIds([]);
@@ -140,6 +145,20 @@ export default function StockScreen({ navigation, route }: any) {
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
   }, []);
+
+  const toggleSelectAllFiltered = useCallback(() => {
+    if (filteredIds.length === 0) return;
+    setSelectedIds(prev => {
+      const prevSet = new Set(prev);
+      const allSelected = filteredIds.every(id => prevSet.has(id));
+      if (allSelected) {
+        return prev.filter(id => !filteredIds.includes(id));
+      }
+      const merged = new Set(prev);
+      for (const id of filteredIds) merged.add(id);
+      return Array.from(merged);
+    });
+  }, [filteredIds]);
 
   const onRowLongPress = useCallback(
     (item: Materiel) => {
@@ -496,6 +515,15 @@ export default function StockScreen({ navigation, route }: any) {
                 </View>
                 <TouchableOpacity onPress={exitSelectMode} style={s.selectPill} disabled={pdfBusy}>
                   <Text style={s.selectPillText}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={toggleSelectAllFiltered}
+                  style={s.selectPill}
+                  disabled={pdfBusy || filteredIds.length === 0}
+                >
+                  <Text style={s.selectPillText}>
+                    {allFilteredSelected ? 'Tout retirer' : 'Tout sélectionner'}
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => void handleExportFichesPdf()}

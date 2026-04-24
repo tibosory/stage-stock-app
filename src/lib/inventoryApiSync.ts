@@ -183,6 +183,8 @@ export async function syncFromInventoryApi(
           sqlVal(m.date_validite ?? null),
           sqlVal(m.prochain_controle ?? null),
           sqlVal(m.intervalle_controle_jours ?? null),
+          sqlVal((m as { maintenance_todo?: unknown }).maintenance_todo ?? null),
+          sqlVal((m as { maintenance_last_comment?: unknown }).maintenance_last_comment ?? null),
           sqlVal(m.technicien ?? null),
           sqlVal(m.qr_code ?? null),
           sqlVal(m.nfc_tag_id ?? null),
@@ -210,12 +212,13 @@ export async function syncFromInventoryApi(
           INSERT OR REPLACE INTO materiels (
             id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id,
             etat, statut, date_achat, date_validite, prochain_controle, intervalle_controle_jours,
+            maintenance_todo, maintenance_last_comment,
             technicien, qr_code, nfc_tag_id, photo_url, photo_local,
             notice_pdf_local, notice_photo_local, notice_pdf_url, notice_photo_url,
             vgp_actif, vgp_periodicite_jours, vgp_derniere_visite, vgp_libelle, vgp_epi,
             gel_brand, gel_code, gel_instead_of_photo,
             created_at, updated_at, synced
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
         `,
           matParams
         );

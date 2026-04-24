@@ -97,11 +97,12 @@ function buildBody(params: {
     lines.push('');
   }
   if (params.maint.length) {
-    lines.push('— MAINTENANCE / VALIDITÉ (30 J)');
+    lines.push('— MAINTENANCE (30 J)');
     for (const m of params.maint) {
-      const v = m.date_validite ? `validité ${formatDateCourt(m.date_validite)}` : '';
-      const c = m.prochain_controle ? `contrôle ${formatDateCourt(m.prochain_controle)}` : '';
-      lines.push(`• ${m.nom}${v || c ? ` — ${[v, c].filter(Boolean).join(' · ')}` : ''}`);
+      const last = m.prochain_controle ? `dernière intervention ${formatDateCourt(m.prochain_controle)}` : 'jamais horodatée';
+      const freq = m.intervalle_controle_jours ? `tous les ${m.intervalle_controle_jours} j` : '';
+      const todo = m.maintenance_todo?.trim() ? `à faire: ${m.maintenance_todo.trim()}` : '';
+      lines.push(`• ${m.nom} — ${[last, freq, todo].filter(Boolean).join(' · ')}`);
     }
     lines.push('');
   }

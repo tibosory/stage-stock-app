@@ -28,6 +28,8 @@ async function runSchemaMigrations(database: SQLite.SQLiteDatabase): Promise<voi
   };
   await addCol('materiels', 'prochain_controle', 'TEXT');
   await addCol('materiels', 'intervalle_controle_jours', 'INTEGER');
+  await addCol('materiels', 'maintenance_todo', 'TEXT');
+  await addCol('materiels', 'maintenance_last_comment', 'TEXT');
   await addCol('prets', 'signature_emprunteur_data', 'TEXT');
   await addCol('prets', 'signed_at', 'TEXT');
   await addCol('prets', 'emprunteur_user_id', 'TEXT');
@@ -217,7 +219,7 @@ export const generateId = (): string => {
   return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
 };
 
-/** INSERT matériel : colonnes hors synced — 33 placeholders + synced=0 littéral. */
+/** INSERT matériel : colonnes hors synced — 35 placeholders + synced=0 littéral. */
 function materielInsertSqlAndParams(
   data: Omit<Materiel, 'id' | 'created_at' | 'updated_at' | 'synced'>,
   id: string,
@@ -246,6 +248,8 @@ function materielInsertSqlAndParams(
     data.date_validite ?? null,
     data.prochain_controle ?? null,
     data.intervalle_controle_jours ?? null,
+    data.maintenance_todo ?? null,
+    data.maintenance_last_comment ?? null,
     data.technicien ?? null,
     qrCode,
     data.nfc_tag_id ?? null,
@@ -266,13 +270,14 @@ function materielInsertSqlAndParams(
     now,
     now,
   ];
-  if (params.length !== 33) {
-    throw new Error(`insert materiel: 33 paramètres attendus, ${params.length} fournis`);
+  if (params.length !== 35) {
+    throw new Error(`insert materiel: 35 paramètres attendus, ${params.length} fournis`);
   }
-  const placeholders = Array(33).fill('?').join(', ');
+  const placeholders = Array(35).fill('?').join(', ');
   const sql = `
     INSERT INTO materiels (id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id,
       etat, statut, date_achat, date_validite, prochain_controle, intervalle_controle_jours,
+      maintenance_todo, maintenance_last_comment,
       technicien, qr_code, nfc_tag_id, photo_url, photo_local,
       notice_pdf_local, notice_photo_local, notice_pdf_url, notice_photo_url,
       vgp_actif, vgp_periodicite_jours, vgp_derniere_visite, vgp_libelle, vgp_epi,
@@ -1306,11 +1311,16 @@ export const getMaterielsPourMaintenanceAlertes = async (fenetreJours: number = 
   limit.setDate(limit.getDate() + fenetreJours);
   const limitStr = limit.toISOString().split('T')[0];
   return mats.filter(m => {
-    const dv = m.date_validite;
-    const pc = m.prochain_controle;
-    if (dv && dv <= limitStr) return true;
-    if (pc && pc <= limitStr) return true;
-    return false;
+    const intervalle = Number(m.intervalle_controle_jours ?? 0);
+    if (!Number.isFinite(intervalle) || intervalle <= 0) return false;
+    const last = (m.prochain_controle ?? '').trim();
+    // Fréquence définie mais aucune maintenance horodatée : à signaler immédiatement.
+    if (!last) return true;
+    const base = new Date(`${last}T12:00:00`);
+    if (Number.isNaN(base.getTime())) return true;
+    base.setDate(base.getDate() + intervalle);
+    const dueStr = base.toISOString().split('T')[0];
+    return dueStr <= limitStr;
   });
 };
 
