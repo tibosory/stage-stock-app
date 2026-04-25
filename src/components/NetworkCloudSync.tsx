@@ -4,6 +4,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Shadow } from '../theme/colors';
 import { Card } from './UI';
 import { useAppAuth } from '../context/AuthContext';
+import { useSyncSettings } from '../context/SyncSettingsContext';
+import { useNetworkStatus } from '../context/NetworkStatusContext';
 import { syncToInventoryApi, syncFromInventoryApi } from '../lib/inventoryApiSync';
 import { getConsommablesAlerte, getMateriel } from '../db/database';
 import { rescheduleVgpDueReminders } from '../lib/vgpNotifications';
@@ -11,9 +13,7 @@ import { rescheduleSeuilBasReminders } from '../lib/seuilNotifications';
 import { isConsumerApp } from '../config/appMode';
 import { isSupabaseConfigured, syncFromSupabase, syncToSupabase } from '../lib/supabase';
 import {
-  getDualBackendSyncEnabled,
   getSyncAfterEachActionEnabled,
-  setDualBackendSyncEnabled,
   setSyncAfterEachActionEnabled,
 } from '../lib/syncAfterAction';
 import { loadSyncTelemetry, recordSyncTelemetry, type SyncStamp, type SyncTelemetry } from '../lib/syncTelemetry';
@@ -21,9 +21,10 @@ import { canCallApiSync } from '../lib/syncGuards';
 
 export function NetworkCloudSync() {
   const { can, refreshSession } = useAppAuth();
+  const { doubleBackendEnabled, setDoubleBackendEnabled } = useSyncSettings();
+  const { isOnline } = useNetworkStatus();
   const [syncing, setSyncing] = useState(false);
   const [syncAfterEachAction, setSyncAfterEachAction] = useState(false);
-  const [dualBackendSync, setDualBackendSync] = useState(false);
   const [telemetry, setTelemetry] = useState<SyncTelemetry>({ api: {}, supabase: {} });
 
   const refreshTelemetry = useCallback(async () => {
@@ -41,12 +42,9 @@ export function NetworkCloudSync() {
 
   useFocusEffect(
     useCallback(() => {
-      void Promise.all([getSyncAfterEachActionEnabled(), getDualBackendSyncEnabled()]).then(
-        ([autoSync, dualSync]) => {
-          setSyncAfterEachAction(autoSync);
-          setDualBackendSync(dualSync);
-        }
-      );
+      void Promise.all([getSyncAfterEachActionEnabled()]).then(([autoSync]) => {
+        setSyncAfterEachAction(autoSync);
+      });
       void refreshTelemetry();
     }, [refreshTelemetry])
   );
@@ -64,7 +62,7 @@ export function NetworkCloudSync() {
       await recordSyncTelemetry('api', direction, apiResult.ok ? 'ok' : 'error', apiResult.error);
     }
     let supabaseResult: { ok: boolean; error?: string } | null = null;
-    if (dualBackendSync && isSupabaseConfigured()) {
+    if (doubleBackendEnabled && isSupabaseConfigured() && isOnline) {
       const fnSb = direction === 'push' ? syncToSupabase : syncFromSupabase;
       supabaseResult = await fnSb();
       await recordSyncTelemetry(
@@ -73,7 +71,9 @@ export function NetworkCloudSync() {
         supabaseResult.ok ? 'ok' : 'error',
         supabaseResult.error
       );
-    } else if (dualBackendSync && !isSupabaseConfigured()) {
+    } else if (!isOnline) {
+      await recordSyncTelemetry('supabase', direction, 'skipped', 'OFFLINE');
+    } else if (doubleBackendEnabled && !isSupabaseConfigured()) {
       await recordSyncTelemetry('supabase', direction, 'skipped', 'Supabase non configuré');
     }
     setSyncing(false);
@@ -87,8 +87,10 @@ export function NetworkCloudSync() {
       const lines = [
         `API inventaire: ${apiResult.ok ? 'OK' : `Échec (${apiResult.error ?? 'inconnu'})`}`,
       ];
-      if (dualBackendSync) {
-        if (isSupabaseConfigured()) {
+      if (doubleBackendEnabled) {
+        if (!isOnline) {
+          lines.push('Supabase: OFFLINE');
+        } else if (isSupabaseConfigured()) {
           lines.push(`Supabase: ${supabaseResult?.ok ? 'OK' : `Échec (${supabaseResult?.error ?? 'inconnu'})`}`);
         } else {
           lines.push('Supabase: non configuré');
@@ -99,9 +101,11 @@ export function NetworkCloudSync() {
       const lines = [
         `API inventaire: ${apiResult.error ?? 'Erreur inconnue'}`,
       ];
-      if (dualBackendSync) {
+      if (doubleBackendEnabled) {
         lines.push(
-          isSupabaseConfigured()
+          !isOnline
+            ? 'Supabase: OFFLINE'
+            : isSupabaseConfigured()
             ? `Supabase: ${supabaseResult?.error ?? 'Erreur inconnue'}`
             : 'Supabase: non configuré'
         );
@@ -144,16 +148,15 @@ export function NetworkCloudSync() {
             </Text>
           </View>
           <Switch
-            value={dualBackendSync}
+            value={doubleBackendEnabled}
             onValueChange={async v => {
-              await setDualBackendSyncEnabled(v);
-              setDualBackendSync(v);
+              await setDoubleBackendEnabled(v);
             }}
             trackColor={{ false: Colors.border, true: Colors.greenMuted }}
-            thumbColor={dualBackendSync ? Colors.green : Colors.textMuted}
+            thumbColor={doubleBackendEnabled ? Colors.green : Colors.textMuted}
           />
         </View>
-        {dualBackendSync && !isSupabaseConfigured() ? (
+        {doubleBackendEnabled && !isSupabaseConfigured() ? (
           <Text style={[styles.hintMuted, { marginTop: 8 }]}>
             Supabase n’est pas configuré sur cet appareil : seule l’API inventaire sera utilisée.
           </Text>
@@ -164,7 +167,7 @@ export function NetworkCloudSync() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
           <Text style={{ fontSize: 16 }}>☁️</Text>
           <Text style={styles.cardTitle}>
-            Synchronisation cloud ({dualBackendSync ? 'API + Supabase' : 'API'})
+            Synchronisation cloud ({doubleBackendEnabled ? 'API + Supabase' : 'API'})
           </Text>
         </View>
         {syncing ? (
@@ -186,7 +189,7 @@ export function NetworkCloudSync() {
           <Text style={styles.syncMetaTitle}>Dernières synchronisations</Text>
           <Text style={styles.syncMetaLine}>API ↑ {formatStamp(telemetry.api.push)}</Text>
           <Text style={styles.syncMetaLine}>API ↓ {formatStamp(telemetry.api.pull)}</Text>
-          {dualBackendSync ? (
+          {doubleBackendEnabled ? (
             <>
               <Text style={styles.syncMetaLine}>Supabase ↑ {formatStamp(telemetry.supabase.push)}</Text>
               <Text style={styles.syncMetaLine}>Supabase ↓ {formatStamp(telemetry.supabase.pull)}</Text>

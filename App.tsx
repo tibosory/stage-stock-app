@@ -31,6 +31,8 @@ import { Colors } from './src/theme/colors';
 import { AppAuthProvider, useAppAuth } from './src/context/AuthContext';
 import { AuthProvider } from './src/context/AuthProvider';
 import { SpecialtyProvider } from './src/context/SpecialtyContext';
+import { SyncSettingsProvider } from './src/context/SyncSettingsContext';
+import { NetworkStatusProvider } from './src/context/NetworkStatusContext';
 import {
   reschedulePretReturnReminders,
   requestNotificationPermission,
@@ -516,10 +518,14 @@ export default function App() {
           <PairingDeepLinkSubscriber />
           <AppAuthProvider>
             <SpecialtyProvider>
-              <AuthProvider>
-                <AppAutoUpdateSubscriber />
-                <AppNavigation />
-              </AuthProvider>
+              <SyncSettingsProvider>
+                <NetworkStatusProvider>
+                  <AuthProvider>
+                    <AppAutoUpdateSubscriber />
+                    <AppNavigation />
+                  </AuthProvider>
+                </NetworkStatusProvider>
+              </SyncSettingsProvider>
             </SpecialtyProvider>
           </AppAuthProvider>
         </ConnectionProvider>

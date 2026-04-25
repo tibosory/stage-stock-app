@@ -1,17 +1,17 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSupabase } from '../src/lib/supabase';
+import {
+  getDoubleBackendRuntime,
+  isDoubleBackendRuntimeInitialized,
+  loadDoubleBackendRuntimeFromStorage,
+} from '../src/lib/doubleBackendRuntime';
+import { getIsOnlineRuntime } from '../src/lib/networkRuntime';
 
 const API_URL = (process.env.EXPO_PUBLIC_API_URL || '').trim();
-const DUAL_BACKEND_STORAGE_KEY = 'stagestock_sync_dual_backend';
 
 async function getDoubleBackendEnabled() {
-  try {
-    const raw = await AsyncStorage.getItem(DUAL_BACKEND_STORAGE_KEY);
-    return raw === '1';
-  } catch (error) {
-    console.log('[syncService] read DOUBLE_BACKEND failed:', error);
-    return false;
-  }
+  if (isDoubleBackendRuntimeInitialized()) return getDoubleBackendRuntime();
+  const loaded = await loadDoubleBackendRuntimeFromStorage();
+  return loaded;
 }
 
 async function canCallLocalApi(scope) {
@@ -70,18 +70,22 @@ export async function createMouvement(data) {
     }
   }
 
-  try {
-    const { error } = await supabase.from('mouvements').insert([data]);
-    if (error) {
-      supabaseError = error.message;
-      console.log('[syncService] createMouvement Supabase error:', supabaseError);
-    } else {
-      supabaseOk = true;
-      console.log('[syncService] createMouvement Supabase OK');
+  if (getIsOnlineRuntime()) {
+    try {
+      const { error } = await supabase.from('mouvements').insert([data]);
+      if (error) {
+        supabaseError = error.message;
+        console.log('[syncService] createMouvement Supabase error:', supabaseError);
+      } else {
+        supabaseOk = true;
+        console.log('[syncService] createMouvement Supabase OK');
+      }
+    } catch (error) {
+      supabaseError = error instanceof Error ? error.message : String(error);
+      console.log('[syncService] createMouvement Supabase exception:', supabaseError);
     }
-  } catch (error) {
-    supabaseError = error instanceof Error ? error.message : String(error);
-    console.log('[syncService] createMouvement Supabase exception:', supabaseError);
+  } else {
+    console.log('[syncService] createMouvement Supabase skipped: OFFLINE');
   }
 
   return { ok: supabaseOk, supabaseOk, localApiOk, supabaseError, localApiError };
@@ -134,6 +138,10 @@ export async function syncFromAPI() {
  */
 export async function getStocks() {
   const supabase = getSupabase();
+  if (!getIsOnlineRuntime()) {
+    console.log('[syncService] getStocks Supabase skipped: OFFLINE');
+    return { ok: false, data: [], error: 'OFFLINE' };
+  }
   try {
     const { data, error } = await supabase.from('stocks').select('*');
     if (error) {

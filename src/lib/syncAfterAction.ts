@@ -14,9 +14,14 @@ import { maybeSendAutoAlertEmailsIfNeeded } from './autoAlertEmails';
 import { isSupabaseConfigured, syncFromSupabase, syncToSupabase } from './supabase';
 import { recordSyncTelemetry } from './syncTelemetry';
 import { canCallApiSync } from './syncGuards';
+import {
+  loadDoubleBackendRuntimeFromStorage,
+  persistDoubleBackendRuntime,
+  getDoubleBackendRuntime,
+} from './doubleBackendRuntime';
+import { getIsOnlineRuntime } from './networkRuntime';
 
 const STORAGE_KEY = 'stagestock_sync_after_each_action';
-const STORAGE_KEY_DUAL_BACKEND_SYNC = 'stagestock_sync_dual_backend';
 
 export async function getSyncAfterEachActionEnabled(): Promise<boolean> {
   const v = await AsyncStorage.getItem(STORAGE_KEY);
@@ -28,12 +33,11 @@ export async function setSyncAfterEachActionEnabled(enabled: boolean): Promise<v
 }
 
 export async function getDualBackendSyncEnabled(): Promise<boolean> {
-  const v = await AsyncStorage.getItem(STORAGE_KEY_DUAL_BACKEND_SYNC);
-  return v === '1';
+  return loadDoubleBackendRuntimeFromStorage();
 }
 
 export async function setDualBackendSyncEnabled(enabled: boolean): Promise<void> {
-  await AsyncStorage.setItem(STORAGE_KEY_DUAL_BACKEND_SYNC, enabled ? '1' : '0');
+  await persistDoubleBackendRuntime(enabled);
 }
 
 let lastTriggerAt = 0;
@@ -47,7 +51,7 @@ export async function triggerSyncAfterActionIfEnabled(): Promise<void> {
   lastTriggerAt = now;
 
   try {
-    const dualBackend = await getDualBackendSyncEnabled();
+    const dualBackend = getDoubleBackendRuntime();
     let gotFreshData = false;
     const apiGuard = await canCallApiSync('triggerSyncAfterActionIfEnabled');
 
@@ -65,7 +69,7 @@ export async function triggerSyncAfterActionIfEnabled(): Promise<void> {
       await recordSyncTelemetry('api', 'pull', 'skipped', 'Serveur API injoignable');
     }
 
-    if (dualBackend && isSupabaseConfigured()) {
+    if (dualBackend && isSupabaseConfigured() && getIsOnlineRuntime()) {
       const pushSb = await syncToSupabase();
       await recordSyncTelemetry('supabase', 'push', pushSb.ok ? 'ok' : 'error', pushSb.error);
       if (pushSb.ok) {
@@ -73,6 +77,9 @@ export async function triggerSyncAfterActionIfEnabled(): Promise<void> {
         await recordSyncTelemetry('supabase', 'pull', pullSb.ok ? 'ok' : 'error', pullSb.error);
         if (pullSb.ok) gotFreshData = true;
       }
+    } else if (!getIsOnlineRuntime()) {
+      await recordSyncTelemetry('supabase', 'push', 'skipped', 'OFFLINE');
+      await recordSyncTelemetry('supabase', 'pull', 'skipped', 'OFFLINE');
     } else if (dualBackend && !isSupabaseConfigured()) {
       await recordSyncTelemetry('supabase', 'push', 'skipped', 'Supabase non configuré');
       await recordSyncTelemetry('supabase', 'pull', 'skipped', 'Supabase non configuré');

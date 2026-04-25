@@ -1,7 +1,10 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getResolvedApiBase } from '../config/stageStockApi';
+import {
+  getDoubleBackendRuntime,
+  isDoubleBackendRuntimeInitialized,
+  loadDoubleBackendRuntimeFromStorage,
+} from './doubleBackendRuntime';
 
-const STORAGE_KEY_DUAL_BACKEND_SYNC = 'stagestock_sync_dual_backend';
 const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? '').trim();
 
 function isHttpUrl(v: string): boolean {
@@ -20,9 +23,11 @@ function parseBooleanEnv(v: string | undefined): boolean | null {
  * DOUBLE_BACKEND : piloté par l'UI (AsyncStorage), avec fallback optionnel via env.
  */
 export async function getDoubleBackendEnabled(): Promise<boolean> {
-  const fromUi = await AsyncStorage.getItem(STORAGE_KEY_DUAL_BACKEND_SYNC);
-  if (fromUi === '1') return true;
-  if (fromUi === '0') return false;
+  if (isDoubleBackendRuntimeInitialized()) {
+    return getDoubleBackendRuntime();
+  }
+  const fromStorage = await loadDoubleBackendRuntimeFromStorage();
+  if (fromStorage === true) return true;
   const envFallback = parseBooleanEnv(process.env.EXPO_PUBLIC_DOUBLE_BACKEND);
   return envFallback ?? false;
 }

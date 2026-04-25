@@ -4,7 +4,6 @@
  * Silencieux (pas d’alerte) — échoue proprement si l’API est injoignable.
  */
 import { AppState, type AppStateStatus } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { checkServerReachableQuick } from '../config/stageStockApi';
 import { runAutoLanDiscoveryWhenUnreachable } from './consumerAutoConnect';
 import { getConsommablesAlerte, getPrets, getMateriel } from '../db/database';
@@ -16,11 +15,12 @@ import { maybeSendAutoAlertEmailsIfNeeded } from './autoAlertEmails';
 import { isSupabaseConfigured, syncFromSupabase, syncToSupabase } from './supabase';
 import { recordSyncTelemetry } from './syncTelemetry';
 import { canCallApiSync } from './syncGuards';
+import { getDoubleBackendRuntime } from './doubleBackendRuntime';
+import { getIsOnlineRuntime } from './networkRuntime';
 
 let lastRunAt = 0;
 /** Évite double exécution (connexion + bascule d’état) sur le même retour d’app. */
 const MIN_MS_BETWEEN_RUNS = 4_000;
-const STORAGE_KEY_DUAL_BACKEND_SYNC = 'stagestock_sync_dual_backend';
 
 /** Enregistré depuis App.tsx pour rafraîchir la session après sync (comptes utilisateurs). */
 let refreshSessionAfterSync: (() => Promise<void>) | null = null;
@@ -45,7 +45,7 @@ export async function runForegroundInventorySync(): Promise<void> {
 
   try {
     await runAutoLanDiscoveryWhenUnreachable();
-    const dualBackend = (await AsyncStorage.getItem(STORAGE_KEY_DUAL_BACKEND_SYNC)) === '1';
+    const dualBackend = getDoubleBackendRuntime();
     let gotFreshData = false;
     const apiGuard = await canCallApiSync('runForegroundInventorySync');
 
@@ -64,7 +64,7 @@ export async function runForegroundInventorySync(): Promise<void> {
       await recordSyncTelemetry('api', 'pull', 'skipped', 'Serveur API injoignable');
     }
 
-    if (dualBackend && isSupabaseConfigured()) {
+    if (dualBackend && isSupabaseConfigured() && getIsOnlineRuntime()) {
       const pushSb = await syncToSupabase();
       await recordSyncTelemetry('supabase', 'push', pushSb.ok ? 'ok' : 'error', pushSb.error);
       if (pushSb.ok) {
@@ -72,6 +72,9 @@ export async function runForegroundInventorySync(): Promise<void> {
         await recordSyncTelemetry('supabase', 'pull', pullSb.ok ? 'ok' : 'error', pullSb.error);
         if (pullSb.ok) gotFreshData = true;
       }
+    } else if (!getIsOnlineRuntime()) {
+      await recordSyncTelemetry('supabase', 'push', 'skipped', 'OFFLINE');
+      await recordSyncTelemetry('supabase', 'pull', 'skipped', 'OFFLINE');
     } else if (dualBackend && !isSupabaseConfigured()) {
       await recordSyncTelemetry('supabase', 'push', 'skipped', 'Supabase non configuré');
       await recordSyncTelemetry('supabase', 'pull', 'skipped', 'Supabase non configuré');
