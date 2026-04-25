@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 import { getIsOnlineRuntime, setIsOnlineRuntime } from '../lib/networkRuntime';
+import { syncOnNetworkBack } from '../../services/syncService';
 
 type NetworkStatusCtx = {
   isOnline: boolean;
@@ -21,6 +22,7 @@ function toOnlineState(
 export function NetworkStatusProvider({ children }: { children: React.ReactNode }) {
   const [isOnline, setIsOnline] = useState<boolean>(getIsOnlineRuntime());
   const [ready, setReady] = useState(false);
+  const lastOnlineRef = useRef<boolean>(getIsOnlineRuntime());
 
   useEffect(() => {
     let mounted = true;
@@ -29,6 +31,7 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
       const current = await NetInfo.fetch();
       const next = toOnlineState(current);
       setIsOnlineRuntime(next);
+      lastOnlineRef.current = next;
       if (mounted) {
         setIsOnline(next);
         setReady(true);
@@ -38,9 +41,14 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
 
     const unsubscribe = NetInfo.addEventListener((state: NetInfoState) => {
       const next = toOnlineState(state);
+      const prev = lastOnlineRef.current;
       setIsOnlineRuntime(next);
+      lastOnlineRef.current = next;
       if (mounted) setIsOnline(next);
       console.log(next ? 'ONLINE' : 'OFFLINE');
+      if (!prev && next) {
+        void syncOnNetworkBack();
+      }
     });
 
     return () => {
