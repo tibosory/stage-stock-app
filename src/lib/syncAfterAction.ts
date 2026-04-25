@@ -13,6 +13,7 @@ import { runRefreshSessionAfterInventoryPullIfRegistered } from './foregroundInv
 import { maybeSendAutoAlertEmailsIfNeeded } from './autoAlertEmails';
 import { isSupabaseConfigured, syncFromSupabase, syncToSupabase } from './supabase';
 import { recordSyncTelemetry } from './syncTelemetry';
+import { canCallApiSync } from './syncGuards';
 
 const STORAGE_KEY = 'stagestock_sync_after_each_action';
 const STORAGE_KEY_DUAL_BACKEND_SYNC = 'stagestock_sync_dual_backend';
@@ -48,13 +49,20 @@ export async function triggerSyncAfterActionIfEnabled(): Promise<void> {
   try {
     const dualBackend = await getDualBackendSyncEnabled();
     let gotFreshData = false;
+    const apiGuard = await canCallApiSync('triggerSyncAfterActionIfEnabled');
 
-    if (await checkServerReachableQuick()) {
+    if (apiGuard.ok && (await checkServerReachableQuick())) {
       const pushApi = await syncToInventoryApi();
       await recordSyncTelemetry('api', 'push', pushApi.ok ? 'ok' : 'error', pushApi.error);
       const pull = await syncFromInventoryApi();
       await recordSyncTelemetry('api', 'pull', pull.ok ? 'ok' : 'error', pull.error);
       if (pull.ok) gotFreshData = true;
+    } else if (!apiGuard.ok) {
+      await recordSyncTelemetry('api', 'push', 'skipped', apiGuard.reason);
+      await recordSyncTelemetry('api', 'pull', 'skipped', apiGuard.reason);
+    } else {
+      await recordSyncTelemetry('api', 'push', 'skipped', 'Serveur API injoignable');
+      await recordSyncTelemetry('api', 'pull', 'skipped', 'Serveur API injoignable');
     }
 
     if (dualBackend && isSupabaseConfigured()) {

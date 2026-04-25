@@ -15,6 +15,7 @@ import { syncFromInventoryApi, syncToInventoryApi } from './inventoryApiSync';
 import { maybeSendAutoAlertEmailsIfNeeded } from './autoAlertEmails';
 import { isSupabaseConfigured, syncFromSupabase, syncToSupabase } from './supabase';
 import { recordSyncTelemetry } from './syncTelemetry';
+import { canCallApiSync } from './syncGuards';
 
 let lastRunAt = 0;
 /** Évite double exécution (connexion + bascule d’état) sur le même retour d’app. */
@@ -46,14 +47,21 @@ export async function runForegroundInventorySync(): Promise<void> {
     await runAutoLanDiscoveryWhenUnreachable();
     const dualBackend = (await AsyncStorage.getItem(STORAGE_KEY_DUAL_BACKEND_SYNC)) === '1';
     let gotFreshData = false;
+    const apiGuard = await canCallApiSync('runForegroundInventorySync');
 
-    const reachable = await checkServerReachableQuick();
-    if (reachable) {
+    const reachable = apiGuard.ok ? await checkServerReachableQuick() : false;
+    if (apiGuard.ok && reachable) {
       const pushApi = await syncToInventoryApi();
       await recordSyncTelemetry('api', 'push', pushApi.ok ? 'ok' : 'error', pushApi.error);
       const pull = await syncFromInventoryApi();
       await recordSyncTelemetry('api', 'pull', pull.ok ? 'ok' : 'error', pull.error);
       if (pull.ok) gotFreshData = true;
+    } else if (!apiGuard.ok) {
+      await recordSyncTelemetry('api', 'push', 'skipped', apiGuard.reason);
+      await recordSyncTelemetry('api', 'pull', 'skipped', apiGuard.reason);
+    } else {
+      await recordSyncTelemetry('api', 'push', 'skipped', 'Serveur API injoignable');
+      await recordSyncTelemetry('api', 'pull', 'skipped', 'Serveur API injoignable');
     }
 
     if (dualBackend && isSupabaseConfigured()) {

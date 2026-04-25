@@ -1,7 +1,7 @@
 // src/lib/supabase.ts
 import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type PostgrestError, type SupabaseClient } from '@supabase/supabase-js';
 import {
   loadSupabaseOverride,
   saveSupabaseOverride,
@@ -125,6 +125,56 @@ export function getEffectiveSupabaseUrlForDisplay(): string {
   return cachedDisplayUrl;
 }
 
+/**
+ * Wrapper de requête Supabase : logs homogènes + retour structuré.
+ */
+export async function runSupabaseQuery<T>(
+  label: string,
+  executor: () => Promise<{ data: T | null; error: PostgrestError | null }>
+): Promise<{ ok: boolean; data: T | null; error: PostgrestError | null }> {
+  try {
+    const { data, error } = await executor();
+    if (error) {
+      console.log(`[supabase] ${label} error:`, error);
+      return { ok: false, data, error };
+    }
+    return { ok: true, data, error: null };
+  } catch (e) {
+    console.log(`[supabase] ${label} exception:`, e);
+    return { ok: false, data: null, error: null };
+  }
+}
+
+/**
+ * Exemple de requête relationnelle optimisée (stocks + matériel + lieu).
+ * Adaptez les alias/relations selon vos FK côté Supabase.
+ */
+export async function getStocksWithMaterielsAndLieux(): Promise<{
+  ok: boolean;
+  data: Record<string, unknown>[] | null;
+  error: PostgrestError | null;
+}> {
+  if (!effectiveConfigured) {
+    return { ok: false, data: null, error: null };
+  }
+  return runSupabaseQuery<Record<string, unknown>[]>(
+    'getStocksWithMaterielsAndLieux',
+    async () =>
+      getSupabase()
+        .from('stocks')
+        .select(
+          `
+          id,
+          quantite,
+          updated_at,
+          materiel:materiels(id, nom, numero_serie, categorie_id),
+          lieu:lieux(id, nom)
+        `
+        )
+        .order('updated_at', { ascending: false })
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // SYNC : pousse les données locales non-syncées vers Supabase
 // ═══════════════════════════════════════════════════════════════════
@@ -189,6 +239,8 @@ export const syncToSupabase = async (): Promise<{ ok: boolean; error?: string }>
         .upsert(materielsToSync.map(m => materielRowForRemote(m)));
       if (!error) {
         await database.runAsync("UPDATE materiels SET synced = 1 WHERE synced = 0");
+      } else {
+        console.log('[supabase] syncToSupabase materiels error:', error);
       }
     }
 
@@ -201,6 +253,8 @@ export const syncToSupabase = async (): Promise<{ ok: boolean; error?: string }>
         .upsert(consoToSync.map(c => ({ ...c, synced: true })));
       if (!error) {
         await database.runAsync("UPDATE consommables SET synced = 1 WHERE synced = 0");
+      } else {
+        console.log('[supabase] syncToSupabase consommables error:', error);
       }
     }
 
@@ -213,6 +267,8 @@ export const syncToSupabase = async (): Promise<{ ok: boolean; error?: string }>
         .upsert(pretsToSync.map(p => ({ ...p, synced: true })));
       if (!error) {
         await database.runAsync("UPDATE prets SET synced = 1 WHERE synced = 0");
+      } else {
+        console.log('[supabase] syncToSupabase prets error:', error);
       }
     }
 

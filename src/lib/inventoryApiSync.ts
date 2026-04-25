@@ -11,9 +11,11 @@ import {
   looksLikeHttpUrl,
 } from './apiEndpointStorage';
 import { getDB, getSessionAppUserRole } from '../db/database';
+import { canCallApiSync } from './syncGuards';
 
 const MSG_NO_API =
   'Aucune URL d’API Stage Stock configurée (onglet Réseau ou EXPO_PUBLIC_API_URL au build).';
+const MSG_API_DISABLED = 'Synchro API désactivée (DOUBLE_BACKEND off).';
 
 /** Cible explicite (autre URL / clé) pour sync depuis l’écran Import / export. */
 export type InventorySyncEndpoint = {
@@ -64,6 +66,10 @@ export async function inventoryApiFetch(
   init: RequestInit | undefined,
   endpoint: InventorySyncEndpoint | null
 ): Promise<Response> {
+  const guard = await canCallApiSync(`inventoryApiFetch:${path}`);
+  if (!guard.ok) {
+    throw new Error(guard.reason === 'DOUBLE_BACKEND désactivé' ? 'API_SYNC_DISABLED' : 'API_NON_CONFIGUREE');
+  }
   const base = endpoint?.baseUrl?.trim()
     ? endpoint.baseUrl.trim().replace(/\/+$/, '')
     : await getResolvedApiBase();
@@ -133,6 +139,10 @@ export async function syncFromInventoryApi(
   endpoint?: InventorySyncEndpoint | null
 ): Promise<{ ok: boolean; error?: string }> {
   const ep = endpoint ?? null;
+  const guard = await canCallApiSync('syncFromInventoryApi');
+  if (!guard.ok) {
+    return { ok: false, error: guard.reason === 'DOUBLE_BACKEND désactivé' ? MSG_API_DISABLED : MSG_NO_API };
+  }
   if (!(await isEndpointConfigured(ep))) {
     return { ok: false, error: MSG_NO_API };
   }
@@ -354,6 +364,9 @@ export async function syncFromInventoryApi(
     return { ok: true };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (msg === 'API_SYNC_DISABLED') {
+      return { ok: false, error: MSG_API_DISABLED };
+    }
     if (msg === 'API_NON_CONFIGUREE') {
       return { ok: false, error: MSG_NO_API };
     }
@@ -385,6 +398,10 @@ export async function syncToInventoryApi(
   endpoint?: InventorySyncEndpoint | null
 ): Promise<{ ok: boolean; error?: string }> {
   const ep = endpoint ?? null;
+  const guard = await canCallApiSync('syncToInventoryApi');
+  if (!guard.ok) {
+    return { ok: false, error: guard.reason === 'DOUBLE_BACKEND désactivé' ? MSG_API_DISABLED : MSG_NO_API };
+  }
   try {
     const database = await getDB();
     const materielsToSync = await database.getAllAsync<Record<string, unknown>>(
@@ -531,6 +548,9 @@ export async function syncToInventoryApi(
     return { ok: true };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (msg === 'API_SYNC_DISABLED') {
+      return { ok: false, error: MSG_API_DISABLED };
+    }
     if (msg === 'API_NON_CONFIGUREE') {
       return { ok: false, error: MSG_NO_API };
     }
@@ -553,6 +573,10 @@ export async function pushFullInventoryToApi(
   endpoint?: InventorySyncEndpoint | null
 ): Promise<{ ok: boolean; error?: string }> {
   const ep = endpoint ?? null;
+  const guard = await canCallApiSync('pushFullInventoryToApi');
+  if (!guard.ok) {
+    return { ok: false, error: guard.reason === 'DOUBLE_BACKEND désactivé' ? MSG_API_DISABLED : MSG_NO_API };
+  }
   if (!(await isEndpointConfigured(ep))) {
     return { ok: false, error: MSG_NO_API };
   }
@@ -679,6 +703,9 @@ export async function pushFullInventoryToApi(
     return { ok: true };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (msg === 'API_SYNC_DISABLED') {
+      return { ok: false, error: MSG_API_DISABLED };
+    }
     if (msg === 'API_NON_CONFIGUREE') {
       return { ok: false, error: MSG_NO_API };
     }

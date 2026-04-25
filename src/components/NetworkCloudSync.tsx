@@ -17,6 +17,7 @@ import {
   setSyncAfterEachActionEnabled,
 } from '../lib/syncAfterAction';
 import { loadSyncTelemetry, recordSyncTelemetry, type SyncStamp, type SyncTelemetry } from '../lib/syncTelemetry';
+import { canCallApiSync } from '../lib/syncGuards';
 
 export function NetworkCloudSync() {
   const { can, refreshSession } = useAppAuth();
@@ -52,9 +53,16 @@ export function NetworkCloudSync() {
 
   const handleSync = async (direction: 'push' | 'pull') => {
     setSyncing(true);
-    const fnApi = direction === 'push' ? syncToInventoryApi : syncFromInventoryApi;
-    const apiResult = await fnApi();
-    await recordSyncTelemetry('api', direction, apiResult.ok ? 'ok' : 'error', apiResult.error);
+    const apiGuard = await canCallApiSync(`NetworkCloudSync:${direction}`);
+    let apiResult: { ok: boolean; error?: string };
+    if (!apiGuard.ok) {
+      apiResult = { ok: false, error: apiGuard.reason };
+      await recordSyncTelemetry('api', direction, 'skipped', apiGuard.reason);
+    } else {
+      const fnApi = direction === 'push' ? syncToInventoryApi : syncFromInventoryApi;
+      apiResult = await fnApi();
+      await recordSyncTelemetry('api', direction, apiResult.ok ? 'ok' : 'error', apiResult.error);
+    }
     let supabaseResult: { ok: boolean; error?: string } | null = null;
     if (dualBackendSync && isSupabaseConfigured()) {
       const fnSb = direction === 'push' ? syncToSupabase : syncFromSupabase;
