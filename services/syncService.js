@@ -5,6 +5,7 @@ import {
   loadDoubleBackendRuntimeFromStorage,
 } from '../src/lib/doubleBackendRuntime';
 import { getIsOnlineRuntime } from '../src/lib/networkRuntime';
+import { resolveApiUrlForSync } from '../src/lib/syncGuards';
 import {
   enqueueMovementTask,
   getQueueSnapshot,
@@ -15,7 +16,6 @@ import {
   upsertMovementTask,
 } from './queueService';
 
-const API_URL = (process.env.EXPO_PUBLIC_API_URL || '').trim();
 const FLUSH_BATCH_SIZE = 25;
 let flushInProgress = false;
 
@@ -48,15 +48,16 @@ async function getDoubleBackendEnabled() {
   return loaded;
 }
 
-async function canCallLocalApi(scope) {
+async function getLocalApiBaseForScope(scope) {
   const DOUBLE_BACKEND = await getDoubleBackendEnabled();
-  if (!DOUBLE_BACKEND || !API_URL) {
+  const apiBase = await resolveApiUrlForSync();
+  if (!DOUBLE_BACKEND || !apiBase) {
     console.log(
-      `[syncService] ${scope}: local API skipped (DOUBLE_BACKEND=${DOUBLE_BACKEND}, API_URL=${API_URL ? 'set' : 'missing'})`
+      `[syncService] ${scope}: local API skipped (DOUBLE_BACKEND=${DOUBLE_BACKEND}, API_URL=${apiBase ? 'set' : 'missing'})`
     );
-    return false;
+    return '';
   }
-  return true;
+  return apiBase;
 }
 
 async function safeFetchJson(url, options = {}) {
@@ -74,11 +75,12 @@ async function safeFetchJson(url, options = {}) {
 }
 
 async function sendToLocalApi(payload) {
-  if (!(await canCallLocalApi('sendToLocalApi'))) {
+  const apiBase = await getLocalApiBaseForScope('sendToLocalApi');
+  if (!apiBase) {
     return { ok: false, skipped: true, reason: 'DOUBLE_BACKEND_OFF_OR_API_URL_MISSING' };
   }
   try {
-    const { response, text } = await safeFetchJson(`${API_URL.replace(/\/+$/, '')}/mouvements`, {
+    const { response, text } = await safeFetchJson(`${apiBase}/mouvements`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -193,10 +195,11 @@ export async function flushQueue(options = {}) {
  */
 export async function createMouvement(data) {
   const payload = normalizeMovement(data);
+  const apiBase = await getLocalApiBaseForScope('createMouvement');
   await enqueueMovementTask({
     movementId: payload.id,
     payload,
-    pendingApi: await canCallLocalApi('createMouvement'),
+    pendingApi: !!apiBase,
     pendingSupabase: true,
     createdAt: payload.client_created_at || nowIso(),
     nextRetryAt: nowIso(),
@@ -219,7 +222,8 @@ export async function createMouvement(data) {
  * Récupère les mouvements non synchronisés API locale, puis les pousse vers Supabase (upsert anti-doublons).
  */
 export async function syncFromAPI() {
-  if (!(await canCallLocalApi('syncFromAPI'))) {
+  const apiBase = await getLocalApiBaseForScope('syncFromAPI');
+  if (!apiBase) {
     return { ok: true, synced: 0, skipped: true, reason: 'DOUBLE_BACKEND_OFF_OR_API_URL_MISSING' };
   }
   if (!getIsOnlineRuntime()) {
@@ -228,7 +232,7 @@ export async function syncFromAPI() {
   }
   try {
     const { response, json, text } = await safeFetchJson(
-      `${API_URL.replace(/\/+$/, '')}/mouvements?synced=false`,
+      `${apiBase}/mouvements?synced=false`,
       { method: 'GET' }
     );
     if (!response.ok) {

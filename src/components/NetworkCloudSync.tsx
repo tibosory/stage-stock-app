@@ -62,7 +62,7 @@ export function NetworkCloudSync() {
       await recordSyncTelemetry('api', direction, apiResult.ok ? 'ok' : 'error', apiResult.error);
     }
     let supabaseResult: { ok: boolean; error?: string } | null = null;
-    if (doubleBackendEnabled && isSupabaseConfigured() && isOnline) {
+    if (isSupabaseConfigured() && isOnline) {
       const fnSb = direction === 'push' ? syncToSupabase : syncFromSupabase;
       supabaseResult = await fnSb();
       await recordSyncTelemetry(
@@ -73,7 +73,7 @@ export function NetworkCloudSync() {
       );
     } else if (!isOnline) {
       await recordSyncTelemetry('supabase', direction, 'skipped', 'OFFLINE');
-    } else if (doubleBackendEnabled && !isSupabaseConfigured()) {
+    } else if (!isSupabaseConfigured()) {
       await recordSyncTelemetry('supabase', direction, 'skipped', 'Supabase non configuré');
     }
     setSyncing(false);
@@ -87,29 +87,25 @@ export function NetworkCloudSync() {
       const lines = [
         `API inventaire: ${apiResult.ok ? 'OK' : `Échec (${apiResult.error ?? 'inconnu'})`}`,
       ];
-      if (doubleBackendEnabled) {
-        if (!isOnline) {
-          lines.push('Supabase: OFFLINE');
-        } else if (isSupabaseConfigured()) {
-          lines.push(`Supabase: ${supabaseResult?.ok ? 'OK' : `Échec (${supabaseResult?.error ?? 'inconnu'})`}`);
-        } else {
-          lines.push('Supabase: non configuré');
-        }
+      if (!isOnline) {
+        lines.push('Supabase: OFFLINE');
+      } else if (isSupabaseConfigured()) {
+        lines.push(`Supabase: ${supabaseResult?.ok ? 'OK' : `Échec (${supabaseResult?.error ?? 'inconnu'})`}`);
+      } else {
+        lines.push('Supabase: non configuré');
       }
       Alert.alert('✓ Sync terminée', lines.join('\n'));
     } else {
       const lines = [
         `API inventaire: ${apiResult.error ?? 'Erreur inconnue'}`,
       ];
-      if (doubleBackendEnabled) {
-        lines.push(
-          !isOnline
-            ? 'Supabase: OFFLINE'
-            : isSupabaseConfigured()
-            ? `Supabase: ${supabaseResult?.error ?? 'Erreur inconnue'}`
-            : 'Supabase: non configuré'
-        );
-      }
+      lines.push(
+        !isOnline
+          ? 'Supabase: OFFLINE'
+          : isSupabaseConfigured()
+          ? `Supabase: ${supabaseResult?.error ?? 'Erreur inconnue'}`
+          : 'Supabase: non configuré'
+      );
       Alert.alert('Erreur sync', lines.join('\n'));
     }
   };
@@ -166,9 +162,7 @@ export function NetworkCloudSync() {
       <Card style={{ marginBottom: 14 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
           <Text style={{ fontSize: 16 }}>☁️</Text>
-          <Text style={styles.cardTitle}>
-            Synchronisation cloud ({doubleBackendEnabled ? 'API + Supabase' : 'API'})
-          </Text>
+            <Text style={styles.cardTitle}>Synchronisation cloud (Supabase + API optionnelle)</Text>
         </View>
         {syncing ? (
           <ActivityIndicator color={Colors.green} />

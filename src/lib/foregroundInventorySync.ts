@@ -64,7 +64,7 @@ export async function runForegroundInventorySync(): Promise<void> {
       await recordSyncTelemetry('api', 'pull', 'skipped', 'Serveur API injoignable');
     }
 
-    if (dualBackend && isSupabaseConfigured() && getIsOnlineRuntime()) {
+    if (isSupabaseConfigured() && getIsOnlineRuntime()) {
       const pushSb = await syncToSupabase();
       await recordSyncTelemetry('supabase', 'push', pushSb.ok ? 'ok' : 'error', pushSb.error);
       if (pushSb.ok) {
@@ -75,7 +75,7 @@ export async function runForegroundInventorySync(): Promise<void> {
     } else if (!getIsOnlineRuntime()) {
       await recordSyncTelemetry('supabase', 'push', 'skipped', 'OFFLINE');
       await recordSyncTelemetry('supabase', 'pull', 'skipped', 'OFFLINE');
-    } else if (dualBackend && !isSupabaseConfigured()) {
+    } else if (!isSupabaseConfigured()) {
       await recordSyncTelemetry('supabase', 'push', 'skipped', 'Supabase non configuré');
       await recordSyncTelemetry('supabase', 'pull', 'skipped', 'Supabase non configuré');
     }
