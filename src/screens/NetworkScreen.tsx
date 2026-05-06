@@ -22,6 +22,7 @@ import {
   setApiBaseOverride,
   setApiKeyOverride,
   setHealthPathOverride,
+  stripStageStockServerRootSuffix,
 } from '../lib/apiEndpointStorage';
 import * as Network from 'expo-network';
 import { discoverStageStockOnLan, privateSubnetPrefixForIpv4 } from '../lib/lanDiscovery';
@@ -37,10 +38,12 @@ import { useConnection } from '../context/ConnectionContext';
 import { connectionSurfaceLabel } from '../lib/urlDisplay';
 import { NetworkCloudSync } from '../components/NetworkCloudSync';
 import { WindowsInstallerCard } from '../components/WindowsInstallerCard';
+import { useLanguage } from '../context/LanguageContext';
 
 type Segment = 'config' | 'guide';
 
 export default function NetworkScreen() {
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const { status, refresh } = useConnection();
   const [segment, setSegment] = useState<Segment>('config');
@@ -53,6 +56,7 @@ export default function NetworkScreen() {
   const [testing, setTesting] = useState(false);
   const [testingSync, setTestingSync] = useState(false);
   const [discovering, setDiscovering] = useState(false);
+  const [quickSetupBusy, setQuickSetupBusy] = useState(false);
   /** Mode grand public : afficher URL / clé / tests comme sur l’écran Réseau complet */
   const [showManualServer, setShowManualServer] = useState(false);
 
@@ -81,8 +85,8 @@ export default function NetworkScreen() {
     const trimmed = baseUrl.trim();
     if (trimmed && !looksLikeHttpUrl(trimmed)) {
       Alert.alert(
-        'URL invalide',
-        'L’adresse doit commencer par http:// ou https:// (ex. http://192.168.1.20:3000). Laissez vide pour utiliser l’URL du build (.env / EAS) si elle est définie.'
+        t('network.invalidUrlTitle'),
+        t('network.invalidUrlBody')
       );
       return;
     }
@@ -92,7 +96,7 @@ export default function NetworkScreen() {
       await setApiKeyOverride(apiKey.trim() || null);
       await setHealthPathOverride(healthPath.trim() || null);
       await refreshMeta();
-      Alert.alert('Enregistré', 'Les réglages réseau ont été mis à jour.');
+      Alert.alert(t('network.saveDoneTitle'), t('network.saveDoneBody'));
     } finally {
       setSaving(false);
     }
@@ -100,12 +104,12 @@ export default function NetworkScreen() {
 
   const onReset = () => {
     Alert.alert(
-      'Réinitialiser',
-      'Supprimer l’URL locale, la clé et le chemin de santé personnalisés ? L’application reprendra l’URL du build.',
+      t('network.resetTitle'),
+      t('network.resetBody'),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Réinitialiser',
+          text: t('network.resetTitle'),
           style: 'destructive',
           onPress: async () => {
             setSaving(true);
@@ -125,7 +129,7 @@ export default function NetworkScreen() {
     setTesting(true);
     try {
       const r = await pingStageStockApi();
-      Alert.alert(r.ok ? 'Connexion OK' : 'Échec du test', r.message);
+      Alert.alert(r.ok ? t('network.testOk') : t('network.testFail'), r.message);
     } finally {
       setTesting(false);
     }
@@ -135,7 +139,7 @@ export default function NetworkScreen() {
     setTestingSync(true);
     try {
       const r = await probeStageStockSyncApi();
-      Alert.alert(r.ok ? 'Sync API OK' : 'Sync API indisponible', r.message);
+      Alert.alert(r.ok ? t('network.syncOk') : t('network.syncFail'), r.message);
     } finally {
       setTestingSync(false);
     }
@@ -157,8 +161,8 @@ export default function NetworkScreen() {
       const hit = await discoverStageStockOnLan({ preferredSubnetPrefixes });
       if (!hit) {
         Alert.alert(
-          'Aucun serveur detecte',
-          'Aucun endpoint Stage Stock n a repondu sur le reseau local. Verifiez le backend, le pare-feu Windows et le Wi-Fi.'
+          t('network.noneDetectedTitle'),
+          t('network.noneDetectedBody')
         );
         return;
       }
@@ -166,11 +170,11 @@ export default function NetworkScreen() {
       await refreshMeta();
       void refresh();
       if (isConsumerApp()) {
-        Alert.alert('Connexion', 'Un serveur a été détecté sur votre réseau. La connexion est mise à jour.');
+        Alert.alert(t('network.connectionTitle'), t('network.serverDetectedConsumerBody'));
       } else {
         Alert.alert(
-          'Serveur detecte',
-          `URL appliquee:\n${hit.baseUrl}\n\nSante:\n${hit.healthUrl}\n\n${hit.note}`
+          t('network.serverDetectedTitle'),
+          t('network.serverDetectedBody', { baseUrl: hit.baseUrl, healthUrl: hit.healthUrl, note: hit.note })
         );
       }
     } finally {
@@ -178,32 +182,107 @@ export default function NetworkScreen() {
     }
   };
 
+  const onQuickSetup = async () => {
+    setQuickSetupBusy(true);
+    try {
+      await onDiscoverLan();
+      await refresh();
+      await refreshMeta();
+      const ping = await pingStageStockApi();
+      if (ping.ok) {
+        Alert.alert(t('network.quickSetupOkTitle'), t('network.quickSetupOkBody'));
+      } else {
+        Alert.alert(t('network.quickSetupFailTitle'), t('network.quickSetupFailBody'));
+      }
+    } finally {
+      setQuickSetupBusy(false);
+    }
+  };
+
+  const onSmartDiagnose = async () => {
+    setQuickSetupBusy(true);
+    try {
+      await refresh();
+      await refreshMeta();
+      const [ping, sync] = await Promise.all([pingStageStockApi(), probeStageStockSyncApi()]);
+      if (ping.ok && sync.ok) {
+        Alert.alert(t('network.quickSetupOkTitle'), t('network.smartDiagAllGood'));
+        return;
+      }
+      if (ping.ok && !sync.ok) {
+        Alert.alert(t('network.smartDiagTitle'), t('network.smartDiagSyncFail'));
+        return;
+      }
+      Alert.alert(t('network.smartDiagTitle'), t('network.smartDiagServerFail'));
+    } finally {
+      setQuickSetupBusy(false);
+    }
+  };
+
   const onOpenPairingQrPage = useCallback(async () => {
-    const base = (resolved || '').trim().replace(/\/+$/, '');
+    const base = stripStageStockServerRootSuffix((resolved || '').trim().replace(/\/+$/, ''));
     if (!base) {
       Alert.alert(
-        'Serveur requis',
-        'Aucune URL serveur configurée. Détectez un serveur Wi‑Fi ou saisissez son URL, puis réessayez.'
+        t('network.serverRequiredTitle'),
+        t('network.serverRequiredBody')
       );
       return;
     }
-    const pairUrl = `${base}/pair.html`;
+
+    const parse = (() => {
+      try {
+        return new URL(base);
+      } catch {
+        return null;
+      }
+    })();
+    const host = parse?.hostname ?? '';
+    const protocol = parse?.protocol === 'https:' ? 'https' : 'http';
+    const currentPort = parse?.port ? Number(parse.port) : undefined;
+    const ports = [currentPort, 8095, 3847, ...Array.from({ length: 21 }, (_, i) => 8090 + i)].filter(
+      (v): v is number => Number.isFinite(v as number) && (v as number) > 0
+    );
+    const uniqPorts = Array.from(new Set(ports));
+    const candidateBases =
+      host && uniqPorts.length
+        ? uniqPorts.map(p => `${protocol}://${host}:${p}`)
+        : [base];
+
+    async function firstReachablePairUrl(): Promise<string> {
+      for (const b of candidateBases) {
+        for (const p of ['/pair', '/pair.html']) {
+          const u = `${b}${p}`;
+          try {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 2500);
+            const r = await fetch(u, { method: 'GET', signal: ctrl.signal });
+            clearTimeout(timer);
+            if (r.status >= 200 && r.status < 500 && r.status !== 404) return u;
+          } catch {
+            // try next
+          }
+        }
+      }
+      return `${base}/pair`;
+    }
+
     try {
+      const pairUrl = await firstReachablePairUrl();
       const ok = await Linking.canOpenURL(pairUrl);
       if (!ok) {
-        Alert.alert('Ouverture impossible', pairUrl);
+        Alert.alert(t('network.openError'), pairUrl);
         return;
       }
       await Linking.openURL(pairUrl);
     } catch (e) {
-      Alert.alert('Erreur', e instanceof Error ? e.message : String(e));
+      Alert.alert(t('network.genericError'), e instanceof Error ? e.message : String(e));
     }
   }, [resolved]);
 
   if (isConsumerApp()) {
     const modeLabel = connectionSurfaceLabel(resolved || getBundledDefaultApiBase());
     const stateLabel =
-      status === 'checking' ? 'Vérification…' : status === 'ok' ? 'Connecté au service' : 'Hors ligne';
+      status === 'checking' ? t('network.state.checking') : status === 'ok' ? t('network.state.connected') : t('network.state.offline');
     return (
       <TabScreenSafeArea style={styles.container} edges={['left', 'right']}>
         <ScrollView
@@ -211,7 +290,7 @@ export default function NetworkScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator
         >
-          <ScreenHeader icon={<Text style={{ fontSize: 22 }}>📶</Text>} title="Connexion" />
+          <ScreenHeader icon={<Text style={{ fontSize: 22 }}>📶</Text>} title={t('network.connectionTitle')} />
 
           <WindowsInstallerCard />
 
@@ -220,23 +299,23 @@ export default function NetworkScreen() {
               style={[styles.segmentBtn, segment === 'config' && styles.segmentBtnActive]}
               onPress={() => setSegment('config')}
             >
-              <Text style={[styles.segmentLabel, segment === 'config' && styles.segmentLabelActive]}>État</Text>
+              <Text style={[styles.segmentLabel, segment === 'config' && styles.segmentLabelActive]}>{t('network.segment.state')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.segmentBtn, segment === 'guide' && styles.segmentBtnActive]}
               onPress={() => setSegment('guide')}
             >
-              <Text style={[styles.segmentLabel, segment === 'guide' && styles.segmentLabelActive]}>Aide</Text>
+              <Text style={[styles.segmentLabel, segment === 'guide' && styles.segmentLabelActive]}>{t('network.segment.help')}</Text>
             </TouchableOpacity>
           </View>
 
           {segment === 'config' ? (
             <>
               <Card style={{ marginBottom: 14 }}>
-                <Text style={styles.cardTitle}>Service Stage Stock</Text>
-                <Text style={styles.hintMuted}>Type de liaison (sans adresse technique)</Text>
+                <Text style={styles.cardTitle}>{t('network.serviceTitle')}</Text>
+                <Text style={styles.hintMuted}>{t('network.serviceHint')}</Text>
                 <Text style={styles.mono}>{modeLabel}</Text>
-                <Text style={[styles.cardTitle, { marginTop: 14 }]}>État actuel</Text>
+                <Text style={[styles.cardTitle, { marginTop: 14 }]}>{t('network.stateTitle')}</Text>
                 <Text style={styles.mono}>{stateLabel}</Text>
                 <TouchableOpacity
                   style={styles.primaryBtn}
@@ -245,13 +324,27 @@ export default function NetworkScreen() {
                     await refreshMeta();
                   }}
                 >
-                  <Text style={styles.primaryBtnText}>Réessayer</Text>
+                  <Text style={styles.primaryBtnText}>{t('network.retry')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.primaryBtn} disabled={quickSetupBusy} onPress={onQuickSetup}>
+                  {quickSetupBusy ? (
+                    <ActivityIndicator color={Colors.white} />
+                  ) : (
+                    <Text style={styles.primaryBtnText}>{t('network.quickSetup')}</Text>
+                  )}
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.secondaryBtn} disabled={discovering} onPress={onDiscoverLan}>
                   {discovering ? (
                     <ActivityIndicator color={Colors.green} />
                   ) : (
-                    <Text style={styles.secondaryBtnText}>Chercher un serveur sur le Wi‑Fi</Text>
+                    <Text style={styles.secondaryBtnText}>{t('network.searchWifi')}</Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.secondaryBtn} disabled={quickSetupBusy} onPress={onSmartDiagnose}>
+                  {quickSetupBusy ? (
+                    <ActivityIndicator color={Colors.green} />
+                  ) : (
+                    <Text style={styles.secondaryBtnText}>{t('network.smartDiagnose')}</Text>
                   )}
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -259,67 +352,66 @@ export default function NetworkScreen() {
                   onPress={() => setShowManualServer(v => !v)}
                 >
                   <Text style={styles.secondaryBtnText}>
-                    {showManualServer ? 'Masquer la saisie manuelle' : 'Saisie manuelle de l’URL du serveur'}
+                    {showManualServer ? t('network.hideManual') : t('network.showManual')}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.secondaryBtn} onPress={onOpenPairingQrPage}>
-                  <Text style={styles.secondaryBtnText}>Ouvrir la page de jumelage (/pair.html)</Text>
+                  <Text style={styles.secondaryBtnText}>{t('network.openPairPage')}</Text>
                 </TouchableOpacity>
               </Card>
 
               {showManualServer ? (
                 <Card style={{ marginBottom: 14 }}>
-                  <Text style={styles.cardTitle}>Adresse du serveur (réseau local)</Text>
+                  <Text style={styles.cardTitle}>{t('network.localAddressTitle')}</Text>
                   <Text style={styles.hint}>
-                    Indiquez l’URL fournie par votre administrateur, par ex. http://192.168.1.10:3847 (même Wi‑Fi que
-                    ce téléphone). Pas besoin de slash final.
+                    {t('network.localAddressHint')}
                   </Text>
                   <Input
-                    label="URL de base de l’API"
+                    label={t('network.field.apiBase')}
                     value={baseUrl}
                     onChangeText={setBaseUrl}
-                    placeholder="ex. http://192.168.1.20:3847"
+                    placeholder={t('network.field.apiBasePlaceholderLocal')}
                     autoCapitalize="none"
                     keyboardType="url"
                   />
                   <Input
-                    label="Clé API (optionnel)"
+                    label={t('network.field.apiKeyOptional')}
                     value={apiKey}
                     onChangeText={setApiKey}
-                    placeholder="Si le serveur affiche une clé sur le PC"
+                    placeholder={t('network.field.apiKeyPlaceholderPc')}
                     autoCapitalize="none"
                     secureTextEntry
                   />
                   <Input
-                    label="Chemin de santé (optionnel)"
+                    label={t('network.field.healthPathOptional')}
                     value={healthPath}
                     onChangeText={setHealthPath}
-                    placeholder="Laisser vide sauf cas particulier"
+                    placeholder={t('network.field.healthPathPlaceholderEmpty')}
                     autoCapitalize="none"
                   />
                   <TouchableOpacity style={styles.primaryBtn} disabled={saving} onPress={onSave}>
                     {saving ? (
                       <ActivityIndicator color={Colors.white} />
                     ) : (
-                      <Text style={styles.primaryBtnText}>Enregistrer</Text>
+                      <Text style={styles.primaryBtnText}>{t('common.save')}</Text>
                     )}
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.secondaryBtn} disabled={testing} onPress={onTest}>
                     {testing ? (
                       <ActivityIndicator color={Colors.green} />
                     ) : (
-                      <Text style={styles.secondaryBtnText}>Tester la connexion</Text>
+                      <Text style={styles.secondaryBtnText}>{t('network.testButton')}</Text>
                     )}
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.secondaryBtn} disabled={discovering} onPress={onDiscoverLan}>
                     {discovering ? (
                       <ActivityIndicator color={Colors.green} />
                     ) : (
-                      <Text style={styles.secondaryBtnText}>Chercher à nouveau sur le Wi‑Fi</Text>
+                      <Text style={styles.secondaryBtnText}>{t('network.searchWifiAgain')}</Text>
                     )}
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.dangerOutline} disabled={saving} onPress={onReset}>
-                    <Text style={styles.dangerOutlineText}>Réinitialiser l’URL personnalisée</Text>
+                    <Text style={styles.dangerOutlineText}>{t('network.resetCustomUrl')}</Text>
                   </TouchableOpacity>
                 </Card>
               ) : null}
@@ -342,7 +434,7 @@ export default function NetworkScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator
       >
-        <ScreenHeader icon={<Text style={{ fontSize: 22 }}>📡</Text>} title="Réseau & serveur local" />
+        <ScreenHeader icon={<Text style={{ fontSize: 22 }}>📡</Text>} title={t('network.serverTitle')} />
 
         <WindowsInstallerCard />
 
@@ -352,7 +444,7 @@ export default function NetworkScreen() {
             onPress={() => setSegment('config')}
           >
             <Text style={[styles.segmentLabel, segment === 'config' && styles.segmentLabelActive]}>
-              Configuration
+              {t('network.segment.config')}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -360,7 +452,7 @@ export default function NetworkScreen() {
             onPress={() => setSegment('guide')}
           >
             <Text style={[styles.segmentLabel, segment === 'guide' && styles.segmentLabelActive]}>
-              Mode d’emploi
+              {t('network.segment.howto')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -368,12 +460,12 @@ export default function NetworkScreen() {
         {segment === 'config' ? (
           <>
             <Card style={{ marginBottom: 14 }}>
-              <Text style={styles.cardTitle}>URL effective</Text>
+              <Text style={styles.cardTitle}>{t('network.effectiveUrl')}</Text>
               <Text selectable style={styles.mono}>
-                {resolved || '—'}
+                {resolved || t('common.dash')}
               </Text>
               <Text style={styles.hintMuted}>
-                Valeur du build (sans surcharge) :{' '}
+                {t('network.buildValueNoOverride')}{' '}
                 <Text selectable style={styles.monoSmall}>
                   {bundled}
                 </Text>
@@ -381,67 +473,66 @@ export default function NetworkScreen() {
             </Card>
 
             <Card style={{ marginBottom: 14 }}>
-              <Text style={styles.cardTitle}>Surcharge sur cet appareil</Text>
+              <Text style={styles.cardTitle}>{t('network.overrideThisDevice')}</Text>
               <Text style={styles.hint}>
-                Laissez l’URL vide pour utiliser l’adresse définie au build (EXPO_PUBLIC_API_URL) si elle existe. Renseignez
-                une URL http(s) pour pointer vers un PC sur le Wi‑Fi du théâtre ou un serveur accessible.
+                {t('network.overrideHint')}
               </Text>
               <Input
-                label="URL de base de l’API (optionnel)"
+                label={t('network.field.apiBaseOptional')}
                 value={baseUrl}
                 onChangeText={setBaseUrl}
-                placeholder="ex. http://192.168.1.20:3000"
+                placeholder={t('network.field.apiBasePlaceholder')}
                 autoCapitalize="none"
                 keyboardType="url"
               />
               <Input
-                label="Clé API (optionnel)"
+                label={t('network.field.apiKeyOptional')}
                 value={apiKey}
                 onChangeText={setApiKey}
-                placeholder="Si le serveur exige X-API-Key / Bearer"
+                placeholder={t('network.field.apiKeyPlaceholder')}
                 autoCapitalize="none"
                 secureTextEntry
               />
               <Input
-                label="Chemin de santé (optionnel)"
+                label={t('network.field.healthPathOptional')}
                 value={healthPath}
                 onChangeText={setHealthPath}
-                placeholder="ex. /health ou /api/status"
+                placeholder={t('network.field.healthPathPlaceholder')}
                 autoCapitalize="none"
               />
               <TouchableOpacity style={styles.primaryBtn} disabled={saving} onPress={onSave}>
                 {saving ? (
                   <ActivityIndicator color={Colors.white} />
                 ) : (
-                  <Text style={styles.primaryBtnText}>Enregistrer</Text>
+                  <Text style={styles.primaryBtnText}>{t('common.save')}</Text>
                 )}
               </TouchableOpacity>
               <TouchableOpacity style={styles.secondaryBtn} disabled={testing} onPress={onTest}>
                 {testing ? (
                   <ActivityIndicator color={Colors.green} />
                 ) : (
-                  <Text style={styles.secondaryBtnText}>Tester la connexion</Text>
+                  <Text style={styles.secondaryBtnText}>{t('network.testButton')}</Text>
                 )}
               </TouchableOpacity>
               <TouchableOpacity style={styles.secondaryBtn} disabled={discovering} onPress={onDiscoverLan}>
                 {discovering ? (
                   <ActivityIndicator color={Colors.green} />
                 ) : (
-                  <Text style={styles.secondaryBtnText}>Auto-détecter le serveur (LAN)</Text>
+                  <Text style={styles.secondaryBtnText}>{t('network.autoDetectLan')}</Text>
                 )}
               </TouchableOpacity>
               <TouchableOpacity style={styles.secondaryBtn} disabled={testingSync} onPress={onTestSync}>
                 {testingSync ? (
                   <ActivityIndicator color={Colors.green} />
                 ) : (
-                  <Text style={styles.secondaryBtnText}>Tester endpoint sync</Text>
+                  <Text style={styles.secondaryBtnText}>{t('network.syncTestButton')}</Text>
                 )}
               </TouchableOpacity>
               <TouchableOpacity style={styles.secondaryBtn} onPress={onOpenPairingQrPage}>
-                <Text style={styles.secondaryBtnText}>Ouvrir la page de jumelage (/pair.html)</Text>
+                <Text style={styles.secondaryBtnText}>{t('network.openPairPage')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.dangerOutline} disabled={saving} onPress={onReset}>
-                <Text style={styles.dangerOutlineText}>Réinitialiser les surcharges</Text>
+                <Text style={styles.dangerOutlineText}>{t('network.resetOverrides')}</Text>
               </TouchableOpacity>
             </Card>
             <NetworkCloudSync />

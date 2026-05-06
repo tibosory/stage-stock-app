@@ -3,6 +3,8 @@ import * as Application from 'expo-application';
 import { fetchWithTimeout } from '../lib/fetchWithTimeout';
 
 const WINDOWS_INSTALLER_FILENAME = 'Stagestock-Installer.exe';
+const WINDOWS_INSTALLER_NAME_HINTS = ['stagestock', 'serveur', 'oneclick', 'setup', 'installer'];
+const DEFAULT_INSTALLER_REPO = { owner: 'tibosory', repo: 'stagestock' };
 
 type Extra = {
   windowsInstallerUrl?: string;
@@ -17,15 +19,28 @@ type Extra = {
 function getInstallerGitHubOwnerRepo(): { owner: string; repo: string } | null {
   const fromEnv = process.env.EXPO_PUBLIC_INSTALLER_GITHUB_REPO?.trim();
   const raw = fromEnv || (Constants.expoConfig?.extra as Extra | undefined)?.installerGitHubRepo?.trim();
-  if (!raw || !raw.includes('/')) return null;
+  if (!raw || !raw.includes('/')) return DEFAULT_INSTALLER_REPO;
   const [owner, ...rest] = raw.split('/').map((s: string) => s.trim());
   const repo = rest.join('/').replace(/\/+$/, '');
-  if (!owner || !repo) return null;
+  if (!owner || !repo) return DEFAULT_INSTALLER_REPO;
   return { owner, repo };
 }
 
 function buildGitHubLatestDownloadUrl(owner: string, repo: string): string {
   return `https://github.com/${owner}/${repo}/releases/latest/download/${WINDOWS_INSTALLER_FILENAME}`;
+}
+
+function buildGitHubLatestReleasePageUrl(owner: string, repo: string): string {
+  return `https://github.com/${owner}/${repo}/releases/latest`;
+}
+
+function githubApiHeaders(): Record<string, string> {
+  return {
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    // Certains environnements RN obtiennent des réponses plus fiables avec un User-Agent explicite.
+    'User-Agent': 'StageStock-App',
+  };
 }
 
 /**
@@ -58,8 +73,8 @@ export function getWindowsServerInstallerUrl(): string {
   const fromExtra = extra?.windowsInstallerUrl?.trim();
   if (fromExtra) return fromExtra;
   const gh = getInstallerGitHubOwnerRepo();
-  if (gh) return buildGitHubLatestDownloadUrl(gh.owner, gh.repo);
-  return '';
+  if (gh) return buildGitHubLatestReleasePageUrl(gh.owner, gh.repo);
+  return buildGitHubLatestReleasePageUrl(DEFAULT_INSTALLER_REPO.owner, DEFAULT_INSTALLER_REPO.repo);
 }
 
 function detectAppVersion(): string | null {
@@ -88,6 +103,12 @@ function pickReleaseAssetUrl(
     const assets = Array.isArray(rel?.assets) ? rel.assets : [];
     const exact = assets.find((a: any) => a?.name === WINDOWS_INSTALLER_FILENAME);
     if (exact?.browser_download_url) return String(exact.browser_download_url);
+    const preferredExe = assets.find((a: any) => {
+      const n = String(a?.name || '').toLowerCase();
+      if (!n.endsWith('.exe')) return false;
+      return WINDOWS_INSTALLER_NAME_HINTS.some(h => n.includes(h));
+    });
+    if (preferredExe?.browser_download_url) return String(preferredExe.browser_download_url);
     const anyExe = assets.find((a: any) => String(a?.name || '').toLowerCase().endsWith('.exe'));
     return anyExe?.browser_download_url ? String(anyExe.browser_download_url) : null;
   };
@@ -126,17 +147,29 @@ export async function resolveWindowsServerInstallerUrl(): Promise<WindowsInstall
 
   const gh = getInstallerGitHubOwnerRepo();
   if (!gh) {
-    return { url: '', source: 'latest-fallback', appVersion };
+    return {
+      url: buildGitHubLatestDownloadUrl(DEFAULT_INSTALLER_REPO.owner, DEFAULT_INSTALLER_REPO.repo),
+      source: 'latest-fallback',
+      appVersion,
+    };
   }
+  const latestReleaseApi = `https://api.github.com/repos/${gh.owner}/${gh.repo}/releases/latest`;
   const releasesApi = `https://api.github.com/repos/${gh.owner}/${gh.repo}/releases?per_page=30`;
-  const fallback = buildGitHubLatestDownloadUrl(gh.owner, gh.repo);
-
   try {
-    const r = await fetchWithTimeout(
-      releasesApi,
-      { method: 'GET', headers: { Accept: 'application/vnd.github+json' } },
-      7000
-    );
+    const latest = await fetchWithTimeout(latestReleaseApi, { method: 'GET', headers: githubApiHeaders() }, 7000);
+    if (latest.ok) {
+      const latestJson = await latest.json();
+      const pickedLatest = pickReleaseAssetUrl([latestJson], normalizeVersionKeys(appVersion));
+      if (pickedLatest) {
+        return {
+          url: pickedLatest.url,
+          source: pickedLatest.matched ? 'version-matched' : 'latest-fallback',
+          appVersion,
+          releaseTag: pickedLatest.tag || undefined,
+        };
+      }
+    }
+    const r = await fetchWithTimeout(releasesApi, { method: 'GET', headers: githubApiHeaders() }, 7000);
     if (r.ok) {
       const json = await r.json();
       const releases = Array.isArray(json) ? json : [];
@@ -155,7 +188,7 @@ export async function resolveWindowsServerInstallerUrl(): Promise<WindowsInstall
   }
 
   return {
-    url: fallback,
+    url: buildGitHubLatestDownloadUrl(gh.owner, gh.repo),
     source: 'latest-fallback',
     appVersion,
   };
