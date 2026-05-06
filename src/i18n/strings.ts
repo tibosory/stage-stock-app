@@ -804,7 +804,7 @@ const fr: Dict = {
   'importExport.primarySection': 'Serveur actuel (onglet Réseau)',
   'importExport.primaryUnset': '(non configuré — onglet Réseau)',
   'importExport.primaryHint':
-    'C’est la cible des boutons « Envoyer / Recevoir » sur l’écran Réseau. Le serveur secondaire ci‑dessous sert à synchroniser explicitement avec un autre hôte (ex. PC local ↔ cloud Railway).',
+    'C’est la cible des boutons « Envoyer / Recevoir » sur l’écran Réseau. Le serveur secondaire ci‑dessous sert à synchroniser explicitement avec un autre hôte (ex. PC local ↔ cloud).',
   'importExport.secondarySection': 'Autre serveur (local ↔ cloud)',
   'importExport.secondaryHint':
     'URL et clé API optionnelle si elle diffère de celle de l’onglet Réseau. Enregistrez avant les actions ci‑dessous.',
