@@ -8,9 +8,18 @@ import { Colors, Shadow } from '../theme/colors';
 import { Typography } from '../theme/typography';
 import { useAppAuth } from '../context/AuthContext';
 import { useSupabaseAuth } from '../hooks/useAuth';
-import { listAppUsersForLogin } from '../db/database';
+import { listAppUsersForLogin } from '../db/userDb';
 import { isSupabaseConfigured, saveAndApplySupabaseConfig } from '../lib/supabase';
+import { finalizeAccueilProInvitation, previewAccueilProInvitation } from '../lib/accueilproInvitations';
+import { ACCUEILPRO_ORGANISATEUR_ROLE } from '../modules/accueilpro/types/roles';
 import { AppUserRole } from '../types';
+import { useLanguage } from '../context/LanguageContext';
+
+function roleLabelKey(role: AppUserRole): string {
+  if (role === 'admin') return 'auth.role.label.admin';
+  if (role === 'technicien') return 'auth.role.label.technicien';
+  return 'auth.role.label.emprunteur';
+}
 
 export default function LoginScreen() {
   const { login, loginWithCloud, registerWithCloud, cloudUser } = useAppAuth();
@@ -19,6 +28,7 @@ export default function LoginScreen() {
     signInWithEmail,
     signUpWithEmail,
     signOutSupabase,
+    refreshProfile,
   } = useSupabaseAuth();
   const [users, setUsers] = useState<{ id: string; nom: string; role: AppUserRole }[]>([]);
   const [userId, setUserId] = useState('');
@@ -37,6 +47,10 @@ export default function LoginScreen() {
   const [sbSetupUrl, setSbSetupUrl] = useState('');
   const [sbSetupKey, setSbSetupKey] = useState('');
   const [sbSetupBusy, setSbSetupBusy] = useState(false);
+  const [apInviteToken, setApInviteToken] = useState('');
+  const [apInvitePreview, setApInvitePreview] = useState('');
+  const [apInviteBusy, setApInviteBusy] = useState(false);
+  const { t } = useLanguage();
 
   useEffect(() => {
     listAppUsersForLogin().then(u => {
@@ -48,11 +62,11 @@ export default function LoginScreen() {
 
   const handleSupabase = async () => {
     if (!sbEmail.trim() || !sbPassword) {
-      Alert.alert('Supabase', 'Email et mot de passe requis.');
+      Alert.alert(t('login.supabase.alertTitle'), t('login.supabase.needEmailPassword'));
       return;
     }
     if (sbRegister && sbPassword.length < 6) {
-      Alert.alert('Supabase', 'Mot de passe : au moins 6 caractères.');
+      Alert.alert(t('login.supabase.alertTitle'), t('login.supabase.passwordMin6'));
       return;
     }
     setSbBusy(true);
@@ -61,10 +75,13 @@ export default function LoginScreen() {
         ? await signUpWithEmail(sbEmail.trim(), sbPassword)
         : await signInWithEmail(sbEmail.trim(), sbPassword);
       if (!r.ok) {
-        Alert.alert('Supabase', r.message ?? 'Erreur');
+        Alert.alert(t('login.supabase.alertTitle'), r.message ?? t('login.cloud.error'));
         return;
       }
-      Alert.alert('Supabase', sbRegister ? 'Compte créé (vérifiez votre email si la confirmation est activée).' : 'Connecté.');
+      Alert.alert(
+        t('login.supabase.alertTitle'),
+        sbRegister ? t('login.supabase.createdVerify') : t('login.supabase.connected')
+      );
       setSbPassword('');
     } finally {
       setSbBusy(false);
@@ -73,11 +90,11 @@ export default function LoginScreen() {
 
   const handleCloud = async () => {
     if (!cloudEmail.trim() || !cloudPassword) {
-      Alert.alert('Compte', 'Renseignez l’email et le mot de passe.');
+      Alert.alert(t('login.cloud.alertTitle'), t('login.cloud.needEmailPassword'));
       return;
     }
     if (cloudRegister && cloudPassword.length < 8) {
-      Alert.alert('Compte', 'Le mot de passe doit contenir au moins 8 caractères.');
+      Alert.alert(t('login.cloud.alertTitle'), t('login.cloud.passwordMin8'));
       return;
     }
     setCloudBusy(true);
@@ -86,26 +103,37 @@ export default function LoginScreen() {
         ? await registerWithCloud(cloudEmail.trim(), cloudPassword, cloudName.trim() || undefined)
         : await loginWithCloud(cloudEmail.trim(), cloudPassword);
       if (!r.ok) {
-        Alert.alert('Compte', r.message ?? 'Erreur');
+        Alert.alert(t('login.cloud.alertTitle'), r.message ?? t('login.cloud.error'));
         return;
       }
-      Alert.alert('Compte', cloudRegister ? 'Compte créé.' : 'Connecté au service.');
+      Alert.alert(
+        t('login.cloud.alertTitle'),
+        cloudRegister ? t('login.cloud.registered') : t('login.cloud.signedIn')
+      );
       setCloudPassword('');
     } finally {
       setCloudBusy(false);
     }
   };
 
+  function accueilProInviteErrMessage(code: string, detail?: string): string {
+    const k = `login.accueilpro.err.${code}`;
+    const msg = t(k);
+    if (msg !== k) return detail ? `${msg} ${detail}` : msg;
+    const unk = t('login.accueilpro.err.unknown');
+    return detail ? `${unk} ${detail}` : unk;
+  }
+
   const handleLogin = async () => {
     if (!userId || !pin) {
-      Alert.alert('Connexion', 'Choisissez un utilisateur et saisissez le code PIN.');
+      Alert.alert(t('login.alert.pinTitle'), t('login.alert.pickUserPin'));
       return;
     }
     setSubmitting(true);
     const ok = await login(userId, pin);
     setSubmitting(false);
     if (!ok) {
-      Alert.alert('Connexion', 'PIN incorrect.');
+      Alert.alert(t('login.alert.pinTitle'), t('login.alert.badPin'));
       setPin('');
     }
   };
@@ -122,21 +150,18 @@ export default function LoginScreen() {
   return (
     <FullScreenSafeArea style={{ flex: 1, backgroundColor: Colors.bg }}>
     <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
-      <Text style={s.title}>Stage Stock</Text>
-      <Text style={s.sub}>Compte en ligne (optionnel) puis accès sur l’appareil avec le PIN</Text>
+      <Text style={s.title}>{t('login.title')}</Text>
+      <Text style={s.sub}>{t('login.subtitle')}</Text>
 
       {!isSupabaseConfigured() ? (
         <View style={{ marginBottom: 20 }}>
-          <Text style={s.section}>Votre projet Supabase</Text>
-          <Text style={s.subSmall}>
-            Créez un projet sur supabase.com, puis Project Settings → API : URL du projet et clé « anon »
-            publique. Vous pourrez modifier ces valeurs dans Paramètres après connexion.
-          </Text>
+          <Text style={s.section}>{t('login.supabase.section')}</Text>
+          <Text style={s.subSmall}>{t('login.supabase.hint')}</Text>
           <TextInput
             style={s.inputEmail}
             value={sbSetupUrl}
             onChangeText={setSbSetupUrl}
-            placeholder="https://xxxx.supabase.co"
+            placeholder={t('login.supabase.placeholderUrl')}
             placeholderTextColor={Colors.textMuted}
             keyboardType="url"
             autoCapitalize="none"
@@ -146,7 +171,7 @@ export default function LoginScreen() {
             style={s.inputEmail}
             value={sbSetupKey}
             onChangeText={setSbSetupKey}
-            placeholder="Clé anon (JWT)"
+            placeholder={t('login.supabase.placeholderAnon')}
             placeholderTextColor={Colors.textMuted}
             secureTextEntry
             autoCapitalize="none"
@@ -160,12 +185,9 @@ export default function LoginScreen() {
               try {
                 await saveAndApplySupabaseConfig(sbSetupUrl, sbSetupKey);
                 setSbSetupKey('');
-                Alert.alert(
-                  'Projet enregistré',
-                  'Vous pouvez maintenant utiliser la section « Compte Supabase » ci-dessous si besoin.'
-                );
+                Alert.alert(t('login.supabase.savedTitle'), t('login.supabase.savedBody'));
               } catch (e: unknown) {
-                Alert.alert('Supabase', e instanceof Error ? e.message : String(e));
+                Alert.alert(t('login.supabase.alertTitle'), e instanceof Error ? e.message : String(e));
               } finally {
                 setSbSetupBusy(false);
               }
@@ -174,22 +196,22 @@ export default function LoginScreen() {
             {sbSetupBusy ? (
               <ActivityIndicator color={Colors.green} />
             ) : (
-              <Text style={s.btnSecondaryTxt}>Enregistrer et utiliser ce projet</Text>
+              <Text style={s.btnSecondaryTxt}>{t('login.supabase.saveUse')}</Text>
             )}
           </TouchableOpacity>
         </View>
       ) : null}
 
-      <Text style={s.label}>Service Stage Stock</Text>
+      <Text style={s.label}>{t('login.cloud.serviceLabel')}</Text>
       {cloudUser ? (
-        <Text style={s.cloudOk}>Connecté : {cloudUser.email}</Text>
+        <Text style={s.cloudOk}>{t('login.cloud.connectedLine', { email: cloudUser.email ?? '—' })}</Text>
       ) : (
         <>
           <TextInput
             style={s.inputEmail}
             value={cloudEmail}
             onChangeText={setCloudEmail}
-            placeholder="Email"
+            placeholder={t('login.placeholder.email')}
             placeholderTextColor={Colors.textMuted}
             keyboardType="email-address"
             autoCapitalize="none"
@@ -199,7 +221,7 @@ export default function LoginScreen() {
             style={s.inputEmail}
             value={cloudPassword}
             onChangeText={setCloudPassword}
-            placeholder="Mot de passe"
+            placeholder={t('login.placeholder.password')}
             placeholderTextColor={Colors.textMuted}
             secureTextEntry
           />
@@ -208,7 +230,7 @@ export default function LoginScreen() {
               style={s.inputEmail}
               value={cloudName}
               onChangeText={setCloudName}
-              placeholder="Nom affiché (optionnel)"
+              placeholder={t('login.placeholder.displayName')}
               placeholderTextColor={Colors.textMuted}
             />
           ) : null}
@@ -220,26 +242,28 @@ export default function LoginScreen() {
             {cloudBusy ? (
               <ActivityIndicator color={Colors.green} />
             ) : (
-              <Text style={s.btnSecondaryTxt}>{cloudRegister ? 'Créer le compte' : 'Connexion au service'}</Text>
+              <Text style={s.btnSecondaryTxt}>
+                {cloudRegister ? t('login.cloud.btnRegister') : t('login.cloud.btnSignIn')}
+              </Text>
             )}
           </TouchableOpacity>
           <TouchableOpacity onPress={() => setCloudRegister(!cloudRegister)} style={{ marginBottom: 20 }}>
-            <Text style={s.link}>{cloudRegister ? 'Déjà un compte ? Se connecter' : 'Créer un compte'}</Text>
+            <Text style={s.link}>
+              {cloudRegister ? t('login.cloud.toggleToSignIn') : t('login.cloud.toggleToRegister')}
+            </Text>
           </TouchableOpacity>
         </>
       )}
 
       {isSupabaseConfigured() ? (
         <>
-          <Text style={[s.section, { marginTop: 8 }]}>Compte Supabase (optionnel)</Text>
-          <Text style={s.subSmall}>
-            Connexion optionnelle au projet Supabase (même email / mot de passe que sur supabase.com si configuré).
-          </Text>
+          <Text style={[s.section, { marginTop: 8 }]}>{t('profile.supabaseAcctTitle')}</Text>
+          <Text style={s.subSmall}>{t('profile.supabaseAcctHint')}</Text>
           {sbUser ? (
             <>
               <Text style={s.cloudOk}>{sbUser.email ?? '—'}</Text>
               <TouchableOpacity style={s.btnSecondary} onPress={() => void signOutSupabase()}>
-                <Text style={s.btnSecondaryTxt}>Déconnexion Supabase</Text>
+                <Text style={s.btnSecondaryTxt}>{t('profile.supabaseSignOut')}</Text>
               </TouchableOpacity>
             </>
           ) : (
@@ -248,7 +272,7 @@ export default function LoginScreen() {
                 style={s.inputEmail}
                 value={sbEmail}
                 onChangeText={setSbEmail}
-                placeholder="Email Supabase"
+                placeholder={t('login.placeholder.email')}
                 placeholderTextColor={Colors.textMuted}
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -258,7 +282,7 @@ export default function LoginScreen() {
                 style={s.inputEmail}
                 value={sbPassword}
                 onChangeText={setSbPassword}
-                placeholder="Mot de passe"
+                placeholder={t('login.placeholder.password')}
                 placeholderTextColor={Colors.textMuted}
                 secureTextEntry
               />
@@ -266,21 +290,100 @@ export default function LoginScreen() {
                 {sbBusy ? (
                   <ActivityIndicator color={Colors.green} />
                 ) : (
-                  <Text style={s.btnSecondaryTxt}>{sbRegister ? 'Créer le compte Supabase' : 'Connexion Supabase'}</Text>
+                  <Text style={s.btnSecondaryTxt}>
+                    {sbRegister ? t('login.supabase.btnRegister') : t('login.supabase.btnSignIn')}
+                  </Text>
                 )}
               </TouchableOpacity>
               <TouchableOpacity onPress={() => setSbRegister(!sbRegister)} style={{ marginBottom: 16 }}>
-                <Text style={s.link}>{sbRegister ? 'Déjà un compte ?' : 'Créer un compte Supabase'}</Text>
+                <Text style={s.link}>
+                  {sbRegister ? t('login.cloud.toggleToSignIn') : t('login.cloud.toggleToRegister')}
+                </Text>
               </TouchableOpacity>
             </>
+          )}
+          <Text style={[s.section, { marginTop: 20 }]}>{t('login.accueilpro.section')}</Text>
+          <Text style={s.subSmall}>{t('login.accueilpro.hint')}</Text>
+          <TextInput
+            style={s.inputEmail}
+            value={apInviteToken}
+            onChangeText={t => {
+              setApInviteToken(t);
+              setApInvitePreview('');
+            }}
+            placeholder={t('login.accueilpro.placeholder')}
+            placeholderTextColor={Colors.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TouchableOpacity
+            style={s.btnSecondary}
+            disabled={apInviteBusy}
+            onPress={async () => {
+              setApInviteBusy(true);
+              try {
+                const r = await previewAccueilProInvitation(apInviteToken);
+                if (!r.ok) {
+                  Alert.alert(
+                    t('login.accueilpro.errorTitle'),
+                    accueilProInviteErrMessage(r.error, r.message)
+                  );
+                  setApInvitePreview('');
+                  return;
+                }
+                const roleLabel =
+                  r.invitedRole === ACCUEILPRO_ORGANISATEUR_ROLE
+                    ? t('login.accueilpro.role.organisateur')
+                    : t('login.accueilpro.role.client');
+                setApInvitePreview(t('login.accueilpro.previewLine', { name: r.organizationName, role: roleLabel }));
+              } finally {
+                setApInviteBusy(false);
+              }
+            }}
+          >
+            {apInviteBusy ? (
+              <ActivityIndicator color={Colors.green} />
+            ) : (
+              <Text style={s.btnSecondaryTxt}>{t('login.accueilpro.preview')}</Text>
+            )}
+          </TouchableOpacity>
+          {apInvitePreview ? (
+            <Text style={[s.subSmall, { color: Colors.green, marginBottom: 10 }]}>{apInvitePreview}</Text>
+          ) : null}
+          {sbUser ? (
+            <TouchableOpacity
+              style={s.btnSecondary}
+              disabled={apInviteBusy}
+              onPress={async () => {
+                setApInviteBusy(true);
+                try {
+                  const r = await finalizeAccueilProInvitation(apInviteToken);
+                  if (!r.ok) {
+                    Alert.alert(
+                      t('login.accueilpro.errorTitle'),
+                      accueilProInviteErrMessage(r.error, r.message)
+                    );
+                    return;
+                  }
+                  await refreshProfile();
+                  Alert.alert(t('login.supabase.alertTitle'), t('login.accueilpro.done'));
+                } finally {
+                  setApInviteBusy(false);
+                }
+              }}
+            >
+              <Text style={s.btnSecondaryTxt}>{t('login.accueilpro.finalize')}</Text>
+            </TouchableOpacity>
+          ) : (
+            <Text style={[s.subSmall, { marginBottom: 12 }]}>{t('login.accueilpro.needSignIn')}</Text>
           )}
         </>
       ) : null}
 
-      <Text style={s.section}>Sur cet appareil</Text>
-      <Text style={s.subSmall}>PIN à 4 chiffres (admin par défaut : 1234)</Text>
+      <Text style={s.section}>{t('login.device.section')}</Text>
+      <Text style={s.subSmall}>{t('login.device.pinHint')}</Text>
 
-      <Text style={s.label}>Utilisateur</Text>
+      <Text style={s.label}>{t('login.device.userLabel')}</Text>
       <View style={s.chips}>
         {users.map(u => (
           <TouchableOpacity
@@ -289,13 +392,13 @@ export default function LoginScreen() {
             onPress={() => setUserId(u.id)}
           >
             <Text style={[s.chipTxt, userId === u.id && s.chipTxtOn]}>
-              {u.nom} · {u.role}
+              {u.nom} · {t(roleLabelKey(u.role))}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      <Text style={s.label}>Code PIN</Text>
+      <Text style={s.label}>{t('login.device.pinLabel')}</Text>
       <TextInput
         style={s.input}
         value={pin}
@@ -303,7 +406,7 @@ export default function LoginScreen() {
         keyboardType="number-pad"
         secureTextEntry
         maxLength={12}
-        placeholder="••••"
+        placeholder={t('login.device.pinPlaceholder')}
         placeholderTextColor={Colors.textMuted}
       />
 
@@ -311,7 +414,7 @@ export default function LoginScreen() {
         {submitting ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={s.btnTxt}>Se connecter</Text>
+          <Text style={s.btnTxt}>{t('login.device.submit')}</Text>
         )}
       </TouchableOpacity>
     </ScrollView>

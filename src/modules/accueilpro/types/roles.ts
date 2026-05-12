@@ -7,7 +7,7 @@ export type AccueilProStaffRole = (typeof ACCUEILPRO_STAFF_ROLES)[number];
 
 export const ACCUEILPRO_CLIENT_ROLE = 'client' as const;
 
-/** Rôle transverse (prompt intégration) : lecture large événements — hors du scope RLS actuel ; à brancher via policies dédiées. */
+/** Rôle portail : même périmètre RLS que `client` (voir `ap_get_user_role()` côté Supabase). */
 export const ACCUEILPRO_ORGANISATEUR_ROLE = 'organisateur' as const;
 
 export type AccueilProKnownRole =

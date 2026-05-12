@@ -18,7 +18,7 @@ export const USER_GUIDE_META = {
   subtitle: 'Guide complet avec exemples',
   /** Repère de fraîcheur du texte (à ajuster quand le manuel est réaligné sur l’app). */
   versionLabel:
-    '12 mai 2026 (AccueilPro : portail client associations / rôles Supabase + checklist ; sync inchangée)',
+    '12 mai 2026 (AccueilPro : invitations portail + rôle organisateur en RLS ; bucket documents ; sync inchangée)',
 };
 
 export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
@@ -298,7 +298,8 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
     paragraphs: [
       'Un second module « AccueilPro » (salles, événements, conventions) est prévu dans la suite. Les associations et entreprises qui travaillent avec votre lieu disposeront d’un compte à accès limité : elles pourront créer et modifier les informations de leur structure, les contacts référents (rôles, coordonnées) et importer leurs documents (assurance, programme, rider, etc.).',
       'Le planning, le détail des événements, les conventions, les états des lieux, les informations techniques des salles et l’équipe du lieu restent en consultation seule pour ces comptes : toute demande de changement passe par l’équipe du lieu.',
-      'Les droits effectifs sont appliqués côté serveur (politiques d’accès sur la base Supabase). Le champ de rôle attendu pour le personnel du lieu dans le profil Supabase auth inclut notamment : admin, régisseur, technicien, accueil ; le compte client utilise le rôle client (ou l’absence de rôle métier équivalent).',
+      'Les droits effectifs sont appliqués côté serveur (politiques d’accès sur la base Supabase). Le personnel du lieu utilise notamment les rôles admin, régisseur, technicien, accueil. Le portail association / entreprise utilise le rôle client ; le rôle organisateur donne le même périmètre lecture / édition restreinte (événements et conventions liés à l’organisation, pas l’équipe du lieu).',
+      'Invitation portail : l’équipe crée une invitation sur le serveur (e-mail + organisation). Sur l’écran de connexion, section Supabase : vérifiez le code, connectez-vous avec le même e-mail que sur l’invitation, puis « Finaliser » pour lier le compte. Les documents importés peuvent aller dans le bucket Storage privé `client-documents` (dossier = identifiant organisation), selon configuration du projet.',
     ],
   },
   {

@@ -8,7 +8,7 @@ export const USER_GUIDE_META_EN = {
   title: 'CATRACK Pro — User guide',
   subtitle: 'Full guide with examples',
   versionLabel:
-    'May 12, 2026 (AccueilPro: client portal for orgs, Supabase roles + checklist; sync unchanged)',
+    'May 12, 2026 (AccueilPro: portal invites, organisateur RLS parity, documents bucket; sync unchanged)',
 };
 
 export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
@@ -271,7 +271,8 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     paragraphs: [
       'A second module “AccueilPro” (venues, events, conventions) is planned. Partner associations and companies get a limited account: they can create and edit their organisation profile, referent contacts (roles and coordinates), and upload documents (insurance, programme, rider, etc.).',
       'Planning, event details, conventions, inspections, technical venue data, and in-house venue staff stay read-only for those accounts; changes go through the venue team.',
-      'Access is enforced on the server (Supabase RLS). Staff roles in Supabase Auth user metadata include admin, régisseur, technicien, accueil; client accounts use role client (or no staff equivalent).',
+      'Access is enforced on the server (Supabase RLS). Venue staff use roles such as admin, régisseur, technicien, accueil. Portal organisations use role client; role organisateur has the same restricted read/write scope (events and conventions linked to the organisation, not venue staff records).',
+      'Invitation flow: your venue creates an invitation on the server (email + organisation). On the sign-in screen, Supabase section: verify the code, sign in with the same email as on the invitation, then Finalize to link the account. Imported documents may use the private Storage bucket client-documents (folder = organisation id), depending on project setup.',
     ],
   },
   {
