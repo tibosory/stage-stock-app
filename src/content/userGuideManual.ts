@@ -17,7 +17,8 @@ export const USER_GUIDE_META = {
   title: 'CATRACK Pro — Manuel utilisateur',
   subtitle: 'Guide complet avec exemples',
   /** Repère de fraîcheur du texte (à ajuster quand le manuel est réaligné sur l’app). */
-  versionLabel: '6 mai 2026 (connexion auto + diagnostic guide)',
+  versionLabel:
+    '12 mai 2026 (AccueilPro : portail client associations / rôles Supabase + checklist ; sync inchangée)',
 };
 
 export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
@@ -196,26 +197,28 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
     title: 'Réseau, connexion et synchronisation',
     paragraphs: [
       'Serveur local (Wi-Fi), HTTPS distant, ou tunnel : saisie d’URL, test ping et test synchro snapshot.',
-      'Découverte automatique possible sur le LAN. Supabase reste optionnel (photos/notices et mode double backend) : même désactivé, la sync API CATRACK Pro continue de fonctionner.',
+      'Installations serveur officiellement supportées sans aide d’un informaticien : PC Windows 10/11 via l’installateur One-Click, ou Docker (Linux/macOS/Windows WSL2). Autres cas (NAS, ARM, Linux sans Docker) : nécessitent un accompagnement, demandez au support avant de promettre une mise en service rapide.',
+      'Découverte automatique possible sur le LAN. Si Supabase est configuré sur l’appareil, la synchronisation cloud (push/pull inventaire) s’exécute dès que l’Internet est disponible ; lorsque le serveur CATRACK Pro (PC) est joignable sur le réseau, une seconde synchro API aligne aussi le PC (pas d’interrupteur supplémentaire). Sans Supabase, seule la sync API CATRACK Pro s’applique ; les photos/notices vers Storage restent optionnelles selon votre câblage.',
       'Si Supabase est configuré, une tâche quotidienne en arrière-plan tente une synchronisation automatique (push/pull) pour maintenir l’activité du projet, y compris quand l’application n’est pas au premier plan.',
       'Dans l’assistant d’installation serveur (Android), l’app récupère l’installateur Windows `.exe` depuis la release configurée : le nom du fichier peut varier selon la version.',
       'Aide QR de jumelage : ouvrez `/pair` (ou `/pair.html`) sur le serveur, scannez le QR puis validez l’ouverture dans l’app ; l’URL réseau est enregistrée automatiquement.',
-      'Sur installation Windows récente, le port serveur par défaut est 8095 (recommandé) pour simplifier la connexion mobile.',
-      'Sur les installations locales, la page de jumelage détecte automatiquement le bon port API actif du backend (ex. 8095, 3847, 8090-8110) avant de construire le lien `stagestock://pair`.',
-      'Au retour au premier plan, l’app tente pousser puis tirer les données si le réseau est joignable (silencieux si échec).',
-      'Le serveur Windows inclut aussi un script de désinstallation complète (raccourci bureau) pour retirer service, tâches planifiées, règles pare-feu et raccourcis.',
+      'Sur installation Windows récente, le port serveur par défaut est 8091 (recommandé) pour simplifier la connexion mobile ; l’ancien 8095 reste encore souvent utilisé après migration.',
+      'Sur les installations locales, la page de jumelage détecte le bon port API (sonde `/health` de type Stage Stock) et, si `PAIRING_PUBLIC_BASE` mentionne l’IP LAN avec un port obsolète du `.env`, le serveur force le port réellement écouté pour le QR et le texte affiché.',
+      'Sur le PC Windows, les raccourcis bureau « Tableau serveur » et « Jumelage téléphone (QR) » ouvrent le navigateur via un petit script : il teste `/health` (réponse JSON `status: ok`) sur le port du `.env` puis une plage habituelle, pour éviter de viser un autre service qui répondrait simplement en HTTP 200.',
+      'Au retour au premier plan, l’app tente d’abord Supabase (si projet renseigné + en ligne), puis l’API inventaire sur le PC si l’URL répond (silencieux si échec).',
+      'Le serveur Windows ajoute un raccourci bureau de désinstallation (.lnk vers un script CMD, pas une page navigateur). Windows demande normalement une élévation administrateur : acceptez-la pour retirer la tâche planifiée et les règles pare-feu. La fenêtre se met en pause à la fin pour laisser le temps de lire le résumé (ou en cas d’erreur).',
     ],
   },
   {
     icon: '🧭',
     title: 'Schéma synoptique réseau (PC, routeur, téléphone)',
     paragraphs: [
-      'Utilisez ce schéma comme référence de câblage logique pour que CATRACK Pro fonctionne en local :\n\n[Internet optionnel]\n        │\n        ▼\n  [Routeur / Box Wi-Fi]\n      │             │\n      │ LAN/Wi-Fi   │ Wi-Fi\n      ▼             ▼\n[PC Windows]   [Téléphone Android/iOS]\nServeur local  Application CATRACK Pro\nCATRACK Pro   (même réseau local)\nPORT actif     URL: http://IP_PC:PORT\n(8095 / 3847\nou 8090-8110)\n\nFlux principal :\n1) Le téléphone envoie les requêtes vers l’API du PC.\n2) Le PC répond (inventaire, prêts, sync, IA locale si configurée).\n3) Si Supabase est activé, chaque côté peut synchroniser selon les options.',
+      'Utilisez ce schéma comme référence de câblage logique pour que CATRACK Pro fonctionne en local :\n\n[Internet optionnel]\n        │\n        ▼\n  [Routeur / Box Wi-Fi]\n      │             │\n      │ LAN/Wi-Fi   │ Wi-Fi\n      ▼             ▼\n[PC Windows]   [Téléphone Android/iOS]\nServeur local  Application CATRACK Pro\nCATRACK Pro   (même réseau local)\nPORT actif     URL: http://IP_PC:PORT\n(8091 / 8095 / 3847\nou 8090-8110)\n\nFlux principal :\n1) Dès que Supabase est configuré et joignable, l’app synchronise en priorité vers le cloud (selon les options du projet).\n2) Lorsque le PC est sur le LAN et que l’URL API répond, le téléphone exécute aussi une passe vers le serveur CATRACK Pro (snapshot inventaire, prêts, etc.).\n3) Les photos et manuels PDF peuvent utiliser Supabase Storage selon la configuration.',
       'Pré-requis réseau minimum : PC et téléphone sur le même réseau local, pare-feu Windows autorisant le port backend, URL API exacte dans l’app (ou jumelage QR).',
       'Si la connexion échoue : vérifier IP du PC, port actif réel, page `/pair` accessible depuis le téléphone, puis relancer le test « Vérifier la connexion ».',
     ],
     examples: [
-      'Exemple concret : PC = 192.168.1.77, backend actif = 8095 → URL à saisir dans l’app : http://192.168.1.77:8095',
+      'Exemple concret : PC = 192.168.1.77, backend actif = 8091 → URL à saisir dans l’app : http://192.168.1.77:8091',
     ],
   },
   {
@@ -238,7 +241,7 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
       'En édition de fiche stock, si aucun profil dynamique n’est sélectionné, la validation reste classique (sans obligation sur des champs dynamiques spécifiques).',
       'Section « Confort (scanner) » : haptique optionnel quand un scan correspond à une fiche (voir aussi la section Scanner).',
       'Lorsque le mode tournée est actif : raccourcis vers la liste des tournées, l’écran de suivi global et le journal d’activité.',
-      'Dans la section Projet Supabase (profil utilisateur), un bouton permet de télécharger/partager un fichier `.sql` prêt à coller dans Supabase SQL Editor pour initialiser rapidement les tables minimales.',
+      'Dans la section Projet Supabase (profil utilisateur), un bouton permet de télécharger/partager un fichier `.sql` prêt à coller dans Supabase (menu gauche → SQL Editor). Sur le dépôt, le script court `StageStock/supabase/patch_mobile_sync_tables_timestamps.sql` reprend uniquement les `ALTER`/`UPDATE` pour un projet déjà créé sans `updated_at`. Seul un compte connecté sur votre projet peut exécuter ce SQL (l’assistant ne peut pas le faire à votre place).',
       'Section « Langue » : changement immédiat de la langue d’interface sans redémarrer l’app.',
     ],
   },
@@ -270,7 +273,8 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
     paragraphs: [
       'En mode application locale (non SaaS), le bouton « Envoyer » reste actif dès qu’un texte est saisi ; en mode SaaS, il suit le feature flag « saas.ai ».',
       'La zone de recherche du menu principal envoie vers l’assistant quand le réseau est OK, sinon vers la recherche rapide locale.',
-      'En cas de modèle IA lent, le serveur tente automatiquement un modèle local plus rapide si disponible, puis affiche une erreur plus courte (sans blocage long) si aucun moteur ne répond.',
+      'Modèle IA conseillé côté PC : llama3.2:1b (≈ 1.3 Go, réponse en 1 à 3 secondes même sur machine modeste). À télécharger une fois avec : ollama pull llama3.2:1b. Pour plus de précision (et plus de latence), basculer sur llama3.2:3b ou mistral en éditant OLLAMA_MODEL dans le .env serveur.',
+      'En cas de modèle IA lent sur le PC, le serveur tente automatiquement un modèle local plus rapide parmi ceux déjà téléchargés (Ollama) ; sinon message d’erreur clair après un délai (environ deux minutes max côté app). Sur PC très lent, augmentez OLLAMA_TIMEOUT_MS dans le .env du serveur et consultez GET /diagnostic sur le PC.',
     ],
   },
   {
@@ -286,6 +290,15 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
     title: 'Recherche rapide',
     paragraphs: [
       'Écran Recherche locale : résultats instantanés sur la base ; une couche IA peut enrichir en arrière-plan sans bloquer.',
+    ],
+  },
+  {
+    icon: '🏛️',
+    title: 'AccueilPro — portail client (en préparation)',
+    paragraphs: [
+      'Un second module « AccueilPro » (salles, événements, conventions) est prévu dans la suite. Les associations et entreprises qui travaillent avec votre lieu disposeront d’un compte à accès limité : elles pourront créer et modifier les informations de leur structure, les contacts référents (rôles, coordonnées) et importer leurs documents (assurance, programme, rider, etc.).',
+      'Le planning, le détail des événements, les conventions, les états des lieux, les informations techniques des salles et l’équipe du lieu restent en consultation seule pour ces comptes : toute demande de changement passe par l’équipe du lieu.',
+      'Les droits effectifs sont appliqués côté serveur (politiques d’accès sur la base Supabase). Le champ de rôle attendu pour le personnel du lieu dans le profil Supabase auth inclut notamment : admin, régisseur, technicien, accueil ; le compte client utilise le rôle client (ou l’absence de rôle métier équivalent).',
     ],
   },
   {

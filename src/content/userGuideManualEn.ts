@@ -7,7 +7,8 @@ import type { UserGuideSection } from './userGuideManual';
 export const USER_GUIDE_META_EN = {
   title: 'CATRACK Pro — User guide',
   subtitle: 'Full guide with examples',
-  versionLabel: 'May 6, 2026 (auto connect + guided diagnostics)',
+  versionLabel:
+    'May 12, 2026 (AccueilPro: client portal for orgs, Supabase roles + checklist; sync unchanged)',
 };
 
 export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
@@ -186,25 +187,27 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     title: 'Network, connection and sync',
     paragraphs: [
       'Local Wi-Fi HTTPS or tunnel: URL entry, ping and snapshot sync tests.',
-      'LAN discovery may be enabled. Supabase is optional (photos/manuals/dual-backend); CATRACK Pro API sync still works without it.',
+      'Officially supported server installs without IT help: Windows 10/11 via the One-Click installer, or Docker (Linux/macOS/Windows WSL2). Other targets (NAS, ARM, Linux without Docker) need support assistance — do not promise plug-and-play deployment for those.',
+      'LAN discovery may be enabled. If Supabase is configured on the device, cloud inventory sync (push/pull) runs whenever Internet is available; when the CATRACK Pro server (PC) is reachable on the LAN, a second API sync updates the PC as well (no extra switch). Without Supabase, only CATRACK Pro API sync applies; photo/manual uploads to Storage remain optional.',
       'If configured, a daily background task tries auto push/pull.',
       'Server install assistant may fetch the Windows `.exe` from configured release; filenames vary by version.',
       'Pairing QR: open `/pair` on the server, scan, confirm opening in-app; URL is saved.',
-      'Recent Windows installs default backend port 8095 for simpler mobile URLs.',
-      'Pairing detects the active API port locally before building `stagestock://pair`.',
-      'On foreground, the app may silent push/pull if reachable.',
-      'Windows uninstall script removes service, scheduled tasks, firewall rules and shortcuts.',
+      'Recent Windows installs default backend port 8091 for simpler mobile URLs; 8095 is still common on older setups.',
+      'Pairing probes a Stage-Stock-style `/health` response and, if `PAIRING_PUBLIC_BASE` lists the LAN IP with a stale `.env` port while Node bound another free port, the server overwrites the port for the QR and on-page URL with the real listen port.',
+      'On Windows, the « Server dashboard » and « Phone pairing (QR) » desktop shortcuts launch a small script that checks `/health` for JSON `status: ok` starting from `.env`, then scans a usual port range, so generic HTTP servers on wrong ports cannot win.',
+      'On foreground, the app tries Supabase first (if configured + online), then the PC inventory API if reachable (silent on failure).',
+      'Windows adds a real desktop shortcut (.lnk) for uninstall (launcher CMD, not a browser URL). Expect a UAC prompt so the scheduled task and firewall rules can be removed. The console pauses when finished so you can read the summary (or inspect errors).',
     ],
   },
   {
     icon: '🧭',
     title: 'Network diagram (PC, router, phone)',
     paragraphs: [
-      'Reference wiring for LAN use:\n\n[Optional Internet]\n        │\n        ▼\n  [Wi-Fi Router]\n      │             │\n LAN/Wi‑Fi       Wi‑Fi\n      ▼             ▼\n[Windows PC]   [Phone Android/iOS]\nLocal server   CATRACK Pro app\n(active PORT   same LAN\n8095 / 3847\nor 8090-8110)\n\nMain flow:\n1) Phone calls PC API.\n2) PC answers (inventory, loans, sync, local AI if configured).\n3) If Supabase is on, each side may sync per options.',
+      'Reference wiring for LAN use:\n\n[Optional Internet]\n        │\n        ▼\n  [Wi-Fi Router]\n      │             │\n LAN/Wi‑Fi       Wi‑Fi\n      ▼             ▼\n[Windows PC]   [Phone Android/iOS]\nLocal server   CATRACK Pro app\n(active PORT   same LAN\n8091 / 8095 / 3847\nor 8090-8110)\n\nMain flow:\n1) The phone syncs to Supabase first when the project is configured.\n2) When the PC is on the LAN and the API URL responds, the phone also pushes/pulls the CATRACK Pro server (inventory snapshot, loans, etc.).\n3) Photos and PDF manuals may use Supabase Storage depending on setup.',
       'Minimum: PC and phone on same LAN, Windows firewall allows backend port, correct API URL (or pairing QR).',
       'If it fails: check PC IP, real port, `/pair` reachable from phone, rerun connection test.',
     ],
-    examples: ['Example: PC 192.168.1.77, port 8095 → http://192.168.1.77:8095'],
+    examples: ['Example: PC 192.168.1.77, port 8091 → http://192.168.1.77:8091'],
   },
   {
     icon: '⚙️',
@@ -218,7 +221,7 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
       'If no dynamic profile is selected, classic validation still applies.',
       'Comfort (scanner): optional haptics on successful match.',
       'Tour mode shortcuts: tour list, global tracking, activity journal.',
-      'In Supabase project settings (user profile), a button downloads/shares a ready-to-run `.sql` file for quick table initialization in Supabase SQL Editor.',
+      'In Supabase project settings (user profile), a button downloads/shares a `.sql` file to paste into Supabase (left nav → SQL Editor). In the repo, `StageStock/supabase/patch_mobile_sync_tables_timestamps.sql` is the short ALTER/UPDATE-only script for legacy projects missing `updated_at`. Only someone logged into your Supabase project can run it—no automation can execute it for you remotely.',
     ],
   },
   {
@@ -245,7 +248,8 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     paragraphs: [
       'In local app mode Send stays enabled whenever text is present; SaaS mode follows flag saas.ai.',
       'Home search routes to Assistant when network is OK, else Quick local search.',
-      'If an LLM is slow, server may failover to a faster local model before a short timeout error.',
+      'Recommended PC model: llama3.2:1b (~1.3 GB, replies in 1–3 s even on modest hardware). Install once with: ollama pull llama3.2:1b. Switch to llama3.2:3b or mistral via OLLAMA_MODEL in the server .env if you prefer accuracy over latency.',
+      'If the PC model is slow, the server may try another faster downloaded Ollama model when available; otherwise you get a clear error after roughly two minutes (app-side cap). On very weak PCs, raise OLLAMA_TIMEOUT_MS in the server .env and open GET /diagnostic on that PC.',
     ],
   },
   {
@@ -260,6 +264,15 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     icon: '🔍',
     title: 'Quick search',
     paragraphs: ['Local instant results; optional AI enrichment in background without blocking.'],
+  },
+  {
+    icon: '🏛️',
+    title: 'AccueilPro — client portal (in progress)',
+    paragraphs: [
+      'A second module “AccueilPro” (venues, events, conventions) is planned. Partner associations and companies get a limited account: they can create and edit their organisation profile, referent contacts (roles and coordinates), and upload documents (insurance, programme, rider, etc.).',
+      'Planning, event details, conventions, inspections, technical venue data, and in-house venue staff stay read-only for those accounts; changes go through the venue team.',
+      'Access is enforced on the server (Supabase RLS). Staff roles in Supabase Auth user metadata include admin, régisseur, technicien, accueil; client accounts use role client (or no staff equivalent).',
+    ],
   },
   {
     icon: '💾',
