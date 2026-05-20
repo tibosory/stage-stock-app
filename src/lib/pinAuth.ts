@@ -13,3 +13,15 @@ export async function verifyPin(pin: string, storedHash: string): Promise<boolea
   const h = await hashPin(pin);
   return h === storedHash;
 }
+
+/** PIN usine (première connexion) — doit être changé avant usage normal. */
+export const FACTORY_DEFAULT_PIN = '1234';
+
+export function isFactoryDefaultPin(pin: string): boolean {
+  return pin.trim() === FACTORY_DEFAULT_PIN;
+}
+
+export async function storedPinIsFactoryDefault(storedHash: string): Promise<boolean> {
+  const factoryHash = await hashPin(FACTORY_DEFAULT_PIN);
+  return storedHash === factoryHash;
+}

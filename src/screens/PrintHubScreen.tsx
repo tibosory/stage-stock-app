@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
   ScrollView,
 } from 'react-native';
-import { getMateriel, getConsommables } from '../db/database';
+import { getMateriel, getConsommables } from '../db/inventoryDb';
 import { Materiel, Consommable } from '../types';
 import { TabScreenSafeArea, ScreenHeader } from '../components/UI';
 import { Colors } from '../theme/colors';
@@ -15,6 +15,7 @@ import { Typography } from '../theme/typography';
 import BulkQrPrintModal from '../components/BulkQrPrintModal';
 import ShelfLabelsModal from '../components/ShelfLabelsModal';
 import { useAppAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 
 /**
  * Espace « Impression » : raccourcis vers les mêmes flux que le stock (QR groupé, étiquettes),
@@ -22,6 +23,7 @@ import { useAppAuth } from '../context/AuthContext';
  */
 export default function PrintHubScreen() {
   const { can } = useAppAuth();
+  const { t } = useLanguage();
   const editOk = can('edit_inventory');
   const [materiels, setMateriels] = useState<Materiel[]>([]);
   const [consos, setConsos] = useState<Consommable[]>([]);
@@ -50,7 +52,7 @@ export default function PrintHubScreen() {
       <TabScreenSafeArea style={s.container}>
         <View style={s.centered}>
           <ActivityIndicator size="large" color={Colors.green} />
-          <Text style={s.muted}>Chargement des listes…</Text>
+          <Text style={s.muted}>{t('print.loadingLists')}</Text>
         </View>
       </TabScreenSafeArea>
     );
@@ -59,32 +61,30 @@ export default function PrintHubScreen() {
   return (
     <TabScreenSafeArea style={s.container}>
       <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
-        <ScreenHeader icon={<Text style={{ fontSize: 22 }}>🖨</Text>} title="Impression" />
-        <Text style={s.hint}>
-          Même rendu qu’en liste stock ou consommables : étiquettes matériel (QR), bacs, formats courants, rayonnage.
-        </Text>
+        <ScreenHeader icon={<Text style={{ fontSize: 22 }}>🖨</Text>} title={t('print.hubTitle')} />
+        <Text style={s.hint}>{t('print.hubIntro')}</Text>
 
         {editOk ? (
           <>
             <TouchableOpacity style={[s.card, s.cardPrimary]} onPress={() => setShowBulk(true)} activeOpacity={0.85}>
               <Text style={s.cardIcon}>🖨</Text>
-              <Text style={s.cardTitle}>Impression QR (plusieurs matériels)</Text>
-              <Text style={s.cardSub}>Sélection, formats d’étiquettes, A4 / A3</Text>
+              <Text style={s.cardTitle}>{t('print.qrBulk')}</Text>
+              <Text style={s.cardSub}>{t('print.qrBulkSub')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.card} onPress={() => setShowShelfMat(true)} activeOpacity={0.85}>
               <Text style={s.cardIcon}>🏷</Text>
-              <Text style={s.cardTitle}>Étiquettes rayonnage (matériel)</Text>
-              <Text style={s.cardSub}>{materiels.length} ligne(s) disponible(s) depuis le stock</Text>
+              <Text style={s.cardTitle}>{t('print.shelfMat')}</Text>
+              <Text style={s.cardSub}>{t('print.shelfMatSub', { count: materiels.length })}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.card} onPress={() => setShowShelfConso(true)} activeOpacity={0.85}>
               <Text style={s.cardIcon}>🏷</Text>
-              <Text style={s.cardTitle}>Étiquettes rayonnage (consommables)</Text>
-              <Text style={s.cardSub}>{consos.length} consommable(s)</Text>
+              <Text style={s.cardTitle}>{t('print.shelfConso')}</Text>
+              <Text style={s.cardSub}>{t('print.shelfConsoSub', { count: consos.length })}</Text>
             </TouchableOpacity>
           </>
         ) : (
           <Text style={s.denied}>
-            L’impression d’étiquettes est réservée aux comptes autorisés à modifier l’inventaire.
+            {t('print.denied')}
           </Text>
         )}
       </ScrollView>
@@ -93,7 +93,7 @@ export default function PrintHubScreen() {
       <ShelfLabelsModal
         visible={showShelfMat}
         onClose={() => setShowShelfMat(false)}
-        title="Étiquettes rayonnage (stock)"
+        title={t('print.shelfModalMat')}
         items={materiels.map(m => ({
           id: m.id,
           title: m.nom,
@@ -109,7 +109,7 @@ export default function PrintHubScreen() {
       <ShelfLabelsModal
         visible={showShelfConso}
         onClose={() => setShowShelfConso(false)}
-        title="Étiquettes rayonnage (consommables)"
+        title={t('print.shelfModalConso')}
         items={consos.map(c => ({
           id: c.id,
           title: c.nom,

@@ -2,15 +2,15 @@ import { Platform, TextStyle } from 'react-native';
 import { Colors } from './colors';
 
 const FONT_REGULAR = Platform.select({
-  ios: 'Avenir Next',
-  android: 'sans-serif',
-  default: 'System',
+  ios: 'Roboto_400Regular',
+  android: 'Roboto_400Regular',
+  default: 'Roboto_400Regular',
 });
 
 const FONT_MEDIUM = Platform.select({
-  ios: 'Avenir Next',
-  android: 'sans-serif-medium',
-  default: 'System',
+  ios: 'Roboto_500Medium',
+  android: 'Roboto_500Medium',
+  default: 'Roboto_500Medium',
 });
 
 /**
@@ -46,6 +46,15 @@ export const Typography = {
     fontWeight: '400' as const,
     fontFamily: FONT_REGULAR,
     lineHeight: 20,
+    color: Colors.textSecondary,
+  } satisfies TextStyle,
+
+  /** Sous-titre d’écran : contexte sous le titre principal (lisible, pas trop discret). */
+  screenIntro: {
+    fontSize: 14,
+    fontWeight: '400' as const,
+    fontFamily: FONT_REGULAR,
+    lineHeight: 21,
     color: Colors.textSecondary,
   } satisfies TextStyle,
 

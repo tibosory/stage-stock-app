@@ -40,7 +40,7 @@ function buildHtml(rows: ShelfLabelRow[], orgHeader: string): string {
     @page { size: A4 portrait; margin: 6mm; }
     * { box-sizing: border-box; }
     body {
-      font-family: "Inter", "Segoe UI", Arial, sans-serif;
+      font-family: "Times New Roman", Times, Arial, sans-serif;
       color: #111827;
       margin: 0;
       -webkit-print-color-adjust: exact;

@@ -29,8 +29,12 @@ export type AssistantAskError = {
   message?: string;
 };
 
-/** Délai max côté app (réponse IA + Ollama). Réduit pour feedback plus rapide en cas de blocage ; côté serveur : OLLAMA_TIMEOUT_MS. */
-const ASSISTANT_FETCH_TIMEOUT_MS = 120_000;
+/**
+ * Délai max côté app : au-dessus du timeout Ollama par défaut côté serveur (120 s + marge réseau / JSON).
+ * Si vous augmentez OLLAMA_TIMEOUT_MS ou OLLAMA_MAX_MODEL_TRIES sur le PC, allongez ce délai en conséquence.
+ * Invariant : ASSISTANT_FETCH_TIMEOUT_MS > OLLAMA_TIMEOUT_MS × OLLAMA_MAX_MODEL_TRIES.
+ */
+const ASSISTANT_FETCH_TIMEOUT_MS = 150_000;
 
 /**
  * POST /ask — même base URL et clé API que la sync (Réseau / .env).
@@ -51,7 +55,20 @@ export async function postAssistantAsk(
     body.context = opts.context.trim().slice(0, 5000);
   }
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), ASSISTANT_FETCH_TIMEOUT_MS);
+  let hardTimeoutId: ReturnType<typeof setTimeout> | undefined;
+  const hardTimeoutPromise = new Promise<never>((_, reject) => {
+    hardTimeoutId = setTimeout(() => {
+      try {
+        ac.abort();
+      } catch {
+        /* ignore */
+      }
+      const err = new Error('assistant_hard_timeout');
+      err.name = 'AbortError';
+      reject(err);
+    }, ASSISTANT_FETCH_TIMEOUT_MS);
+  });
+
   const doFetch = (h: Record<string, string>) =>
     fetch(url, {
       method: 'POST',
@@ -59,9 +76,12 @@ export async function postAssistantAsk(
       body: JSON.stringify(body),
       signal: ac.signal,
     });
+
+  const raceFetch = (h: Record<string, string>) => Promise.race([doFetch(h), hardTimeoutPromise]);
+
   let res: Response;
   try {
-    res = await doFetch(headers);
+    res = await raceFetch(headers);
     /** Jeton cloud périmé : une seconde tentative sans JWT, avec la clé API seule. */
     if (res.status === 401) {
       await setAccessToken(null);
@@ -70,7 +90,7 @@ export async function postAssistantAsk(
       if (opts?.userId) {
         headers2['X-User-Id'] = opts.userId;
       }
-      res = await doFetch(headers2);
+      res = await raceFetch(headers2);
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -82,12 +102,12 @@ export async function postAssistantAsk(
         ok: false,
         status: 0,
         body:
-          'Délai dépassé (~2 min). Ollama sur le PC peut être lent (CPU, premier chargement du modèle). Vérifiez Ollama, un modèle plus léger (ex. llama3.2:3b dans .env), /diagnostic sur le serveur, ou une question plus courte.',
+          'Délai dépassé (~2 min 30). Le serveur IA est lent ou indisponible. Réessayez, puis ouvrez /diagnostic sur le PC, vérifiez Ollama (ollama serve, ollama pull du modèle) et l’URL backend ; sur PC lent, augmentez OLLAMA_TIMEOUT_MS dans le .env du serveur.',
       };
     }
     return { ok: false, status: 0, body: msg };
   } finally {
-    clearTimeout(timer);
+    if (hardTimeoutId) clearTimeout(hardTimeoutId);
   }
   const text = await res.text();
   let parsed: unknown;

@@ -1,11 +1,12 @@
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
-import { updateAppUserExpoPushToken } from '../db/database';
+import { updateAppUserExpoPushToken } from '../db/userDb';
 import type { AppUser } from '../types';
 
 /** Enregistre le jeton push sur le compte (admin, technicien, emprunteur) pour les notifications. */
 export async function registerStaffExpoPushToken(user: AppUser): Promise<void> {
   try {
+    if (Constants.appOwnership === 'expo') return;
     const { status: existing } = await Notifications.getPermissionsAsync();
     let finalStatus = existing;
     if (existing !== 'granted') {

@@ -13,16 +13,60 @@ function trimSlash(u: string): string {
   return u.replace(/\/+$/, '');
 }
 
+const ABSOLUTE_SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
+const HOST_WITH_OPTIONAL_PORT_RE =
+  /^(localhost|(\d{1,3}\.){3}\d{1,3}|\[[0-9a-f:]+\]|[a-z0-9.-]+)(:\d+)?(\/.*)?$/i;
+
+/**
+ * Normalise une saisie utilisateur d'URL API.
+ * - Accepte `192.168.1.77:8090` et le convertit en `http://192.168.1.77:8090`
+ * - Conserve les URL `http://`/`https://` explicites
+ */
+/**
+ * Supprime un suffixe `/api` en fin d’URL serveur.
+ * L’app construit les chemins elle‑même (`/api/sync/...`, `/ask`, `/health`) à partir de la **racine** du backend
+ * (ex. `http://192.168.1.20:8091`). Si l’utilisateur saisit `http://…/api`, sans correction on obtient `/api/ask` → 404.
+ */
+export function stripStageStockServerRootSuffix(url: string): string {
+  const t = url.trim().replace(/\/+$/, '');
+  if (!t) return '';
+  if (/\/api$/i.test(t)) {
+    return t.replace(/\/api$/i, '').replace(/\/+$/, '');
+  }
+  return t;
+}
+
+export function normalizeHttpBaseUrl(input: string): string | null {
+  const t = input.trim();
+  if (!t) return null;
+  let candidate = t;
+  if (!ABSOLUTE_SCHEME_RE.test(candidate)) {
+    if (!HOST_WITH_OPTIONAL_PORT_RE.test(candidate)) return null;
+    candidate = `http://${candidate}`;
+  }
+  try {
+    const u = new URL(candidate);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    if (!u.hostname) return null;
+    return trimSlash(u.toString());
+  } catch {
+    return null;
+  }
+}
+
 export async function getApiBaseOverride(): Promise<string | null> {
   const v = (await AsyncStorage.getItem(K_BASE))?.trim();
-  return v || null;
+  if (!v) return null;
+  const raw = normalizeHttpBaseUrl(v) ?? trimSlash(v);
+  return stripStageStockServerRootSuffix(raw);
 }
 
 export async function setApiBaseOverride(url: string | null): Promise<void> {
   if (!url?.trim()) {
     await AsyncStorage.removeItem(K_BASE);
   } else {
-    await AsyncStorage.setItem(K_BASE, trimSlash(url.trim()));
+    const normalized = normalizeHttpBaseUrl(url) ?? trimSlash(url.trim());
+    await AsyncStorage.setItem(K_BASE, stripStageStockServerRootSuffix(normalized));
   }
   invalidateQuickReachabilityCache();
 }
@@ -76,7 +120,9 @@ export async function clearAllApiEndpointOverrides(): Promise<void> {
 
 export async function getSecondaryApiBase(): Promise<string | null> {
   const v = (await AsyncStorage.getItem(K_SECONDARY_BASE))?.trim();
-  return v || null;
+  if (!v) return null;
+  const raw = normalizeHttpBaseUrl(v) ?? trimSlash(v);
+  return stripStageStockServerRootSuffix(raw);
 }
 
 export async function setSecondaryApiBase(url: string | null): Promise<void> {
@@ -84,7 +130,8 @@ export async function setSecondaryApiBase(url: string | null): Promise<void> {
     await AsyncStorage.removeItem(K_SECONDARY_BASE);
     return;
   }
-  await AsyncStorage.setItem(K_SECONDARY_BASE, trimSlash(url.trim()));
+  const normalized = normalizeHttpBaseUrl(url) ?? trimSlash(url.trim());
+  await AsyncStorage.setItem(K_SECONDARY_BASE, stripStageStockServerRootSuffix(normalized));
 }
 
 export async function getSecondaryApiKey(): Promise<string | null> {
@@ -102,6 +149,5 @@ export async function setSecondaryApiKey(key: string | null): Promise<void> {
 
 /** Validation minimale : schéma http(s) et au moins une autorité. */
 export function looksLikeHttpUrl(s: string): boolean {
-  const t = s.trim();
-  return /^https?:\/\/.+/i.test(t) && t.length > 10;
+  return normalizeHttpBaseUrl(s) !== null;
 }

@@ -1,16 +1,25 @@
 // App.tsx
 import 'react-native-url-polyfill/auto';
 import './src/lib/systemNotificationSetup';
+import './src/lib/supabaseKeepAliveBackground';
 import React, { useCallback, useEffect, useState, type PropsWithChildren } from 'react';
 import {
   View,
   Text,
+  TextInput,
   ActivityIndicator,
   StyleSheet,
   Platform,
   Pressable,
+  InteractionManager,
   type ViewStyle,
 } from 'react-native';
+import { useFonts } from 'expo-font';
+import {
+  Roboto_400Regular,
+  Roboto_500Medium,
+  Roboto_700Bold,
+} from '@expo-google-fonts/roboto';
 import { NavigationContainer } from '@react-navigation/native';
 import {
   createBottomTabNavigator,
@@ -25,13 +34,31 @@ import { enableScreens } from 'react-native-screens';
 
 enableScreens(true);
 
-import { initDB, getPrets, getMateriel, getConsommablesAlerte } from './src/db/database';
+const RNText = Text as unknown as { defaultProps?: { style?: unknown } };
+RNText.defaultProps = RNText.defaultProps || {};
+RNText.defaultProps.style = [
+  {
+    fontFamily: 'Roboto_400Regular',
+  },
+  RNText.defaultProps.style,
+];
+const RNTextInput = TextInput as unknown as { defaultProps?: { style?: unknown } };
+RNTextInput.defaultProps = RNTextInput.defaultProps || {};
+RNTextInput.defaultProps.style = [
+  {
+    fontFamily: 'Roboto_400Regular',
+  },
+  RNTextInput.defaultProps.style,
+];
+
+import { initDB } from './src/db/database';
+import { getPrets } from './src/db/loanDb';
+import { getMateriel, getConsommablesAlerte } from './src/db/inventoryDb';
 import { initSupabaseFromStorage } from './src/lib/supabase';
 import { Colors } from './src/theme/colors';
 import { AppAuthProvider, useAppAuth } from './src/context/AuthContext';
 import { AuthProvider } from './src/context/AuthProvider';
-import { SpecialtyProvider } from './src/context/SpecialtyContext';
-import { SyncSettingsProvider } from './src/context/SyncSettingsContext';
+import { useAuth as useSupabaseAuth } from './src/context/AuthProvider';
 import { NetworkStatusProvider } from './src/context/NetworkStatusContext';
 import {
   reschedulePretReturnReminders,
@@ -48,27 +75,18 @@ import {
 } from './src/lib/foregroundInventorySync';
 import { ConnectionProvider } from './src/context/ConnectionContext';
 import { PairingDeepLinkSubscriber } from './src/components/PairingDeepLinkSubscriber';
+import { MustChangeDefaultPinModal } from './src/components/MustChangeDefaultPinModal';
 import { isConsumerApp } from './src/config/appMode';
 
 import ScannerScreen from './src/screens/ScannerScreen';
 import PretsScreen from './src/screens/PretsScreen';
 import ConsommablesScreen from './src/screens/ConsommablesScreen';
-import AlertesScreen from './src/screens/AlertesScreen';
-import ParamsScreen from './src/screens/ParamsScreen';
-import NetworkScreen from './src/screens/NetworkScreen';
 import LoginScreen from './src/screens/LoginScreen';
-import EmprunteurCompteScreen from './src/screens/EmprunteurCompteScreen';
 import DemandePretScreen from './src/screens/DemandePretScreen';
-import HistoriqueStockScreen from './src/screens/HistoriqueStockScreen';
-import NoticeUtilisateurScreen from './src/screens/NoticeUtilisateurScreen';
-import AssistantScreen from './src/screens/AssistantScreen';
 import MenuHubScreen from './src/screens/MenuHubScreen';
-import UserProfileScreen from './src/screens/UserProfileScreen';
-import ImportExportScreen from './src/screens/ImportExportScreen';
 import ActivityHomeScreen from './src/screens/ActivityHomeScreen';
 import WorkspaceOnboardingScreen from './src/screens/WorkspaceOnboardingScreen';
-import QuickSearchScreen from './src/screens/QuickSearchScreen';
-import { hasCompletedWorkspaceOnboarding } from './src/lib/workspaceOnboardingStorage';
+import { hasCompletedWorkspaceOnboarding, hasVerifiedServerPairing } from './src/lib/workspaceOnboardingStorage';
 import { StockStackNavigator, VgpStackNavigator } from './src/navigation/screenStacks';
 import {
   WorkspaceStock,
@@ -89,6 +107,10 @@ import { ConnectionStatusBanner } from './src/components/ConnectionStatusBanner'
 import { SplashLoadingLogo } from './src/components/SplashLoadingLogo';
 import { Typography } from './src/theme/typography';
 import { Spacing } from './src/theme/spacing';
+import { SaaSRootNavigator } from './src/saas/navigation/SaaSNavigator';
+import { startSyncScheduler } from './src/application/sync/SyncScheduler';
+import { registerSupabaseDailyKeepAliveTask } from './src/lib/supabaseKeepAliveBackground';
+import { LanguageProvider, useLanguage } from './src/context/LanguageContext';
 
 import {
   ScanIcon,
@@ -113,9 +135,10 @@ const GestureRoot = GestureHandlerRootView as React.ComponentType<
 
 const Tab = createBottomTabNavigator();
 const RootStack = createStackNavigator();
+const SAAS_MODE_ENABLED = process.env.EXPO_PUBLIC_SAAS_MODE === 'true';
 
-/** Samsung / Android navigation « 3 boutons » : safe-area bottom souvent 0 — marge mini pour labels + icônes */
-const ANDROID_BOTTOM_NAV_MIN_DP = 52;
+/** Android (3 boutons / gestes) : marge renforcée pour éviter tout chevauchement avec la barre système. */
+const ANDROID_BOTTOM_NAV_MIN_DP = 64;
 
 type TabBarIconNodeProps = {
   routeName: string;
@@ -206,6 +229,7 @@ const TabBarIconNode = React.memo(function TabBarIconNode({
 
 function MainTabs() {
   const { user } = useAppAuth();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const bottomPad =
     Platform.OS === 'android'
@@ -254,25 +278,49 @@ function MainTabs() {
         />
       ),
     }),
-    [bottomPad, tabBarHeight]
+    [bottomPad, tabBarHeight, t]
   );
 
   if (user?.role === 'emprunteur') {
     return (
       <Tab.Navigator screenOptions={screenOptions}>
-        <Tab.Screen name="Prêts" component={PretsScreen} />
-        <Tab.Screen name="MenuHub" component={MenuHubScreen} options={{ tabBarLabel: 'Menu' }} />
-        <Tab.Screen name="Compte" component={EmprunteurCompteScreen} />
-        <Tab.Screen name="Assistant" component={AssistantScreen} options={{ tabBarLabel: 'IA' }} />
-        <Tab.Screen name="Notice" component={NoticeUtilisateurScreen} options={{ tabBarLabel: 'Notice' }} />
+        <Tab.Screen name="Prêts" component={PretsScreen} options={{ tabBarLabel: t('tab.loans') }} />
+        <Tab.Screen name="MenuHub" component={MenuHubScreen} options={{ tabBarLabel: t('tab.menu') }} />
+        <Tab.Screen
+          name="Compte"
+          getComponent={() => require('./src/screens/EmprunteurCompteScreen').default}
+          options={{ tabBarLabel: t('tab.account') }}
+        />
+        <Tab.Screen
+          name="Assistant"
+          getComponent={() => require('./src/screens/AssistantScreen').default}
+          options={{ tabBarLabel: t('tab.ai') }}
+        />
+        <Tab.Screen
+          name="Notice"
+          getComponent={() => require('./src/screens/NoticeUtilisateurScreen').default}
+          options={{ tabBarLabel: t('tab.notice') }}
+        />
         <Tab.Screen
           name="Réseau"
-          component={NetworkScreen}
-          options={{ tabBarLabel: isConsumerApp() ? 'Connexion' : 'Réseau' }}
+          getComponent={() => require('./src/screens/NetworkScreen').default}
+          options={{ tabBarLabel: isConsumerApp() ? t('tab.connection') : t('tab.network') }}
         />
-        <Tab.Screen name="Params" component={ParamsScreen} options={{ tabBarLabel: 'Paramètres' }} />
-        <Tab.Screen name="Utilisateur" component={UserProfileScreen} options={{ tabBarLabel: 'Utilisateur' }} />
-        <Tab.Screen name="ImportExport" component={ImportExportScreen} options={{ tabBarLabel: 'Import / export' }} />
+        <Tab.Screen
+          name="Params"
+          getComponent={() => require('./src/screens/ParamsScreen').default}
+          options={{ tabBarLabel: t('tab.settings') }}
+        />
+        <Tab.Screen
+          name="Utilisateur"
+          getComponent={() => require('./src/screens/UserProfileScreen').default}
+          options={{ tabBarLabel: t('tab.user') }}
+        />
+        <Tab.Screen
+          name="ImportExport"
+          getComponent={() => require('./src/screens/ImportExportScreen').default}
+          options={{ tabBarLabel: t('tab.importExport') }}
+        />
       </Tab.Navigator>
     );
   }
@@ -284,36 +332,60 @@ function MainTabs() {
       /** Onglets centraux (Scanner, Stock, Consom.) montés en priorité pour accès rapide. */
       backBehavior="history"
     >
-      <Tab.Screen name="Scanner" component={ScannerScreen} options={{ tabBarLabel: 'Scan' }} />
-      <Tab.Screen name="Stock" component={StockStackNavigator} />
-      <Tab.Screen name="Consom." component={ConsommablesScreen} options={{ tabBarLabel: 'Consom.' }} />
-      <Tab.Screen name="Prêts" component={PretsScreen} />
+      <Tab.Screen name="Scanner" component={ScannerScreen} options={{ tabBarLabel: t('tab.scan') }} />
+      <Tab.Screen name="Stock" component={StockStackNavigator} options={{ tabBarLabel: t('tab.stock') }} />
+      <Tab.Screen name="Consom." component={ConsommablesScreen} options={{ tabBarLabel: t('tab.consumables') }} />
+      <Tab.Screen name="Prêts" component={PretsScreen} options={{ tabBarLabel: t('tab.loans') }} />
       {user?.role === 'admin' && (
-        <Tab.Screen name="Demandes" component={DemandePretScreen} options={{ tabBarLabel: 'Demandes' }} />
+        <Tab.Screen name="Demandes" component={DemandePretScreen} options={{ tabBarLabel: t('tab.requests') }} />
       )}
-      <Tab.Screen name="MenuHub" component={MenuHubScreen} options={{ tabBarLabel: 'Menu' }} />
+      <Tab.Screen name="MenuHub" component={MenuHubScreen} options={{ tabBarLabel: t('tab.menu') }} />
       <Tab.Screen
         name="Assistant"
-        component={AssistantScreen}
+        getComponent={() => require('./src/screens/AssistantScreen').default}
         options={{
-          tabBarLabel: 'IA',
+          tabBarLabel: t('tab.ai'),
           /** Précharge l’écran IA ; ne pas geler au blur pour rester réactif au retour sur l’onglet. */
           lazy: false,
           freezeOnBlur: false,
         }}
       />
-      <Tab.Screen name="Historique" component={HistoriqueStockScreen} options={{ tabBarLabel: 'Historique' }} />
-      <Tab.Screen name="Alertes" component={AlertesScreen} />
-      <Tab.Screen name="VGP" component={VgpStackNavigator} />
-      <Tab.Screen name="Notice" component={NoticeUtilisateurScreen} options={{ tabBarLabel: 'Notice' }} />
+      <Tab.Screen
+        name="Historique"
+        getComponent={() => require('./src/screens/HistoriqueStockScreen').default}
+        options={{ tabBarLabel: t('tab.history') }}
+      />
+      <Tab.Screen
+        name="Alertes"
+        getComponent={() => require('./src/screens/AlertesScreen').default}
+        options={{ tabBarLabel: t('tab.alerts') }}
+      />
+      <Tab.Screen name="VGP" component={VgpStackNavigator} options={{ tabBarLabel: t('tab.vgp') }} />
+      <Tab.Screen
+        name="Notice"
+        getComponent={() => require('./src/screens/NoticeUtilisateurScreen').default}
+        options={{ tabBarLabel: t('tab.notice') }}
+      />
       <Tab.Screen
         name="Réseau"
-        component={NetworkScreen}
-        options={{ tabBarLabel: isConsumerApp() ? 'Connexion' : 'Réseau' }}
+        getComponent={() => require('./src/screens/NetworkScreen').default}
+        options={{ tabBarLabel: isConsumerApp() ? t('tab.connection') : t('tab.network') }}
       />
-      <Tab.Screen name="Params" component={ParamsScreen} options={{ tabBarLabel: 'Paramètres' }} />
-      <Tab.Screen name="Utilisateur" component={UserProfileScreen} options={{ tabBarLabel: 'Utilisateur' }} />
-      <Tab.Screen name="ImportExport" component={ImportExportScreen} options={{ tabBarLabel: 'Import / export' }} />
+      <Tab.Screen
+        name="Params"
+        getComponent={() => require('./src/screens/ParamsScreen').default}
+        options={{ tabBarLabel: t('tab.settings') }}
+      />
+      <Tab.Screen
+        name="Utilisateur"
+        getComponent={() => require('./src/screens/UserProfileScreen').default}
+        options={{ tabBarLabel: t('tab.user') }}
+      />
+      <Tab.Screen
+        name="ImportExport"
+        getComponent={() => require('./src/screens/ImportExportScreen').default}
+        options={{ tabBarLabel: t('tab.importExport') }}
+      />
     </Tab.Navigator>
   );
 }
@@ -325,8 +397,13 @@ function LoggedInNavigator() {
   useEffect(() => {
     let cancel = false;
     void (async () => {
-      const done = await hasCompletedWorkspaceOnboarding();
-      if (!cancel) setOnboardingInit(done ? 'main' : 'onboarding');
+      const [done, paired] = await Promise.all([
+        hasCompletedWorkspaceOnboarding(),
+        hasVerifiedServerPairing(),
+      ]);
+      if (!cancel) {
+        setOnboardingInit(!paired || !done ? 'onboarding' : 'main');
+      }
     })();
     return () => {
       cancel = true;
@@ -351,7 +428,12 @@ function LoggedInNavigator() {
       <RootStack.Screen name="WorkspaceOnboarding" component={WorkspaceOnboardingScreen} />
       <RootStack.Screen name="ActivityHome" component={ActivityHomeScreen} />
       <RootStack.Screen name="FullApp" component={MainTabs} />
-      <RootStack.Screen name="QuickSearch" component={QuickSearchScreen} />
+      <RootStack.Screen name="QuickSearch" getComponent={() => require('./src/screens/QuickSearchScreen').default} />
+      <RootStack.Screen name="ProfileEditor" getComponent={() => require('./src/screens/ProfileEditorScreen').default} />
+      <RootStack.Screen name="TourList" getComponent={() => require('./src/screens/TourListScreen').default} />
+      <RootStack.Screen name="TourDetail" getComponent={() => require('./src/screens/TourDetailScreen').default} />
+      <RootStack.Screen name="Tracking" getComponent={() => require('./src/screens/TrackingScreen').default} />
+      <RootStack.Screen name="ActivityLog" getComponent={() => require('./src/screens/ActivityLogScreen').default} />
       <RootStack.Screen name="WorkspaceStock" component={WorkspaceStock} />
       <RootStack.Screen name="WorkspaceConsommable" component={WorkspaceConsommable} />
       <RootStack.Screen name="WorkspacePret" component={WorkspacePret} />
@@ -402,19 +484,54 @@ function ForegroundInventorySyncSubscriber() {
   return null;
 }
 
+function OfflineSyncSchedulerSubscriber() {
+  const { user } = useAppAuth();
+  useEffect(() => {
+    if (!user) return undefined;
+    return startSyncScheduler(30000);
+  }, [user?.id]);
+  return null;
+}
+
+function SupabaseDailyKeepAliveSubscriber() {
+  const { user } = useAppAuth();
+  useEffect(() => {
+    if (!user) return;
+    void registerSupabaseDailyKeepAliveTask();
+  }, [user?.id]);
+  return null;
+}
+
 function AppNavigation() {
-  const { user, loading: authLoading } = useAppAuth();
+  const { user, loading: authLoading, mustChangeDefaultPin, submitNewPin } = useAppAuth();
 
   useEffect(() => {
     if (!user) return;
-    void (async () => {
-      await requestNotificationPermission();
-      await ensureTrayAndroidChannels();
-    })();
-    getPrets().then(prets => reschedulePretReturnReminders(prets));
-    getMateriel().then(m => rescheduleVgpDueReminders(m));
-    getConsommablesAlerte().then(c => rescheduleSeuilBasReminders(c));
-    void maybeSendAutoAlertEmailsIfNeeded();
+    const interactionTask = InteractionManager.runAfterInteractions(() => {
+      void (async () => {
+        const [prets, mats, seuils] = await Promise.all([
+          getPrets(),
+          getMateriel(),
+          getConsommablesAlerte(),
+        ]);
+        await Promise.all([
+          reschedulePretReturnReminders(prets),
+          rescheduleVgpDueReminders(mats),
+          rescheduleSeuilBasReminders(seuils),
+        ]);
+      })().catch(() => undefined);
+      void maybeSendAutoAlertEmailsIfNeeded();
+    });
+    const notifTimer = setTimeout(() => {
+      void (async () => {
+        await requestNotificationPermission();
+        await ensureTrayAndroidChannels();
+      })().catch(() => undefined);
+    }, 1200);
+    return () => {
+      interactionTask.cancel();
+      clearTimeout(notifTimer);
+    };
   }, [user?.id]);
 
   if (authLoading) {
@@ -448,25 +565,70 @@ function AppNavigation() {
         <ConnectionStatusBanner />
         <View style={{ flex: 1 }}>
           <ForegroundInventorySyncSubscriber />
+          <OfflineSyncSchedulerSubscriber />
+          <SupabaseDailyKeepAliveSubscriber />
           <AutoAlertEmailSubscriber />
           <StatusBar style="light" backgroundColor={Colors.bg} />
           <LoggedInNavigator />
         </View>
+        <MustChangeDefaultPinModal
+          visible={mustChangeDefaultPin}
+          userName={user.nom}
+          onSubmit={submitNewPin}
+        />
       </View>
     </NavigationContainer>
   );
 }
 
-export default function App() {
+function SaaSAppNavigation() {
+  const { loading, session } = useSupabaseAuth();
+  if (loading) {
+    return (
+      <View style={styles.splash}>
+        <SplashLoadingLogo size={120} />
+        <ActivityIndicator color={Colors.green} size="small" style={{ marginTop: Spacing.lg }} />
+      </View>
+    );
+  }
+  return (
+    <NavigationContainer
+      theme={{
+        dark: true,
+        colors: {
+          primary: Colors.green,
+          background: Colors.bg,
+          card: Colors.bgElevated,
+          text: Colors.textPrimary,
+          border: Colors.separator,
+          notification: Colors.red,
+        },
+      }}
+    >
+      <StatusBar style="light" backgroundColor={Colors.bg} />
+      <SaaSRootNavigator authenticated={Boolean(session)} />
+    </NavigationContainer>
+  );
+}
+
+function AppWithLanguageLoaded() {
+  const [fontsLoaded] = useFonts({
+    Roboto_400Regular,
+    Roboto_500Medium,
+    Roboto_700Bold,
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { t } = useLanguage();
 
   const runInit = useCallback(() => {
     setError(null);
     setLoading(true);
     initDB()
-      .then(() => initSupabaseFromStorage())
-      .then(() => setLoading(false))
+      .then(() => {
+        setLoading(false);
+        void initSupabaseFromStorage().catch(() => undefined);
+      })
       .catch(e => {
         setError(e instanceof Error ? e.message : String(e));
         setLoading(false);
@@ -477,14 +639,14 @@ export default function App() {
     runInit();
   }, [runInit]);
 
-  if (loading) {
+  if (!fontsLoaded || loading) {
     return (
       <View style={styles.splash}>
         <SplashLoadingLogo size={140} style={{ marginBottom: Spacing.md }} />
         <Text style={styles.splashTitle} accessibilityRole="header">
-          Stage Stock
+          {t('app.splash.productName')}
         </Text>
-        <Text style={styles.splashSubtitle}>Initialisation de la base locale…</Text>
+        <Text style={styles.splashSubtitle}>{t('app.initDb')}</Text>
         <ActivityIndicator color={Colors.green} size="small" style={{ marginTop: Spacing.lg }} />
       </View>
     );
@@ -493,19 +655,16 @@ export default function App() {
   if (error) {
     return (
       <View style={styles.splash} accessibilityRole="alert">
-        <Text style={styles.splashTitle}>Base de données</Text>
+        <Text style={styles.splashTitle}>{t('app.dbErrorTitle')}</Text>
         <Text style={styles.errorDetail}>{error}</Text>
-        <Text style={styles.errorHint}>
-          Réessayez après avoir libéré de l’espace ou fermé d’autres apps. Si le problème
-          persiste, réinstallez l’application (les données locales seront perdues).
-        </Text>
+        <Text style={styles.errorHint}>{t('app.dbErrorHint')}</Text>
         <Pressable
           style={({ pressed }) => [styles.retryBtn, pressed && { opacity: 0.85 }]}
           onPress={runInit}
           accessibilityRole="button"
-          accessibilityLabel="Réessayer l’initialisation de la base de données"
+          accessibilityLabel={t('app.retryInitA11y')}
         >
-          <Text style={styles.retryBtnText}>Réessayer</Text>
+          <Text style={styles.retryBtnText}>{t('app.retryInit')}</Text>
         </Pressable>
       </View>
     );
@@ -517,20 +676,30 @@ export default function App() {
         <ConnectionProvider>
           <PairingDeepLinkSubscriber />
           <AppAuthProvider>
-            <SpecialtyProvider>
-              <SyncSettingsProvider>
-                <NetworkStatusProvider>
-                  <AuthProvider>
-                    <AppAutoUpdateSubscriber />
-                    <AppNavigation />
-                  </AuthProvider>
-                </NetworkStatusProvider>
-              </SyncSettingsProvider>
-            </SpecialtyProvider>
+            <NetworkStatusProvider>
+                <AuthProvider>
+                  {SAAS_MODE_ENABLED ? (
+                    <SaaSAppNavigation />
+                  ) : (
+                    <>
+                      <AppAutoUpdateSubscriber />
+                      <AppNavigation />
+                    </>
+                  )}
+                </AuthProvider>
+              </NetworkStatusProvider>
           </AppAuthProvider>
         </ConnectionProvider>
       </SafeAreaProvider>
     </GestureRoot>
+  );
+}
+
+export default function App() {
+  return (
+    <LanguageProvider>
+      <AppWithLanguageLoaded />
+    </LanguageProvider>
   );
 }
 

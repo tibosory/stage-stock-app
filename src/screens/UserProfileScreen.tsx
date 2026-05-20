@@ -10,6 +10,7 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,12 +37,17 @@ import {
   getSupabaseProjectUrlFromBuild,
   hasSupabaseUserOverride,
 } from '../lib/supabase';
+import { exportShareSupabaseSchemaSql } from '../lib/supabaseSchemaSql';
 import { useSupabaseAuth } from '../hooks/useAuth';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function UserProfileScreen() {
   const insets = useSafeAreaInsets();
+  const bottomSafePad =
+    Platform.OS === 'android' ? Math.max(insets.bottom, 64) : Math.max(insets.bottom, 16);
   const { user, cloudUser, logout, logoutCloudOnly, can, refreshSession } = useAppAuth();
   const { user: sbUser, refreshProfile, signOutSupabase } = useSupabaseAuth();
+  const { t } = useLanguage();
 
   const [profile, setProfile] = useState<UserProfile>({
     prenom: '',
@@ -78,7 +84,7 @@ export default function UserProfileScreen() {
 
   const saveProfile = async () => {
     await saveUserProfile(profile);
-    Alert.alert('✓', 'Coordonnées enregistrées (signature des e-mails).');
+    Alert.alert(t('common.success'), t('profile.coordsSaved'));
   };
 
   const editInventory = can('edit_inventory');
@@ -86,62 +92,58 @@ export default function UserProfileScreen() {
   return (
     <TabScreenSafeArea style={s.container}>
       <ScrollView
-        contentContainerStyle={{ padding: 20, paddingBottom: 28 + Math.max(insets.bottom, 12) }}
+        contentContainerStyle={{ padding: 20, paddingBottom: 28 + bottomSafePad }}
       >
         <View style={s.headerRow}>
           <Text style={{ fontSize: 22, color: Colors.green }}>👤</Text>
-          <Text style={s.title}>Utilisateur</Text>
+          <Text style={s.title}>{t('profile.title')}</Text>
         </View>
 
         <Card style={{ marginBottom: 16 }}>
-          <Text style={s.sectionTitle}>Coordonnées</Text>
-          <Text style={s.hint}>
-            Utilisées pour la signature des e-mails générés depuis l’app (ex. demande de devis).
-          </Text>
+          <Text style={s.sectionTitle}>{t('profile.coordsTitle')}</Text>
+          <Text style={s.hint}>{t('profile.coordsHint')}</Text>
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <View style={{ flex: 1 }}>
-              <Input label="Prénom" value={profile.prenom} onChangeText={t => setProfile(p => ({ ...p, prenom: t }))} />
+              <Input label={t('profile.firstName')} value={profile.prenom} onChangeText={v => setProfile(p => ({ ...p, prenom: v }))} />
             </View>
             <View style={{ flex: 1 }}>
-              <Input label="Nom" value={profile.nom} onChangeText={t => setProfile(p => ({ ...p, nom: t }))} />
+              <Input label={t('profile.lastName')} value={profile.nom} onChangeText={v => setProfile(p => ({ ...p, nom: v }))} />
             </View>
           </View>
           <Input
-            label="Téléphone"
+            label={t('profile.phone')}
             value={profile.telephone}
-            onChangeText={t => setProfile(p => ({ ...p, telephone: t }))}
+            onChangeText={v => setProfile(p => ({ ...p, telephone: v }))}
             keyboardType="phone-pad"
           />
           <Input
-            label="E-mail"
+            label={t('profile.email')}
             value={profile.email}
-            onChangeText={t => setProfile(p => ({ ...p, email: t }))}
+            onChangeText={v => setProfile(p => ({ ...p, email: v }))}
             keyboardType="email-address"
             autoCapitalize="none"
           />
-          <Input label="Fonction" value={profile.fonction} onChangeText={t => setProfile(p => ({ ...p, fonction: t }))} />
+          <Input label={t('profile.job')} value={profile.fonction} onChangeText={v => setProfile(p => ({ ...p, fonction: v }))} />
           <Input
-            label="Établissement"
+            label={t('profile.establishment')}
             value={profile.etablissement}
-            onChangeText={t => setProfile(p => ({ ...p, etablissement: t }))}
+            onChangeText={v => setProfile(p => ({ ...p, etablissement: v }))}
           />
           <TouchableOpacity style={s.addBtnFull} onPress={() => void saveProfile()}>
-            <Text style={s.addBtnFullText}>Enregistrer mes coordonnées</Text>
+            <Text style={s.addBtnFullText}>{t('profile.saveCoords')}</Text>
           </TouchableOpacity>
         </Card>
 
         {editInventory && (
           <Card style={{ marginBottom: 16 }}>
-            <Text style={s.sectionTitle}>Théâtre & en-tête PDF</Text>
-            <Text style={s.hint}>
-              Logo, nom du théâtre et adresse s’affichent en tête des fiches de prêt et des étiquettes PDF.
-            </Text>
-            <Input label="Nom du théâtre" value={theatreName} onChangeText={setTheatreName} placeholder="ex. Théâtre municipal…" />
+            <Text style={s.sectionTitle}>{t('profile.theatreTitle')}</Text>
+            <Text style={s.hint}>{t('profile.theatreHint')}</Text>
+            <Input label={t('profile.theatreName')} value={theatreName} onChangeText={setTheatreName} placeholder={t('profile.theatreNamePh')} />
             <Input
-              label="Adresse"
+              label={t('profile.address')}
               value={theatreAddress}
               onChangeText={setTheatreAddress}
-              placeholder="Rue, CP ville…"
+              placeholder={t('profile.addressPh')}
               multiline
             />
             {logoUri ? (
@@ -158,7 +160,7 @@ export default function UserProfileScreen() {
                 onPress={async () => {
                   const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
                   if (!perm.granted) {
-                    Alert.alert('Permission', 'L’accès à la galerie est nécessaire pour choisir un logo.');
+                    Alert.alert(t('common.permission'), t('profile.galleryDenied'));
                     return;
                   }
                   const res = await ImagePicker.launchImageLibraryAsync({
@@ -170,11 +172,11 @@ export default function UserProfileScreen() {
                     const dest = await storePickedLogoFile(res.assets[0].uri);
                     setLogoUri(dest);
                   } catch (e: unknown) {
-                    Alert.alert('Erreur', e instanceof Error ? e.message : String(e));
+                    Alert.alert(t('common.error'), e instanceof Error ? e.message : String(e));
                   }
                 }}
               >
-                <Text style={s.syncBtnText}>Choisir un logo</Text>
+                <Text style={s.syncBtnText}>{t('profile.pickLogo')}</Text>
               </TouchableOpacity>
               {logoUri ? (
                 <TouchableOpacity
@@ -184,7 +186,7 @@ export default function UserProfileScreen() {
                     setLogoUri(null);
                   }}
                 >
-                  <Text style={s.syncBtnTextOutline}>Retirer le logo</Text>
+                  <Text style={s.syncBtnTextOutline}>{t('profile.removeLogo')}</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -192,19 +194,19 @@ export default function UserProfileScreen() {
               style={s.addBtnFull}
               onPress={async () => {
                 await saveTheatreIdentity(theatreName.trim(), theatreAddress.trim());
-                Alert.alert('✓', 'Nom et adresse enregistrés pour les exports PDF.');
+                Alert.alert(t('common.success'), t('profile.theatreSaved'));
               }}
             >
-              <Text style={s.addBtnFullText}>Enregistrer nom & adresse (PDF)</Text>
+              <Text style={s.addBtnFullText}>{t('profile.saveTheatre')}</Text>
             </TouchableOpacity>
           </Card>
         )}
 
         <Card style={{ marginBottom: 16 }}>
-          <Text style={s.sectionTitle}>Session</Text>
+          <Text style={s.sectionTitle}>{t('profile.sessionTitle')}</Text>
           {cloudUser ? (
             <Text style={{ color: Colors.textSecondary, marginBottom: 8, fontSize: 13 }}>
-              Compte en ligne : {cloudUser.email}
+              {t('profile.onlineAccount', { email: cloudUser.email ?? '—' })}
             </Text>
           ) : null}
           <Text style={{ color: Colors.textSecondary, marginBottom: 12 }}>
@@ -212,49 +214,47 @@ export default function UserProfileScreen() {
           </Text>
           {cloudUser ? (
             <TouchableOpacity style={[s.syncBtnOutline, { marginBottom: 12 }]} onPress={logoutCloudOnly}>
-              <Text style={s.syncBtnTextOutline}>Déconnexion du compte en ligne</Text>
+              <Text style={s.syncBtnTextOutline}>{t('profile.signOutCloud')}</Text>
             </TouchableOpacity>
           ) : null}
           <TouchableOpacity style={s.addBtnFull} onPress={logout}>
-            <Text style={s.addBtnFullText}>Se déconnecter</Text>
+            <Text style={s.addBtnFullText}>{t('profile.signOut')}</Text>
           </TouchableOpacity>
         </Card>
 
         <Card style={{ marginBottom: 16 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <Text style={{ fontSize: 16 }}>🔗</Text>
-            <Text style={s.sectionTitle}>Projet Supabase (cet appareil)</Text>
+            <Text style={s.sectionTitle}>{t('profile.supabaseDeviceTitle')}</Text>
           </View>
-          <Text style={s.hint}>
-            URL + clé anon pour notices cloud et compte optionnel. La clé reste sur cet appareil.
-          </Text>
+          <Text style={s.hint}>{t('profile.supabaseDeviceHint')}</Text>
           <Text style={{ color: Colors.textSecondary, fontSize: 12, marginBottom: 4 }}>
-            URL utilisée :{' '}
+            {t('profile.urlUsed')}{' '}
             <Text selectable style={{ color: Colors.textSecondary, fontSize: 12 }}>
-              {isSupabaseConfigured() ? getEffectiveSupabaseUrlForDisplay() : '— (non configuré)'}
+              {isSupabaseConfigured() ? getEffectiveSupabaseUrlForDisplay() : t('profile.notConfigured')}
             </Text>
           </Text>
           {getSupabaseProjectUrlFromBuild() ? (
             <Text style={{ color: Colors.textMuted, fontSize: 11, marginBottom: 10 }}>
-              Valeur du build : {getSupabaseProjectUrlFromBuild()}
+              {t('profile.buildValue', { url: getSupabaseProjectUrlFromBuild() })}
             </Text>
           ) : (
             <Text style={{ color: Colors.textMuted, fontSize: 11, marginBottom: 10 }}>
-              Aucune variable Supabase dans le build : la configuration ci-dessous peut être nécessaire.
+              {t('profile.noSupabaseBuild')}
             </Text>
           )}
           <Input
-            label="URL du projet"
+            label={t('profile.projectUrl')}
             value={sbUrlEdit}
             onChangeText={setSbUrlEdit}
-            placeholder="https://xxxx.supabase.co"
+            placeholder={t('login.supabase.placeholderUrl')}
             autoCapitalize="none"
           />
           <Input
-            label="Clé anon (publique)"
+            label={t('profile.anonKey')}
             value={sbKeyEdit}
             onChangeText={setSbKeyEdit}
-            placeholder={hasSupabaseUserOverride() ? 'Collez une nouvelle clé pour remplacer' : 'Collez la clé anon'}
+            placeholder={hasSupabaseUserOverride() ? t('profile.anonPlaceholderNew') : t('profile.anonPlaceholder')}
             secureTextEntry
             autoCapitalize="none"
           />
@@ -268,9 +268,9 @@ export default function UserProfileScreen() {
                 setSbKeyEdit('');
                 setSbUrlEdit(getEffectiveSupabaseUrlForDisplay());
                 void refreshProfile();
-                Alert.alert('✓', 'Projet Supabase enregistré.');
+                Alert.alert(t('common.success'), t('profile.supabaseSaved'));
               } catch (e: unknown) {
-                Alert.alert('Erreur', e instanceof Error ? e.message : String(e));
+                Alert.alert(t('common.error'), e instanceof Error ? e.message : String(e));
               } finally {
                 setSbSaveBusy(false);
               }
@@ -279,8 +279,22 @@ export default function UserProfileScreen() {
             {sbSaveBusy ? (
               <ActivityIndicator color={Colors.white} />
             ) : (
-              <Text style={s.syncBtnText}>Enregistrer URL et clé</Text>
+              <Text style={s.syncBtnText}>{t('profile.saveUrlKey')}</Text>
             )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.syncBtnOutline, { marginBottom: 10 }]}
+            disabled={sbSaveBusy}
+            onPress={async () => {
+              try {
+                await exportShareSupabaseSchemaSql();
+                Alert.alert(t('common.success'), t('profile.supabaseSchemaExported'));
+              } catch (e: unknown) {
+                Alert.alert(t('common.error'), e instanceof Error ? e.message : String(e));
+              }
+            }}
+          >
+            <Text style={s.syncBtnTextOutline}>{t('profile.downloadSupabaseSchema')}</Text>
           </TouchableOpacity>
           {hasSupabaseUserOverride() ? (
             <TouchableOpacity
@@ -288,12 +302,12 @@ export default function UserProfileScreen() {
               disabled={sbSaveBusy}
               onPress={() => {
                 Alert.alert(
-                  'Revenir au build',
-                  'Supprimer la configuration sur cet appareil et utiliser uniquement les variables du build ?',
+                  t('profile.resetBuildTitle'),
+                  t('profile.resetBuildBody'),
                   [
-                    { text: 'Annuler', style: 'cancel' },
+                    { text: t('common.cancel'), style: 'cancel' },
                     {
-                      text: 'Confirmer',
+                      text: t('profile.resetBuildConfirm'),
                       style: 'destructive',
                       onPress: async () => {
                         setSbSaveBusy(true);
@@ -302,9 +316,9 @@ export default function UserProfileScreen() {
                           setSbUrlEdit(getEffectiveSupabaseUrlForDisplay());
                           setSbKeyEdit('');
                           void refreshProfile();
-                          Alert.alert('✓', 'Configuration locale réinitialisée.');
+                          Alert.alert(t('common.success'), t('profile.resetDone'));
                         } catch (e: unknown) {
-                          Alert.alert('Erreur', e instanceof Error ? e.message : String(e));
+                          Alert.alert(t('common.error'), e instanceof Error ? e.message : String(e));
                         } finally {
                           setSbSaveBusy(false);
                         }
@@ -314,7 +328,7 @@ export default function UserProfileScreen() {
                 );
               }}
             >
-              <Text style={s.syncBtnTextOutline}>Utiliser uniquement la config du build</Text>
+              <Text style={s.syncBtnTextOutline}>{t('profile.useBuildOnly')}</Text>
             </TouchableOpacity>
           ) : null}
         </Card>
@@ -323,9 +337,9 @@ export default function UserProfileScreen() {
           <Card style={{ marginBottom: 16 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <Text style={{ fontSize: 16 }}>✨</Text>
-              <Text style={s.sectionTitle}>Compte Supabase (optionnel)</Text>
+              <Text style={s.sectionTitle}>{t('profile.supabaseAcctTitle')}</Text>
             </View>
-            <Text style={s.hint}>Connexion au projet Supabase depuis l’écran de connexion.</Text>
+            <Text style={s.hint}>{t('profile.supabaseAcctHint')}</Text>
             {sbUser ? (
               <>
                 <Text style={{ color: Colors.textSecondary, marginBottom: 8, fontSize: 13 }}>
@@ -335,12 +349,12 @@ export default function UserProfileScreen() {
                   style={[s.syncBtnOutline, { marginBottom: 12 }]}
                   onPress={() => void signOutSupabase()}
                 >
-                  <Text style={s.syncBtnTextOutline}>Déconnexion Supabase</Text>
+                  <Text style={s.syncBtnTextOutline}>{t('profile.supabaseSignOut')}</Text>
                 </TouchableOpacity>
               </>
             ) : (
               <Text style={{ color: Colors.textMuted, fontSize: 13 }}>
-                Non connecté — utilisez le bloc Supabase sur l’écran de connexion.
+                {t('profile.supabaseNotFromLogin')}
               </Text>
             )}
           </Card>

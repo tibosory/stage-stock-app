@@ -112,7 +112,7 @@ function buildBulkQrHtmlFlex(
     html, body {
       margin: 0;
       padding: 0;
-      font-family: "Inter", "Segoe UI", Arial, sans-serif;
+      font-family: "Times New Roman", Times, Arial, sans-serif;
       color: #111;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
@@ -222,7 +222,7 @@ function buildBulkQrHtmlGridStrict(
     html, body {
       margin: 0;
       padding: 0;
-      font-family: "Inter", "Segoe UI", Arial, sans-serif;
+      font-family: "Times New Roman", Times, Arial, sans-serif;
       color: #111;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;

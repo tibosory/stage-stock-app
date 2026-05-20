@@ -1,4 +1,4 @@
-// Assistant de premier lancement (préparamétrage) — optionnel, étapes passables.
+// Assistant de premier lancement — jumelage serveur PC obligatoire avant usage.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
@@ -19,7 +19,7 @@ import { Typography } from '../theme/typography';
 import { Spacing } from '../theme/spacing';
 import { Card, Input, TabScreenSafeArea } from '../components/UI';
 import { useAppAuth } from '../context/AuthContext';
-import { setWorkspaceOnboardingCompleted } from '../lib/workspaceOnboardingStorage';
+import { setWorkspaceOnboardingCompleted, setServerPairingVerified, hasVerifiedServerPairing, hasCompletedWorkspaceOnboarding } from '../lib/workspaceOnboardingStorage';
 import { loadTheatreBranding, saveTheatreIdentity } from '../lib/theatreBranding';
 import { loadUserProfile, saveUserProfile, type UserProfile } from '../lib/userProfileStorage';
 import {
@@ -37,13 +37,19 @@ import { WindowsInstallerCard } from '../components/WindowsInstallerCard';
 import { requestNotificationPermission, reschedulePretReturnReminders } from '../lib/pretNotifications';
 import { rescheduleVgpDueReminders } from '../lib/vgpNotifications';
 import { rescheduleSeuilBasReminders } from '../lib/seuilNotifications';
-import { getMateriel, getPrets, getConsommablesAlerte } from '../db/database';
+import { getPrets } from '../db/loanDb';
+import { getMateriel, getConsommablesAlerte } from '../db/inventoryDb';
+import { useLanguage } from '../context/LanguageContext';
+import { LANGUAGE_OPTIONS, type AppLanguage } from '../i18n/strings';
 
-type Step = 'welcome' | 'place' | 'server' | 'profile' | 'done';
+type Step = 'language' | 'welcome' | 'place' | 'server' | 'profile' | 'done';
 
 function useSteps(isEmp: boolean): Step[] {
   return useMemo(
-    () => (isEmp ? (['welcome', 'server', 'done'] as const) : (['welcome', 'place', 'server', 'profile', 'done'] as const)),
+    () =>
+      (isEmp
+        ? (['language', 'welcome', 'server', 'done'] as const)
+        : (['language', 'welcome', 'place', 'server', 'profile', 'done'] as const)),
     [isEmp]
   );
 }
@@ -52,6 +58,7 @@ export default function WorkspaceOnboardingScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { user } = useAppAuth();
+  const { language, setLanguage, t } = useLanguage();
   const { refresh: refreshConnection } = useConnection();
   const isEmp = user?.role === 'emprunteur';
   const steps = useSteps(isEmp);
@@ -68,6 +75,7 @@ export default function WorkspaceOnboardingScreen() {
   /** true = dernier test ping API réussi (étape serveur) */
   const [serverVerified, setServerVerified] = useState(false);
   const [serverVerifyBusy, setServerVerifyBusy] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState<AppLanguage>(language);
 
   const step = steps[ix] ?? 'done';
   const stepNum = ix + 1;
@@ -82,15 +90,22 @@ export default function WorkspaceOnboardingScreen() {
     );
   }, [navigation]);
 
-  const finishAll = useCallback(async () => {
-    setSaving(true);
-    try {
-      await setWorkspaceOnboardingCompleted();
-      goApp();
-    } finally {
-      setSaving(false);
+  const markServerVerified = useCallback(async () => {
+    setServerVerified(true);
+    await setServerPairingVerified();
+    await refreshConnection();
+  }, [refreshConnection]);
+
+  const requireServerVerified = useCallback(async (): Promise<boolean> => {
+    if (serverVerified) return true;
+    const ping = await pingStageStockApi();
+    if (ping.ok) {
+      await markServerVerified();
+      return true;
     }
-  }, [goApp]);
+    Alert.alert(t('onboarding.serverRequiredTitle'), t('onboarding.serverRequiredBody'), [{ text: t('common.ok') }]);
+    return false;
+  }, [markServerVerified, serverVerified, t]);
 
   useEffect(() => {
     void (async () => {
@@ -109,6 +124,14 @@ export default function WorkspaceOnboardingScreen() {
       setTheatreAddress(brand.theatreAddress);
       setBaseUrl(base ?? '');
       setApiKey(key ?? '');
+
+      if (r) {
+        const ping = await pingStageStockApi();
+        if (ping.ok) {
+          setServerVerified(true);
+          await setServerPairingVerified();
+        }
+      }
     })();
   }, []);
 
@@ -116,37 +139,45 @@ export default function WorkspaceOnboardingScreen() {
     setServerVerified(false);
   }, [baseUrl, apiKey]);
 
+  useEffect(() => {
+    void (async () => {
+      const [paired, done] = await Promise.all([
+        hasVerifiedServerPairing(),
+        hasCompletedWorkspaceOnboarding(),
+      ]);
+      if (!paired && done) {
+        const serverIx = steps.indexOf('server');
+        if (serverIx >= 0) setIx(serverIx);
+      }
+    })();
+  }, [steps]);
+
+  useEffect(() => {
+    setSelectedLanguage(language);
+  }, [language]);
+
   const openInstallerInBrowser = useCallback(async () => {
     const u = getWindowsServerInstallerUrl().trim();
     if (!u) {
-      Alert.alert(
-        'Aucun lien d’installateur',
-        "L'APK n'a pas d'URL d'hébergement pour l'EXE. Définissez EXPO_PUBLIC_WINDOWS_INSTALLER_URL au build, ou " +
-          'expo.extra (windowsInstallerUrl / installerGitHubRepo) dans app.json, puis reconstruisez l\u0027APK. ' +
-          'Vous pouvez aussi transférer le fichier via la carte sur Android (Partager vers le PC).',
-        [{ text: 'OK' }]
-      );
+      Alert.alert(t('onboarding.noInstallerLinkTitle'), t('onboarding.noInstallerLinkBody'), [{ text: t('common.ok') }]);
       return;
     }
     if (await Linking.canOpenURL(u)) {
       await Linking.openURL(u);
     } else {
-      Alert.alert('Lien de téléchargement', u, [{ text: 'OK' }]);
+      Alert.alert(t('onboarding.downloadLinkTitle'), u, [{ text: t('common.ok') }]);
     }
-  }, []);
+  }, [t]);
 
   const advanceFromServer = useCallback(async () => {
-    const t = baseUrl.trim();
-    if (t && !looksLikeHttpUrl(t)) {
-      Alert.alert(
-        'URL invalide',
-        "L'adresse doit commencer par http:// ou https://, ou laissez vide pour l'URL par défaut du build."
-      );
+    const urlTrim = baseUrl.trim();
+    if (urlTrim && !looksLikeHttpUrl(urlTrim)) {
+      Alert.alert(t('network.invalidUrlTitle'), t('onboarding.invalidUrlBody'));
       return;
     }
     setSaving(true);
     try {
-      await setApiBaseOverride(t || null);
+      await setApiBaseOverride(urlTrim || null);
       await setApiKeyOverride(apiKey.trim() || null);
       const r = await getResolvedApiBase();
       setResolved(r);
@@ -154,38 +185,47 @@ export default function WorkspaceOnboardingScreen() {
     } finally {
       setSaving(false);
     }
-  }, [apiKey, baseUrl]);
+  }, [apiKey, baseUrl, t]);
 
   const handleVerifyServer = useCallback(async () => {
-    const t = baseUrl.trim();
-    if (t && !looksLikeHttpUrl(t)) {
-      Alert.alert('URL invalide', "Utilisez http:// ou https://, par ex. http://192.168.0.5:8090", [{ text: 'OK' }]);
+    const urlTrim = baseUrl.trim();
+    if (urlTrim && !looksLikeHttpUrl(urlTrim)) {
+      Alert.alert(t('network.invalidUrlTitle'), t('onboarding.invalidUrlExpectedBody'), [{ text: t('common.ok') }]);
       return;
     }
     setServerVerifyBusy(true);
     try {
-      await setApiBaseOverride(t || null);
+      await setApiBaseOverride(urlTrim || null);
       await setApiKeyOverride(apiKey.trim() || null);
       const r = await getResolvedApiBase();
       setResolved(r);
       const ping = await pingStageStockApi();
       if (ping.ok) {
-        setServerVerified(true);
-        await refreshConnection();
-        Alert.alert("Connexion OK", "L'app joint l'API Stage Stock. Passez à l'étape suivante.");
+        await markServerVerified();
+        Alert.alert(t('network.testOk'), t('onboarding.connectionOkBody'));
       } else {
         setServerVerified(false);
-        Alert.alert('Connexion impossible', ping.message, [{ text: 'OK' }]);
+        Alert.alert(t('onboarding.connectionFailedTitle'), ping.message, [{ text: t('common.ok') }]);
       }
     } catch (e) {
       setServerVerified(false);
-      Alert.alert('Erreur', e instanceof Error ? e.message : String(e));
+      Alert.alert(t('scanner.error'), e instanceof Error ? e.message : String(e));
     } finally {
       setServerVerifyBusy(false);
     }
-  }, [apiKey, baseUrl, refreshConnection]);
+  }, [apiKey, baseUrl, markServerVerified, t]);
 
   const onNext = useCallback(async () => {
+    if (step === 'language') {
+      setSaving(true);
+      try {
+        await setLanguage(selectedLanguage);
+        setIx(i => Math.min(i + 1, steps.length - 1));
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     if (step === 'welcome') {
       setIx(i => Math.min(i + 1, steps.length - 1));
       return;
@@ -201,14 +241,12 @@ export default function WorkspaceOnboardingScreen() {
       return;
     }
     if (step === 'server') {
-      const t = baseUrl.trim();
-      if (t && !looksLikeHttpUrl(t)) {
-        Alert.alert(
-          'URL invalide',
-          "L'adresse doit commencer par http:// ou https://, ou laissez vide pour l'URL par défaut du build."
-        );
+      const urlTrim = baseUrl.trim();
+      if (urlTrim && !looksLikeHttpUrl(urlTrim)) {
+        Alert.alert(t('network.invalidUrlTitle'), t('onboarding.invalidUrlBody'));
         return;
       }
+      if (!(await requireServerVerified())) return;
       await advanceFromServer();
       return;
     }
@@ -223,6 +261,7 @@ export default function WorkspaceOnboardingScreen() {
       return;
     }
     if (step === 'done') {
+      if (!(await requireServerVerified())) return;
       setSaving(true);
       try {
         const ok = await requestNotificationPermission();
@@ -242,27 +281,22 @@ export default function WorkspaceOnboardingScreen() {
         setSaving(false);
       }
     }
-  }, [advanceFromServer, apiKey, baseUrl, goApp, profile, step, steps.length, theatreAddress, theatreName]);
+  }, [advanceFromServer, apiKey, baseUrl, goApp, profile, requireServerVerified, selectedLanguage, setLanguage, step, steps.length, t, theatreAddress, theatreName]);
 
   const onSkipStep = useCallback(() => {
+    if (step === 'server') return;
     if (ix >= steps.length - 1) return;
-    if (step === 'server') {
-      void (async () => {
-        const [base, key] = await Promise.all([getApiBaseOverride(), getApiKeyOverride()]);
-        setBaseUrl(base ?? '');
-        setApiKey(key ?? '');
-        setIx(i => i + 1);
-      })();
-      return;
-    }
     setIx(i => i + 1);
   }, [ix, step, steps.length]);
+
+  const primaryDisabled =
+    saving || serverVerifyBusy || (step === 'server' && !serverVerified) || (step === 'done' && !serverVerified);
 
   if (!profile) {
     return (
       <View style={styles.boot}>
         <ActivityIndicator size="large" color={Colors.green} />
-        <Text style={styles.bootText}>Chargement…</Text>
+        <Text style={styles.bootText}>{t('common.loading')}</Text>
       </View>
     );
   }
@@ -271,15 +305,8 @@ export default function WorkspaceOnboardingScreen() {
     <TabScreenSafeArea style={styles.safe}>
       <View style={styles.topBar}>
         <Text style={styles.progress}>
-          Étape {stepNum} / {totalSteps}
+          {t('onboarding.progressWord')} {stepNum} / {totalSteps}
         </Text>
-        <TouchableOpacity
-          onPress={() => void finishAll()}
-          disabled={saving}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Text style={styles.skipAll}>Tout ignorer</Text>
-        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -290,34 +317,56 @@ export default function WorkspaceOnboardingScreen() {
         {step === 'welcome' && (
           <>
             <Text style={styles.title} accessibilityRole="header">
-              Bienvenue
+              {t('onboarding.welcomeTitle')}
             </Text>
-            <Text style={styles.lead}>
-              Quelques réglages utiles (lieu, connexion, vos coordonnées) en un fil guidé. Rien d’obligatoire : vous
-              pouvez passer n’importe quelle étape, tout reste modifiable plus tard dans Paramètres, Réseau et
-              Utilisateur.
+            <Text style={styles.lead}>{t('onboarding.welcomeLead')}</Text>
+            <Text style={styles.muted}>{t('onboarding.welcomeMutedOffline')}</Text>
+            <Text style={styles.muted}>{t('onboarding.welcomeMutedInstall')}</Text>
+          </>
+        )}
+
+        {step === 'language' && (
+          <>
+            <Text style={styles.title} accessibilityRole="header">
+              {t('onboarding.languageTitle')}
             </Text>
-            <Text style={styles.muted}>
-              Cet assistant ne s’affiche qu’une seule fois après l’installation.
-            </Text>
+            <Text style={styles.lead}>{t('onboarding.languageLead')}</Text>
+            <Card style={{ marginTop: 12 }}>
+              {LANGUAGE_OPTIONS.map(opt => {
+                const active = selectedLanguage === opt.value;
+                return (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[
+                      styles.languageRow,
+                      active && styles.languageRowActive,
+                    ]}
+                    onPress={() => setSelectedLanguage(opt.value)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${t('onboarding.a11y.chooseLanguagePrefix')}${opt.label}`}
+                    accessibilityState={{ selected: active }}
+                  >
+                    <Text style={[styles.languageLabel, active && styles.languageLabelActive]}>{opt.label}</Text>
+                    {active ? <Text style={styles.languageTick}>✓</Text> : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </Card>
           </>
         )}
 
         {step === 'place' && (
           <>
-            <Text style={styles.title}>Lieu (en-têtes, PDF, étiquettes)</Text>
-            <Text style={styles.lead}>
-              Nom de la salle ou de la structure, et l’adresse telle qu’elle doit apparaître sur les documents. Le logo
-              se règle dans l’onglet Utilisateur.
-            </Text>
+            <Text style={styles.title}>{t('onboarding.placeTitle')}</Text>
+            <Text style={styles.lead}>{t('onboarding.placeLead')}</Text>
             <Card style={{ marginTop: 12 }}>
-              <Input label="Nom du lieu" value={theatreName} onChangeText={setTheatreName} placeholder="Ex. Théâtre …" />
-              <Text style={styles.inputLabel}>Adresse (plusieurs lignes possibles)</Text>
+              <Input label={t('onboarding.placeName')} value={theatreName} onChangeText={setTheatreName} placeholder={t('onboarding.placeNamePlaceholder')} />
+              <Text style={styles.inputLabel}>{t('onboarding.placeAddressLabel')}</Text>
               <TextInput
                 style={styles.area}
                 value={theatreAddress}
                 onChangeText={setTheatreAddress}
-                placeholder="Rue, CP, ville…"
+                placeholder={t('onboarding.placeAddressPlaceholder')}
                 placeholderTextColor={Colors.textMuted}
                 multiline
                 textAlignVertical="top"
@@ -328,144 +377,117 @@ export default function WorkspaceOnboardingScreen() {
 
         {step === 'server' && (
           <>
-            <Text style={styles.title}>Serveur Stage Stock (PC local)</Text>
-            <Text style={styles.lead}>
-              Étape optionnelle. Avec le serveur local, suivez les consignes et « Vérifier la connexion » quand cela
-              vous arrange. Vous pouvez appuyer sur « Passer l&apos;étape » pour ne rien enregistrer ici, ou « Tout
-              ignorer » en haut à droite pour quitter l&apos;assistant. Les réglages d&apos;URL se font aussi
-              dans l&apos;onglet Réseau, plus tard.
-            </Text>
+            <Text style={styles.title}>{t('onboarding.serverTitle')}</Text>
+            <Text style={styles.lead}>{t('onboarding.serverLead')}</Text>
 
             {Platform.OS === 'android' && (
               <View style={styles.installerBlock}>
-                <Text style={styles.recipeTitle}>Téléchargement (Android)</Text>
-                <Text style={styles.mutedBottom}>
-                  Le fichier s&apos;enregistre sur le téléphone. Partagez-le (Bluetooth, câble, e-mail) vers le PC, puis
-                  lancez-le en administrateur sur Windows.
-                </Text>
+                <Text style={styles.recipeTitle}>{t('onboarding.downloadAndroid')}</Text>
+                <Text style={styles.mutedBottom}>{t('onboarding.androidShareHint')}</Text>
                 <WindowsInstallerCard />
               </View>
             )}
 
             {Platform.OS !== 'android' && (
               <Card style={styles.recipeCard}>
-                <Text style={styles.recipeTitle}>Téléchargement (hors Android)</Text>
-                <Text style={styles.recipeStep}>
-                  Sur un PC, ouvrez l&apos;URL ci-dessous pour récupérer
-                  <Text style={styles.kbdMono}> Stagestock-Installer.exe</Text> (iPhone, iPad, autre) ; vous pouvez
-                  vous envoyer le lien par e-mail pour le lancer sur la machine Windows.
-                </Text>
+                <Text style={styles.recipeTitle}>{t('onboarding.downloadOther')}</Text>
+                <Text style={styles.recipeStep}>{t('onboarding.downloadOtherIntro')}</Text>
                 <TouchableOpacity style={styles.outlineBtn} onPress={() => void openInstallerInBrowser()}>
-                  <Text style={styles.outlineBtnText}>Ouvrir le lien de l&apos;installateur Windows</Text>
+                  <Text style={styles.outlineBtnText}>{t('onboarding.openInstallerLink')}</Text>
                 </TouchableOpacity>
               </Card>
             )}
 
             <Card style={styles.recipeCard}>
-              <Text style={styles.recipeTitle}>Étapes sur le PC (installation)</Text>
+              <Text style={styles.recipeTitle}>{t('onboarding.pcStepsTitle')}</Text>
               <View style={styles.stepLine}>
                 <View style={styles.stepBadge}>
                   <Text style={styles.stepBadgeText}>1</Text>
                 </View>
-                <Text style={styles.stepText}>
-                  Téléchargez (ci-dessus) ou obtenez <Text style={styles.kbdMono}>Stagestock-Installer.exe</Text>.
-                </Text>
+                <Text style={styles.stepText}>{t('onboarding.pcStep1')}</Text>
               </View>
               <View style={styles.stepLine}>
                 <View style={styles.stepBadge}>
                   <Text style={styles.stepBadgeText}>2</Text>
                 </View>
-                <Text style={styles.stepText}>
-                  Exécutez l&apos;installateur : Suivant, dossier, Terminer. Acceptez l&apos;accès si Windows le
-                  demande.
-                </Text>
+                <Text style={styles.stepText}>{t('onboarding.pcStep2')}</Text>
               </View>
               <View style={styles.stepLine}>
                 <View style={styles.stepBadge}>
                   <Text style={styles.stepBadgeText}>3</Text>
                 </View>
-                <Text style={styles.stepText}>
-                  Lancez <Text style={styles.kbdMono}>StageStock Local</Text> (bureau ou menu). Le service doit
-                  rester actif, sur le même Wi-Fi que le téléphone.
-                </Text>
+                <Text style={styles.stepText}>{t('onboarding.pcStep3')}</Text>
               </View>
             </Card>
 
             <Card style={styles.recipeCard}>
-              <Text style={styles.recipeTitle}>Jumelage avec l&apos;application</Text>
+              <Text style={styles.recipeTitle}>{t('onboarding.pairingTitle')}</Text>
               <View style={styles.stepLine}>
                 <View style={styles.stepBadge}>
                   <Text style={styles.stepBadgeText}>4</Text>
                 </View>
-                <Text style={styles.stepText}>
-                  Notez l&apos;adresse d&apos;API (souvent port <Text style={styles.kbdMono}>8090</Text> et
-                  l&apos;IP du PC, ex. <Text style={styles.kbdMono}>http://192.168.0.5:8090</Text>).
-                </Text>
+                <Text style={styles.stepText}>{t('onboarding.pairingStep4')}</Text>
               </View>
               <View style={styles.stepLine}>
                 <View style={styles.stepBadge}>
                   <Text style={styles.stepBadgeText}>5</Text>
                 </View>
-                <Text style={styles.stepText}>
-                  Ouvrez sur le PC <Text style={styles.kbdMono}>http://&lt;IP_DU_PC&gt;:8090/pair.html</Text> (page de
-                  jumelage, QR). Sur le mobile, scannez le QR, ou &quot;Ouvrir dans Stage Stock&quot; si proposé. Sinon
-                  saisissiez l&apos;URL (étape 7) ici ou dans l&apos;onglet Réseau.
-                </Text>
+                <Text style={styles.stepText}>{t('onboarding.pairingStep5')}</Text>
               </View>
               <View style={styles.stepLine}>
                 <View style={styles.stepBadge}>
                   <Text style={styles.stepBadgeText}>6</Text>
                 </View>
-                <Text style={styles.stepText}>
-                  Le jumelage doit s&apos;afficher comme enregistré. Si cela bloque, vérifiez le pare-feu (port
-                  8090) et que le mobile et le PC sont sur le même réseau.
-                </Text>
+                <Text style={styles.stepText}>{t('onboarding.pairingStep6')}</Text>
               </View>
             </Card>
 
-            {!!bundled && <Text style={styles.hintBox}>URL de build (référence) : {bundled || '—'}</Text>}
+            {!!bundled && (
+              <Text style={styles.hintBox}>
+                {t('onboarding.hintBuildUrlPrefix')}
+                {bundled || '—'}
+              </Text>
+            )}
             {!!resolved && (
               <Text style={styles.hintBox}>
-                URL effective pour l&apos;app (après sauvegarde / vérification) : {resolved}
+                {t('onboarding.hintEffectiveUrlPrefix')}
+                {resolved}
               </Text>
             )}
 
             <Card style={{ marginTop: 8 }}>
-              <Text style={styles.subCardTitle}>7 — Accès API (PocketBase)</Text>
-              <Text style={styles.mutedBottom}>
-                Saisissez l&apos;URL telle qu&apos;après jumelage, ou telle qu&apos;indique votre admin. Clé
-                d&apos;API si besoin.
-              </Text>
+              <Text style={styles.subCardTitle}>{t('onboarding.apiAccessTitle')}</Text>
+              <Text style={styles.mutedBottom}>{t('onboarding.apiAccessLead')}</Text>
               <Input
-                label="URL de base (https://… ou http://IP:port)"
+                label={t('onboarding.apiBaseLabel')}
                 value={baseUrl}
                 onChangeText={setBaseUrl}
                 autoCapitalize="none"
-                placeholder="Laissez vide pour l'adresse par défaut intégrée au build, si le build en définit une"
+                placeholder={t('onboarding.apiBasePlaceholder')}
                 keyboardType="url"
               />
               <Input
-                label="Clé API (optionnel)"
+                label={t('network.field.apiKeyOptional')}
                 value={apiKey}
                 onChangeText={setApiKey}
                 autoCapitalize="none"
-                placeholder="Si votre admin vous en a fourni une"
+                placeholder={t('onboarding.apiKeyPlaceholder')}
               />
               {serverVerified ? (
                 <View style={styles.verifiedRow}>
-                  <Text style={styles.verifiedText}>Dernière vérification : connexion OK</Text>
+                  <Text style={styles.verifiedText}>{t('onboarding.lastVerifyOk')}</Text>
                 </View>
               ) : null}
               <TouchableOpacity
                 style={[styles.verifyBtn, (serverVerifyBusy || saving) && { opacity: 0.6 }]}
                 onPress={() => void handleVerifyServer()}
                 disabled={serverVerifyBusy || saving}
-                accessibilityLabel="Vérifier la connexion au serveur"
+                accessibilityLabel={t('onboarding.verifyServerA11y')}
               >
                 {serverVerifyBusy ? (
                   <ActivityIndicator color={Colors.white} />
                 ) : (
-                  <Text style={styles.verifyBtnText}>Vérifier la connexion</Text>
+                  <Text style={styles.verifyBtnText}>{t('onboarding.verifyServer')}</Text>
                 )}
               </TouchableOpacity>
             </Card>
@@ -474,45 +496,43 @@ export default function WorkspaceOnboardingScreen() {
 
         {step === 'profile' && (
           <>
-            <Text style={styles.title}>Vos coordonnées</Text>
-            <Text style={styles.lead}>
-              Sert de signature sur les e-mails générés (devis, etc.). Tout est optionnel ici.
-            </Text>
+            <Text style={styles.title}>{t('onboarding.profileTitle')}</Text>
+            <Text style={styles.lead}>{t('onboarding.profileLead')}</Text>
             <Card style={{ marginTop: 12 }}>
               <View style={styles.row2}>
                 <View style={styles.half}>
                   <Input
-                    label="Prénom"
+                    label={t('onboarding.firstName')}
                     value={profile.prenom}
                     onChangeText={t => setProfile(p => (p ? { ...p, prenom: t } : p))}
                   />
                 </View>
                 <View style={styles.half}>
                   <Input
-                    label="Nom"
+                    label={t('onboarding.lastName')}
                     value={profile.nom}
                     onChangeText={t => setProfile(p => (p ? { ...p, nom: t } : p))}
                   />
                 </View>
               </View>
               <Input
-                label="Fonction"
+                label={t('onboarding.function')}
                 value={profile.fonction}
                 onChangeText={t => setProfile(p => (p ? { ...p, fonction: t } : p))}
               />
               <Input
-                label="Établissement"
+                label={t('onboarding.organization')}
                 value={profile.etablissement}
                 onChangeText={t => setProfile(p => (p ? { ...p, etablissement: t } : p))}
               />
               <Input
-                label="Téléphone"
+                label={t('onboarding.phone')}
                 value={profile.telephone}
                 onChangeText={t => setProfile(p => (p ? { ...p, telephone: t } : p))}
                 keyboardType="phone-pad"
               />
               <Input
-                label="E-mail"
+                label={t('onboarding.email')}
                 value={profile.email}
                 onChangeText={t => setProfile(p => (p ? { ...p, email: t } : p))}
                 keyboardType="email-address"
@@ -524,62 +544,54 @@ export default function WorkspaceOnboardingScreen() {
 
         {step === 'done' && (
           <>
-            <Text style={styles.title}>C&apos;est presque prêt</Text>
-            <Text style={styles.lead}>
-              Les rappels (prêts, contrôles, stocks bas) passent par les notifications. Vous pourrez les ajuster dans
-              Paramètres.
-            </Text>
+            <Text style={styles.title}>{t('onboarding.almostReady')}</Text>
+            <Text style={styles.lead}>{t('onboarding.doneLeadReminders')}</Text>
+            <Card style={{ marginTop: 8 }}>
+              <Text style={styles.muted}>{t('onboarding.doneCheckSettings')}</Text>
+            </Card>
             {serverVerified && (
               <View style={styles.verifiedRow}>
                 <Text style={styles.verifiedText}>
-                  {isConsumerApp()
-                    ? "La connexion au serveur a été vérifiée. L'indicateur de connexion devrait s'afficher comme actif tant que le PC sert l'API."
-                    : "La requête de vérification vers l'API a répondu. Le serveur est joint depuis cette app."}
+                  {isConsumerApp() ? t('onboarding.doneVerifiedConsumer') : t('onboarding.doneVerifiedPro')}
                 </Text>
               </View>
             )}
             {!serverVerified && !!baseUrl.trim() && (
               <Card style={styles.tipNote}>
-                <Text style={styles.muted}>
-                  Vous avez saisi une URL d&apos;API personnalisée sans la vérifier ici. Testez-la dans
-                  l&apos;onglet Réseau afin d&apos;être sûr que l&apos;app rejoint le PC.
-                </Text>
+                <Text style={styles.muted}>{t('onboarding.doneUnverifiedUrlHint')}</Text>
               </Card>
             )}
             <Card style={{ marginTop: 12 }}>
-              <Text style={styles.muted}>
-                En appuyant sur « Terminer », l’app demandera l’autorisation de notification si ce n’est pas déjà fait.
-                Vous pouvez aussi continuer sans accorder, et ouvrir les réglages plus tard.
-              </Text>
+              <Text style={styles.muted}>{t('onboarding.doneNotificationsHint')}</Text>
             </Card>
           </>
         )}
 
         <View style={styles.btnRow}>
-          {step !== 'welcome' && step !== 'done' && (
+          {step !== 'welcome' && step !== 'done' && step !== 'server' && (
             <TouchableOpacity
               style={[styles.btnSecondary, saving && { opacity: 0.5 }]}
               onPress={onSkipStep}
               disabled={saving}
             >
-              <Text style={styles.btnSecondaryText}>Passer l’étape</Text>
+              <Text style={styles.btnSecondaryText}>{t('onboarding.skipStep')}</Text>
             </TouchableOpacity>
           )}
 
           <TouchableOpacity
-            style={[styles.btnPrimary, saving && { opacity: 0.75 }]}
+            style={[styles.btnPrimary, primaryDisabled && { opacity: 0.5 }]}
             onPress={() => void onNext()}
-            disabled={saving}
+            disabled={primaryDisabled}
           >
             {saving ? (
               <ActivityIndicator color={Colors.white} />
             ) : (
               <Text style={styles.btnPrimaryText}>
                 {step === 'welcome'
-                  ? 'Commencer'
+                  ? t('onboarding.start')
                   : step === 'done'
-                    ? 'Terminer'
-                    : 'Suivant'}
+                    ? t('onboarding.finish')
+                    : t('onboarding.next')}
               </Text>
             )}
           </TouchableOpacity>
@@ -602,7 +614,6 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   progress: { ...Typography.caption, color: Colors.textMuted, fontWeight: '700' },
-  skipAll: { color: Colors.textSecondary, fontSize: 14, fontWeight: '700' },
   scroll: { paddingHorizontal: 20, paddingTop: 8 },
   title: { ...Typography.screenTitle, fontSize: 24, marginBottom: Spacing.sm },
   lead: { ...Typography.body, color: Colors.textSecondary, lineHeight: 22, marginBottom: Spacing.md },
@@ -673,6 +684,25 @@ const styles = StyleSheet.create({
   tipNote: { marginTop: 4, backgroundColor: 'rgba(251, 191, 36, 0.08)' },
   row2: { flexDirection: 'row', gap: 10 },
   half: { flex: 1 },
+  languageRow: {
+    minHeight: 48,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.bgInput,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  languageRowActive: {
+    borderColor: Colors.green,
+    backgroundColor: 'rgba(52, 211, 153, 0.12)',
+  },
+  languageLabel: { color: Colors.textPrimary, fontSize: 15, fontWeight: '600' },
+  languageLabelActive: { color: Colors.green },
+  languageTick: { color: Colors.green, fontSize: 16, fontWeight: '800' },
   btnRow: { marginTop: 28, gap: 12 },
   btnPrimary: {
     backgroundColor: Colors.green,

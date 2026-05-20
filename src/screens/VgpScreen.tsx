@@ -10,16 +10,19 @@ import {
   TextInput,
   ActivityIndicator,
   Switch,
+  Platform,
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { format, parseISO, addDays, isValid } from 'date-fns';
-import { fr } from 'date-fns/locale';
 import { Colors } from '../theme/colors';
+import { getMaterielsVgpSuivi } from '../db/inventoryOpsDb';
 import {
-  getMaterielsVgpSuivi,
   getMateriel,
   updateMateriel,
-} from '../db/database';
+} from '../db/inventoryDb';
 import { Materiel } from '../types';
 import { Card, ScreenHeader, BottomModal, Input, DateField, FormButtons, TabScreenSafeArea } from '../components/UI';
 import { useAppAuth } from '../context/AuthContext';
@@ -32,18 +35,24 @@ import {
 } from '../lib/vgp';
 import { rescheduleVgpDueReminders } from '../lib/vgpNotifications';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
+import { syncMaterielNoticeAttachments } from '../lib/materielAttachments';
+import { pushMaterielNoticesToSupabaseAfterSave } from '../lib/supabase';
+import { useLanguage } from '../context/LanguageContext';
+import { getDateFnsLocale } from '../i18n/dateLocales';
 
-function fmtDate(raw?: string | null): string {
+function fmtDate(raw: string | null | undefined, language: 'fr' | 'en' | 'es' | 'de' | 'it' | 'pt'): string {
   if (!raw?.trim()) return '—';
   const d = raw.includes('T') ? parseISO(raw) : parseISO(`${raw}T12:00:00`);
-  return isValid(d) ? format(d, 'd MMM yyyy', { locale: fr }) : raw;
+  return isValid(d) ? format(d, 'd MMM yyyy', { locale: getDateFnsLocale(language) }) : raw;
 }
 
 type VgpSection = { title: string; data: Materiel[] };
 
 export default function VgpScreen() {
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   const { can } = useAppAuth();
+  const { t, language } = useLanguage();
   const editOk = can('edit_inventory');
 
   const [list, setList] = useState<Materiel[]>([]);
@@ -91,11 +100,90 @@ export default function VgpScreen() {
     setIsEpi(false);
   };
 
+  const docPickUri = (pick: DocumentPicker.DocumentPickerResult): string | null => {
+    if (pick.canceled) return null;
+    const p = pick as DocumentPicker.DocumentPickerSuccessResult;
+    return p.assets?.[0]?.uri ?? null;
+  };
+
+  const openControlReportPdf = async (m: Materiel) => {
+    const target = m.notice_pdf_local ?? m.notice_pdf_url;
+    if (!target) {
+      Alert.alert(t('vgp.report.onlineTitle'), t('vgp.report.none'));
+      return;
+    }
+    try {
+      if (target.startsWith('http://') || target.startsWith('https://')) {
+        Alert.alert(
+          t('vgp.report.onlineTitle'),
+          t('vgp.report.onlineHint')
+        );
+        return;
+      }
+      const shareOk = await Sharing.isAvailableAsync();
+      if (!shareOk) {
+        Alert.alert(t('vgp.report.onlineTitle'), t('vgp.shareUnavailable'));
+        return;
+      }
+      await Sharing.shareAsync(target, {
+        mimeType: 'application/pdf',
+        dialogTitle: t('vgp.shareDialogTitle'),
+      });
+    } catch (e: any) {
+      Alert.alert(t('vgp.report.onlineTitle'), e?.message ?? t('vgp.report.openFail'));
+    }
+  };
+
+  const attachControlReportPdf = async (m: Materiel) => {
+    if (!editOk) return;
+    try {
+      const pick = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+      const uri = docPickUri(pick);
+      if (!uri) return;
+      const localPatch = await syncMaterielNoticeAttachments(m.id, uri, undefined);
+      if (Object.keys(localPatch).length) await updateMateriel(m.id, localPatch);
+      const urlPatch = await pushMaterielNoticesToSupabaseAfterSave(m.id, localPatch);
+      if (Object.keys(urlPatch).length) await updateMateriel(m.id, urlPatch);
+      await load();
+      void triggerSyncAfterActionIfEnabled();
+      Alert.alert(t('vgp.report.attachedOk'), t('vgp.report.attachedBody'));
+    } catch (e: any) {
+      Alert.alert(t('vgp.report.onlineTitle'), e?.message ?? t('vgp.report.pickFail'));
+    }
+  };
+
+  const removeControlReportPdf = (m: Materiel) => {
+    if (!editOk) return;
+    if (!m.notice_pdf_local && !m.notice_pdf_url) return;
+    Alert.alert(t('vgp.report.removeTitle'), t('vgp.report.removeBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('vgp.report.removeBtn'),
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const localPatch = await syncMaterielNoticeAttachments(m.id, '', undefined);
+            if (Object.keys(localPatch).length) await updateMateriel(m.id, localPatch);
+            const urlPatch = await pushMaterielNoticesToSupabaseAfterSave(m.id, localPatch);
+            if (Object.keys(urlPatch).length) await updateMateriel(m.id, urlPatch);
+            await load();
+            void triggerSyncAfterActionIfEnabled();
+          } catch (e: any) {
+            Alert.alert(t('vgp.report.onlineTitle'), e?.message ?? t('tour.detail.photoDeleteError'));
+          }
+        },
+      },
+    ]);
+  };
+
   const saveEdit = async () => {
     if (!editMat) return;
     const j = parseInt(periodicite.trim(), 10);
     if (!periodicite.trim() || !Number.isFinite(j) || j <= 0) {
-      Alert.alert('Périodicité', 'Indiquez un nombre de jours valide (ex. 365 pour 1 an, 180 pour 6 mois).');
+      Alert.alert(t('vgp.period.invalidTitle'), t('vgp.period.invalidBody'));
       return;
     }
     setSaving(true);
@@ -119,7 +207,7 @@ export default function VgpScreen() {
       void triggerSyncAfterActionIfEnabled();
       closeEdit();
     } catch (e: any) {
-      Alert.alert('Erreur', e?.message ?? 'Enregistrement impossible');
+      Alert.alert(t('common.error'), e?.message ?? t('tour.detail.actionError'));
     } finally {
       setSaving(false);
     }
@@ -127,10 +215,10 @@ export default function VgpScreen() {
 
   const retirerVgp = () => {
     if (!editMat) return;
-    Alert.alert('Retirer du suivi VGP', `« ${editMat.nom} » ne sera plus suivi ici.`, [
-      { text: 'Annuler', style: 'cancel' },
+    Alert.alert(t('vgp.removeFollowTitle'), t('vgp.removeFollowBody', { name: editMat.nom }), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Retirer',
+        text: t('vgp.report.removeBtn'),
         style: 'destructive',
         onPress: async () => {
           await updateMateriel(editMat.id, {
@@ -152,7 +240,7 @@ export default function VgpScreen() {
   const marquerVisiteAujourdhui = async (m: Materiel) => {
     const j = m.vgp_periodicite_jours;
     if (!j || j <= 0) {
-      Alert.alert('VGP', 'Définissez d’abord une périodicité pour cet équipement.');
+      Alert.alert(t('tab.vgp'), t('vgp.needPeriod'));
       return;
     }
     const today = new Date().toISOString().split('T')[0];
@@ -166,23 +254,23 @@ export default function VgpScreen() {
       await load();
       await rescheduleVgpDueReminders(await getMateriel());
       void triggerSyncAfterActionIfEnabled();
-      Alert.alert('✓', 'Dernière visite enregistrée à la date du jour.');
+      Alert.alert(t('common.success'), t('vgp.visitSaved'));
     } catch (e: any) {
-      Alert.alert('Erreur', e?.message ?? 'Impossible');
+      Alert.alert(t('common.error'), e?.message ?? t('tour.detail.actionError'));
     }
   };
 
   const handleExportIcs = async () => {
     const vgp = list.filter(m => isVgpActif(m));
     if (!vgp.length) {
-      Alert.alert('Export', 'Aucun matériel dans le suivi VGP.');
+      Alert.alert(t('tab.importExport'), t('vgp.export.none'));
       return;
     }
     setExporting(true);
     try {
       await shareVgpIcsFile(vgp);
     } catch (e: any) {
-      Alert.alert('Export .ics', e?.message ?? 'Export impossible');
+      Alert.alert(t('vgp.export.failTitle'), e?.message ?? t('importExport.failGeneric'));
     } finally {
       setExporting(false);
     }
@@ -197,7 +285,7 @@ export default function VgpScreen() {
     await updateMateriel(m.id, {
       vgp_actif: 1,
       vgp_periodicite_jours: 365,
-      vgp_libelle: epi ? 'Contrôle EPI' : null,
+      vgp_libelle: epi ? t('vgp.pick.defaultEpiLabel') : null,
       vgp_derniere_visite: null,
       vgp_epi: epi ? 1 : 0,
     });
@@ -211,29 +299,31 @@ export default function VgpScreen() {
   };
 
   const epiSuivi = useMemo(
-    () => list.filter(isVgpEpi).sort((a, b) => a.nom.localeCompare(b.nom, 'fr')),
+    () => list.filter(isVgpEpi).sort((a, b) => a.nom.localeCompare(b.nom, language)),
     [list]
   );
   const autresSuivi = useMemo(
-    () => list.filter(m => !isVgpEpi(m)).sort((a, b) => a.nom.localeCompare(b.nom, 'fr')),
+    () => list.filter(m => !isVgpEpi(m)).sort((a, b) => a.nom.localeCompare(b.nom, language)),
     [list]
   );
   const sections = useMemo((): VgpSection[] => {
     const out: VgpSection[] = [];
     if (epiSuivi.length) {
       out.push({
-        title: 'EPI — équipements de protection individuelle',
+        title: t('vgp.sec.epiTitle'),
         data: epiSuivi,
       });
     }
     if (autresSuivi.length) {
       out.push({
-        title: 'Autres équipements (VGP)',
+        title: t('vgp.sec.otherTitle'),
         data: autresSuivi,
       });
     }
     return out;
-  }, [epiSuivi, autresSuivi]);
+  }, [epiSuivi, autresSuivi, t]);
+  const bottomSafePad =
+    Platform.OS === 'android' ? Math.max(insets.bottom, 64) : Math.max(insets.bottom, 16);
 
   const renderItem = ({ item: m }: { item: Materiel }) => {
     const proch = vgpProchaineEcheanceIso(m);
@@ -256,17 +346,22 @@ export default function VgpScreen() {
                 <Text style={s.sub}>{m.vgp_libelle}</Text>
               ) : null}
               <Text style={s.sub}>
-                Dernière visite : {fmtDate(m.vgp_derniere_visite)}
-                {m.vgp_periodicite_jours ? ` · Tous les ${m.vgp_periodicite_jours} j` : ''}
+                {t('vgp.row.lastVisit', { date: fmtDate(m.vgp_derniere_visite, language) })}
+                {m.vgp_periodicite_jours ? t('vgp.row.everyDays', { n: m.vgp_periodicite_jours }) : ''}
               </Text>
+              {!!(m.notice_pdf_local || m.notice_pdf_url) && (
+                <Text style={s.subReport}>Dernier rapport PDF joint</Text>
+              )}
               <Text style={[s.proch, retard && s.prochAlert, incomplet && s.prochWarn]}>
-                Prochaine échéance : {proch ? fmtDate(proch) : incomplet ? 'À configurer' : '—'}
+                {t('vgp.row.nextDue', {
+                  due: proch ? fmtDate(proch, language) : incomplet ? t('vgp.row.nextIncomplete') : t('vgp.row.nextDash'),
+                })}
               </Text>
             </View>
             <View style={{ alignItems: 'flex-end', gap: 6 }}>
               {retard ? (
                 <View style={s.badgeRed}>
-                  <Text style={s.badgeTxt}>Due</Text>
+                  <Text style={s.badgeTxt}>{t('vgp.badgeDue')}</Text>
                 </View>
               ) : proch ? (
                 <View style={s.badgeOk}>
@@ -279,13 +374,13 @@ export default function VgpScreen() {
         {editOk && (
           <View style={s.rowBtns}>
             <TouchableOpacity style={s.smallBtn} onPress={() => marquerVisiteAujourdhui(m)}>
-              <Text style={s.smallBtnText}>Visite faite aujourd’hui</Text>
+              <Text style={s.smallBtnText}>{t('vgp.visitToday')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={s.smallBtnOutline}
               onPress={() => navigation.navigate('MaterielDetail', { materielId: m.id })}
             >
-              <Text style={s.smallBtnOutlineText}>Fiche</Text>
+              <Text style={s.smallBtnOutlineText}>{t('vgp.openCard')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -298,20 +393,11 @@ export default function VgpScreen() {
       <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 }}>
         <ScreenHeader
           icon={<Text style={{ fontSize: 22, color: Colors.green }}>📅</Text>}
-          title="VGP — visites périodiques"
+          title={t('vgp.header.title')}
         />
-        <Text style={s.intro}>
-          Équipements soumis à contrôles réglementaires ou maintenance obligatoire : périodicité, dernière visite,
-          alertes dans l’onglet Alertes, export calendrier .ics.
-        </Text>
-        <Text style={s.epiIntro}>
-          Zone <Text style={{ fontWeight: '700', color: Colors.green }}>EPI</Text> : casques, harnais, chaussures de
-          sécurité, gants, lunettes, etc. — contrôle d’état, conformité et périodicité dédiés (souvent annuel).
-        </Text>
-        <Text style={s.notifHint}>
-          Rappels sur le téléphone : demandez la permission et réglez le délai (jours avant l’échéance) dans l’onglet
-          Paramètres (⚙️), section « Notifications locales ».
-        </Text>
+        <Text style={s.intro}>{t('vgp.header.intro')}</Text>
+        <Text style={s.epiIntro}>{t('vgp.header.epiZone')}</Text>
+        <Text style={s.notifHint}>{t('vgp.header.notifyHint')}</Text>
         <View style={s.toolbar}>
           <TouchableOpacity
             style={[s.mainBtn, exporting && { opacity: 0.6 }]}
@@ -321,7 +407,7 @@ export default function VgpScreen() {
             {exporting ? (
               <ActivityIndicator color={Colors.white} size="small" />
             ) : (
-              <Text style={s.mainBtnText}>Exporter .ics</Text>
+              <Text style={s.mainBtnText}>{t('vgp.exportIcs')}</Text>
             )}
           </TouchableOpacity>
           {editOk && (
@@ -333,7 +419,7 @@ export default function VgpScreen() {
                   setAddOpen(true);
                 }}
               >
-                <Text style={s.outlineBtnEpiText}>+ EPI</Text>
+                <Text style={s.outlineBtnEpiText}>{t('vgp.addEpi')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={s.outlineBtn}
@@ -342,7 +428,7 @@ export default function VgpScreen() {
                   setAddOpen(true);
                 }}
               >
-                <Text style={s.outlineBtnText}>+ Équipement</Text>
+                <Text style={s.outlineBtnText}>{t('vgp.addEquip')}</Text>
               </TouchableOpacity>
             </>
           )}
@@ -360,16 +446,15 @@ export default function VgpScreen() {
           </View>
         )}
         stickySectionHeadersEnabled
-        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 + bottomSafePad }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.green} />}
         ListEmptyComponent={
           <View style={s.empty}>
             <Text style={{ fontSize: 40 }}>📅</Text>
-            <Text style={s.emptyText}>Aucun équipement en suivi VGP</Text>
+            <Text style={s.emptyText}>{t('vgp.emptyTitle')}</Text>
             {editOk && (
               <Text style={s.emptyHint}>
-                Utilisez « + EPI » pour les équipements de protection, ou « + Équipement » pour les autres contrôles
-                périodiques.
+                {t('vgp.emptyHint')}
               </Text>
             )}
           </View>
@@ -382,23 +467,21 @@ export default function VgpScreen() {
           setAddOpen(false);
           setPickSearch('');
         }}
-        title={addKind === 'epi' ? 'Ajouter un EPI au suivi' : 'Ajouter un équipement VGP'}
+        title={addKind === 'epi' ? t('vgp.pick.title.epi') : t('vgp.pick.title.gen')}
       >
         <Text style={s.modalHint}>
-          {addKind === 'epi'
-            ? 'Sélectionnez un matériel EPI (casque, harnais, etc.). Un libellé « Contrôle EPI » est proposé par défaut, modifiable ensuite.'
-            : 'Choisissez un matériel à suivre pour ses visites / contrôles périodiques (hors zone EPI).'}
+          {addKind === 'epi' ? t('vgp.pick.hint.epi') : t('vgp.pick.hint.gen')}
         </Text>
         <TextInput
           style={s.search}
-          placeholder="Rechercher…"
+          placeholder={t('vgp.pick.searchPh')}
           placeholderTextColor={Colors.textMuted}
           value={pickSearch}
           onChangeText={setPickSearch}
         />
         <View style={s.pickList}>
           {pickCandidates.slice(0, 80).length === 0 ? (
-            <Text style={s.emptyPick}>Aucun résultat ou tout est déjà en VGP.</Text>
+            <Text style={s.emptyPick}>{t('vgp.pick.none')}</Text>
           ) : (
             pickCandidates.slice(0, 80).map(m => (
               <TouchableOpacity key={m.id} style={s.pickRow} onPress={() => addToVgp(m)}>
@@ -432,27 +515,49 @@ export default function VgpScreen() {
               />
             </View>
             <Input
-              label="Type de contrôle / référence"
+              label={t('vgp.edit.controlType')}
               value={libelle}
               onChangeText={setLibelle}
-              placeholder={isEpi ? 'ex. Contrôle EPI, harnais CE, date textile…' : 'ex. Consuel, extincteurs…'}
+              placeholder={isEpi ? t('vgp.edit.controlTypePhEpi') : t('vgp.edit.controlTypePhGen')}
             />
             <Input
-              label="Périodicité (jours)"
+              label={t('vgp.edit.periodDays')}
               value={periodicite}
               onChangeText={setPeriodicite}
               keyboardType="numeric"
-              placeholder="ex. 365"
+              placeholder={t('vgp.edit.periodPh')}
             />
-            <DateField label="Date dernière visite / contrôle" value={derniere} onChange={setDerniere} allowClear />
-            <Text style={s.modalHint}>
-              La prochaine échéance = dernière visite + périodicité. Elle alimente aussi le champ « Prochain contrôle »
-              de la fiche matériel.
-            </Text>
+            <DateField label={t('vgp.edit.lastVisit')} value={derniere} onChange={setDerniere} allowClear />
+            <Text style={s.modalHint}>{t('vgp.edit.nextHint')}</Text>
+            <Card style={{ marginTop: 6, marginBottom: 10 }}>
+              <Text style={s.sectionTitle}>{t('vgp.pdf.section')}</Text>
+              {!!(editMat.notice_pdf_local || editMat.notice_pdf_url) ? (
+                <Text style={s.modalHint}>{t('vgp.pdf.hasHint')}</Text>
+              ) : (
+                <Text style={s.modalHint}>{t('vgp.pdf.noneHint')}</Text>
+              )}
+              <View style={s.rowBtns}>
+                {!!(editMat.notice_pdf_local || editMat.notice_pdf_url) && (
+                  <TouchableOpacity style={s.smallBtn} onPress={() => void openControlReportPdf(editMat)}>
+                    <Text style={s.smallBtnText}>{t('vgp.pdf.open')}</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity style={s.smallBtn} onPress={() => void attachControlReportPdf(editMat)}>
+                  <Text style={s.smallBtnText}>
+                    {editMat.notice_pdf_local || editMat.notice_pdf_url ? t('vgp.pdf.replace') : t('vgp.pdf.attach')}
+                  </Text>
+                </TouchableOpacity>
+                {!!(editMat.notice_pdf_local || editMat.notice_pdf_url) && (
+                  <TouchableOpacity style={s.smallBtnOutline} onPress={() => removeControlReportPdf(editMat)}>
+                    <Text style={s.smallBtnOutlineText}>{t('vgp.pdf.removeShort')}</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </Card>
             <FormButtons onCancel={closeEdit} onSave={saveEdit} loading={saving} />
             {editOk && (
               <TouchableOpacity style={s.dangerBtn} onPress={retirerVgp}>
-                <Text style={s.dangerBtnText}>Retirer du suivi VGP</Text>
+                <Text style={s.dangerBtnText}>{t('vgp.removeFromTracking')}</Text>
               </TouchableOpacity>
             )}
           </>
@@ -546,6 +651,7 @@ const s = StyleSheet.create({
   epiSwitchHint: { color: Colors.textMuted, fontSize: 11, marginTop: 4, lineHeight: 15 },
   name: { color: Colors.white, fontSize: 16, fontWeight: '600' },
   sub: { color: Colors.textSecondary, fontSize: 12, marginTop: 4 },
+  subReport: { color: Colors.green, fontSize: 12, marginTop: 5, fontWeight: '700' },
   proch: { color: Colors.textMuted, fontSize: 13, marginTop: 6, fontWeight: '600' },
   prochAlert: { color: Colors.red },
   prochWarn: { color: Colors.yellow },

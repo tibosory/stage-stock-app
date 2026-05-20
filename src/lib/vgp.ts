@@ -71,7 +71,7 @@ function foldIcsLine(line: string): string {
 }
 
 /** Génère un calendrier ICS (une journée entière par prochaine échéance VGP). */
-export function buildVgpIcsCalendar(items: Materiel[], calName: string = 'Stage Stock — VGP'): string {
+export function buildVgpIcsCalendar(items: Materiel[], calName: string = 'CATRACK Pro — VGP'): string {
   const now = new Date();
   const stamp = format(now, "yyyyMMdd'T'HHmmss'Z'");
   const lines: string[] = [

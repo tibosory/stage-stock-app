@@ -1,7 +1,7 @@
 import * as Network from 'expo-network';
-import { setApiBaseOverride } from './apiEndpointStorage';
+import { getApiBaseOverride, setApiBaseOverride } from './apiEndpointStorage';
 import { discoverStageStockOnLan, privateSubnetPrefixForIpv4 } from './lanDiscovery';
-import { checkServerReachableQuick } from '../config/stageStockApi';
+import { checkServerReachableQuick, getBundledDefaultApiBase } from '../config/stageStockApi';
 
 let lastLanAttemptAt = 0;
 const LAN_DISCOVERY_COOLDOWN_MS = 75_000;
@@ -34,6 +34,14 @@ export async function runAutoLanDiscoveryWhenUnreachable(): Promise<void> {
     const hit = await discoverStageStockOnLan({ preferredSubnetPrefixes });
     if (hit?.baseUrl) {
       await setApiBaseOverride(hit.baseUrl);
+      return;
+    }
+
+    // Beginner-friendly fallback: if a stale local override is broken,
+    // fall back to bundled cloud/server URL automatically when available.
+    const currentOverride = await getApiBaseOverride();
+    if (currentOverride && getBundledDefaultApiBase()) {
+      await setApiBaseOverride(null);
     }
   } catch {
     /* silencieux */

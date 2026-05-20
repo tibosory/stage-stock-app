@@ -1,7 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppUser } from '../types';
-import { verifyAppUserPin, listAppUsersForLogin } from '../db/database';
+import { verifyAppUserPin, listAppUsersForLogin, updateAppUserPin } from '../db/userDb';
+import { isFactoryDefaultPin, storedPinIsFactoryDefault } from '../lib/pinAuth';
 import { can, Permission } from '../auth/permissions';
 import { registerStaffExpoPushToken } from '../lib/registerStaffExpoPushToken';
 import { fetchCloudUser, loginCloud, registerCloud, logoutCloud, type CloudUser } from '../lib/cloudAuthApi';
@@ -19,6 +20,8 @@ type AuthCtx = {
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   can: (p: Permission) => boolean;
+  mustChangeDefaultPin: boolean;
+  submitNewPin: (newPin: string) => Promise<{ ok: boolean; message?: string }>;
 };
 
 const Ctx = createContext<AuthCtx | null>(null);
@@ -27,6 +30,7 @@ export function AppAuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [cloudUser, setCloudUser] = useState<CloudUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [mustChangeDefaultPin, setMustChangeDefaultPin] = useState(false);
 
   const refreshSession = useCallback(async () => {
     const cu = await fetchCloudUser();
@@ -42,9 +46,15 @@ export function AppAuthProvider({ children }: { children: React.ReactNode }) {
     if (!stub) {
       await AsyncStorage.removeItem(SESSION_KEY);
       setUser(null);
+      setMustChangeDefaultPin(false);
       setLoading(false);
       return;
     }
+    const database = await import('../db/database').then(m => m.getDB());
+    const pinRow = await database.getFirstAsync<{ pin_hash: string }>(
+      'SELECT pin_hash FROM app_users WHERE id = ? AND actif = 1',
+      [id]
+    );
     const fullUser: AppUser = {
       id: stub.id,
       nom: stub.nom,
@@ -54,6 +64,9 @@ export function AppAuthProvider({ children }: { children: React.ReactNode }) {
       created_at: '',
     };
     setUser(fullUser);
+    setMustChangeDefaultPin(
+      pinRow?.pin_hash ? await storedPinIsFactoryDefault(pinRow.pin_hash) : false
+    );
     void registerStaffExpoPushToken(fullUser);
     setLoading(false);
   }, []);
@@ -68,9 +81,30 @@ export function AppAuthProvider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.setItem(SESSION_KEY, u.id);
     const logged = { ...u, pin_hash: '' };
     setUser(logged);
+    setMustChangeDefaultPin(isFactoryDefaultPin(pin));
     void registerStaffExpoPushToken(logged);
     return true;
   }, []);
+
+  const submitNewPin = useCallback(async (newPin: string) => {
+    if (!user?.id) return { ok: false as const, message: 'Session expirée.' };
+    if (isFactoryDefaultPin(newPin)) {
+      return { ok: false as const, message: 'Le PIN 1234 est interdit.' };
+    }
+    if (newPin.length < 4) {
+      return { ok: false as const, message: 'PIN trop court (4 chiffres minimum).' };
+    }
+    try {
+      await updateAppUserPin(user.id, newPin);
+      setMustChangeDefaultPin(false);
+      return { ok: true as const };
+    } catch (e: unknown) {
+      return {
+        ok: false as const,
+        message: e instanceof Error ? e.message : 'Impossible de mettre à jour le PIN.',
+      };
+    }
+  }, [user?.id]);
 
   const loginWithCloud = useCallback(async (email: string, password: string) => {
     const r = await loginCloud(email, password);
@@ -100,6 +134,7 @@ export function AppAuthProvider({ children }: { children: React.ReactNode }) {
     await logoutCloud();
     setUser(null);
     setCloudUser(null);
+    setMustChangeDefaultPin(false);
   }, []);
 
   const canFn = useCallback((p: Permission) => can(user?.role, p), [user?.role]);
@@ -117,6 +152,8 @@ export function AppAuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         refreshSession,
         can: canFn,
+        mustChangeDefaultPin,
+        submitNewPin,
       }}
     >
       {children}

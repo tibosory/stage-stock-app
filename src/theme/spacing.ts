@@ -8,12 +8,16 @@ export const Spacing = {
   lg: 16,
   xl: 20,
   xxl: 24,
+  /** Cible tactile minimale recommandée (formulaires, listes). */
+  touchMin: 48,
 } as const;
 
 export const Radius = {
   sm: 10,
   md: 12,
   lg: 14,
+  /** Cartes et surfaces « pleines ». */
+  card: 16,
   xl: 20,
 } as const;
 

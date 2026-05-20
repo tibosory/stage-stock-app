@@ -3,8 +3,11 @@
 export type AppUserRole = 'admin' | 'technicien' | 'emprunteur';
 
 export type EtatMateriel = 'bon' | 'moyen' | 'usé' | 'hors service';
-export type StatutMateriel = 'en stock' | 'en prêt' | 'en réparation' | 'perdu';
+export type StatutMateriel = 'en stock' | 'en prêt' | 'en réparation' | 'perdu' | 'en tournée';
 export type StatutPret = 'en demande' | 'en cours' | 'retourné' | 'en retard' | 'annulé';
+export type TourStatus = 'planned' | 'active' | 'completed';
+export type AssignmentStatus = 'assigned' | 'in_use' | 'returned' | 'lost' | 'damaged';
+export type ActivityLogType = 'ASSIGNED' | 'MOVED' | 'RETURNED' | 'DAMAGED' | 'CHECKED';
 
 export interface Materiel {
   id: string;
@@ -60,8 +63,135 @@ export interface Materiel {
   gel_code?: string | null;
   /** 1 = afficher la pastille couleur gel à la place de la photo principale */
   gel_instead_of_photo?: number | boolean;
+  /**
+   * Données techniques métier extensibles (JSON sérialisé ou objet),
+   * non destructives pour la structure principale du matériel.
+   */
+  technical_data?: Record<string, string | number | boolean | null> | string | null;
+  /** Profil métier appliqué au matériel (éditeur dynamique de schéma). */
+  profile_id?: string | null;
+  /** Version du schéma appliqué au moment de l'édition. */
+  profile_version?: number | null;
+  /** État de tracking opérationnel (mode tournée). */
+  tracking_state?: 'available' | 'in_tour' | 'returned' | 'lost' | 'damaged' | null;
+  current_tour_id?: string | null;
+  current_location_id?: string | null;
   created_at: string;
   updated_at: string;
+  synced: boolean;
+}
+
+export type DynamicFieldType = 'number' | 'text' | 'select' | 'boolean' | 'date';
+
+export interface FieldDefinition {
+  id: string;
+  label: string;
+  type: DynamicFieldType;
+  required: boolean;
+  unit?: string | null;
+  defaultValue?: string | number | boolean | null;
+  options?: string[];
+  min?: number | null;
+  max?: number | null;
+  isDeleted: boolean;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  version: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProfileSchema {
+  profileId: string;
+  version: number;
+  fields: FieldDefinition[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Tour {
+  id: string;
+  name: string;
+  status: TourStatus;
+  startDate: string;
+  endDate?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  synced: boolean;
+}
+
+export interface TourLocation {
+  id: string;
+  name: string;
+  address?: string | null;
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  tourId: string;
+  createdAt: string;
+  updatedAt: string;
+  synced: boolean;
+}
+
+export interface Assignment {
+  id: string;
+  materialId: string;
+  tourId: string;
+  locationId?: string | null;
+  flightcaseId?: string | null;
+  packagingPhotoLocal?: string | null;
+  quantity: number;
+  status: AssignmentStatus;
+  assignedAt: string;
+  returnedAt?: string | null;
+  assignedTo?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  synced: boolean;
+}
+
+export interface TourFlightcase {
+  id: string;
+  tourId: string;
+  caseNumber: number;
+  totalCases: number;
+  label: string;
+  qrCode: string;
+  createdAt: string;
+  updatedAt: string;
+  synced: boolean;
+}
+
+export interface ActivityLog {
+  id: string;
+  type: ActivityLogType;
+  materialId: string;
+  tourId?: string | null;
+  locationId?: string | null;
+  userId?: string | null;
+  timestamp: string;
+  note?: string | null;
+  createdAt: string;
+  synced: boolean;
+  /** Renseigné par les listes avec jointures (affichage). */
+  materialName?: string | null;
+  tourName?: string | null;
+  locationName?: string | null;
+}
+
+export interface TourDocument {
+  id: string;
+  tourId: string;
+  title: string;
+  fileName: string;
+  mimeType?: string | null;
+  fileSize?: number | null;
+  localUri: string;
+  createdAt: string;
+  updatedAt: string;
   synced: boolean;
 }
 

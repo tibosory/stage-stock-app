@@ -10,17 +10,20 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Colors, Shadow } from '../theme/colors';
 import {
   getMaterielByQr, getMaterielByNfc, searchMateriels, searchConsommables,
-  getConsommableByQr, getStats, ajusterStock,
+  getConsommableByQr, ajusterStock,
   createMaterielStubWithScannedCode,
   createConsommableStubWithScannedCode,
-} from '../db/database';
+} from '../db/inventoryOpsDb';
+import { getStats } from '../db/metadataDb';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
+import { triggerScanMatchHaptic } from '../lib/scanHaptic';
 import { openMaterielFicheFromAlerte, openConsoFicheFromAlerte } from '../navigation/openFicheFromAlerte';
 import { useNfc } from '../hooks/useNfc';
 import { EtatBadge, Card, BottomModal, Input, TabScreenSafeArea } from '../components/UI';
 import { BurstQtyNumpadModal } from '../components/BurstQtyNumpadModal';
 import { Consommable, Materiel } from '../types';
 import { useAppAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 
 type Mode = 'home' | 'camera' | 'nfc' | 'batch';
 type LastConsoMove = {
@@ -31,6 +34,7 @@ type LastConsoMove = {
 };
 
 export default function ScannerScreen() {
+  const { t } = useLanguage();
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { can } = useAppAuth();
@@ -102,7 +106,7 @@ export default function ScannerScreen() {
     if (!consoMoveItem) return;
     const qty = Math.max(0, parseInt(consoMoveQty, 10) || 0);
     if (qty <= 0) {
-      Alert.alert('Quantité invalide', 'Saisissez un nombre supérieur à 0.');
+      Alert.alert(t('scanner.invalidQtyTitle'), t('scanner.invalidQtyBody'));
       return;
     }
     const delta = type === 'entrée' ? qty : -qty;
@@ -118,12 +122,17 @@ export default function ScannerScreen() {
       });
       setConsoBurstLast(`${consoMoveItem.nom} ${delta > 0 ? '+' : ''}${delta} ${consoMoveItem.unite}`);
       Alert.alert(
-        'Stock mis à jour',
-        `${consoMoveItem.nom}\n${type === 'entrée' ? '+' : '-'}${qty} ${consoMoveItem.unite}`
+        t('scanner.stockUpdatedTitle'),
+        t('scanner.stockUpdatedBody', {
+          name: consoMoveItem.nom,
+          sign: type === 'entrée' ? '+' : '-',
+          qty,
+          unit: consoMoveItem.unite,
+        })
       );
       closeConsoMove();
     } catch (e: any) {
-      Alert.alert('Erreur', e?.message ?? 'Impossible de mettre à jour le stock.');
+      Alert.alert(t('scanner.error'), e?.message ?? 'Impossible de mettre à jour le stock.');
     } finally {
       setConsoMoveBusy(false);
     }
@@ -134,7 +143,7 @@ export default function ScannerScreen() {
   const applyConsoBurstMove = useCallback(
     async (conso: Consommable, type: 'entrée' | 'sortie', qty: number): Promise<boolean> => {
       if (qty <= 0) {
-        Alert.alert('Mode rafale', 'Quantité invalide. Indiquez un nombre supérieur à 0.');
+        Alert.alert(t('scanner.burstModeTitle'), t('scanner.burstInvalidQtyBody'));
         return false;
       }
       const delta = type === 'entrée' ? qty : -qty;
@@ -150,7 +159,7 @@ export default function ScannerScreen() {
         setConsoBurstLast(`${conso.nom} ${type === 'entrée' ? '+' : '-'}${qty} ${conso.unite}`);
         return true;
       } catch (e: any) {
-        Alert.alert('Erreur mouvement', e?.message ?? 'Impossible de mettre à jour le stock.');
+        Alert.alert(t('scanner.moveError'), e?.message ?? 'Impossible de mettre à jour le stock.');
         return false;
       }
     },
@@ -161,7 +170,7 @@ export default function ScannerScreen() {
     async (conso: Consommable): Promise<boolean> => {
       const qty = getBurstQty();
       if (qty <= 0) {
-        Alert.alert('Mode rafale', 'Quantité invalide. Réglez une quantité > 0 ou utilisez le pavé à chaque scan.');
+        Alert.alert(t('scanner.burstModeTitle'), t('scanner.burstInvalidQtyNumpadBody'));
         return false;
       }
       return applyConsoBurstMove(conso, consoBurstType, qty);
@@ -197,9 +206,9 @@ export default function ScannerScreen() {
         `Annulé: ${lastConsoMove.nom} ${lastConsoMove.delta > 0 ? '+' : ''}${lastConsoMove.delta} ${lastConsoMove.unite}`
       );
       setLastConsoMove(null);
-      Alert.alert('Undo appliqué', `Dernier mouvement annulé sur ${lastConsoMove.nom}.`);
+      Alert.alert(t('scanner.undoDone'), `Dernier mouvement annulé sur ${lastConsoMove.nom}.`);
     } catch (e: any) {
-      Alert.alert('Undo impossible', e?.message ?? 'Impossible d’annuler le dernier mouvement.');
+      Alert.alert(t('scanner.undoError'), e?.message ?? 'Impossible d’annuler le dernier mouvement.');
     } finally {
       setUndoBusy(false);
     }
@@ -213,14 +222,15 @@ export default function ScannerScreen() {
 
     const mat = await getMaterielByQr(result.data);
     if (mat) {
+      void triggerScanMatchHaptic();
       if (mode === 'batch') {
         setBatchResults(prev => {
           if (prev.find(m => m.id === mat.id)) {
-            Alert.alert('Déjà scanné', mat.nom);
+            Alert.alert(t('scanner.alreadyScanned'), mat.nom);
             setScanned(false);
             return prev;
           }
-          Alert.alert('✓ Trouvé', mat.nom);
+          Alert.alert(t('scanner.found'), mat.nom);
           setTimeout(() => setScanned(false), 800);
           return [mat, ...prev];
         });
@@ -234,6 +244,7 @@ export default function ScannerScreen() {
     } else {
       const conso = await getConsommableByQr(result.data);
       if (conso) {
+        void triggerScanMatchHaptic();
         if (consoBurstEnabled) {
           if (consoBurstAskQtyEachScan) {
             setBurstNumpadConso(conso);
@@ -249,12 +260,12 @@ export default function ScannerScreen() {
       if (editInventory) {
         const code = result.data;
         Alert.alert(
-          'Code inconnu',
+          t('scanner.unknownCode'),
           `${code}\n\nAucune fiche ne correspond. Créer une nouvelle fiche avec ce code ?`,
           [
-            { text: 'Annuler', style: 'cancel', onPress: () => setScanned(false) },
+            { text: t('common.cancel'), style: 'cancel', onPress: () => setScanned(false) },
             {
-              text: 'Fiche matériel (stock)',
+              text: t('scanner.createMaterialSheet'),
               onPress: () => {
                 void (async () => {
                   try {
@@ -262,7 +273,7 @@ export default function ScannerScreen() {
                     await triggerSyncAfterActionIfEnabled();
                     openMaterielFicheFromAlerte(navigation, id, 'stock');
                   } catch (e) {
-                    Alert.alert('Création impossible', e instanceof Error ? e.message : String(e));
+                    Alert.alert(t('scanner.createImpossible'), e instanceof Error ? e.message : String(e));
                   } finally {
                     setScanned(false);
                   }
@@ -270,7 +281,7 @@ export default function ScannerScreen() {
               },
             },
             {
-              text: 'Fiche consommable',
+              text: t('scanner.createConsumableSheet'),
               onPress: () => {
                 void (async () => {
                   try {
@@ -278,7 +289,7 @@ export default function ScannerScreen() {
                     await triggerSyncAfterActionIfEnabled();
                     openConsoFicheFromAlerte(navigation, id);
                   } catch (e) {
-                    Alert.alert('Création impossible', e instanceof Error ? e.message : String(e));
+                    Alert.alert(t('scanner.createImpossible'), e instanceof Error ? e.message : String(e));
                   } finally {
                     setScanned(false);
                   }
@@ -289,9 +300,9 @@ export default function ScannerScreen() {
         );
       } else {
         Alert.alert(
-          'Code inconnu',
+          t('scanner.unknownCode'),
           `Code: ${result.data}\n\nDemandez à un technicien d’enregistrer ce matériel.`,
-          [{ text: 'OK', onPress: () => setScanned(false) }]
+          [{ text: t('common.ok'), onPress: () => setScanned(false) }]
         );
       }
     }
@@ -310,25 +321,26 @@ export default function ScannerScreen() {
   const handleNfcScan = async () => {
     const tagValue = await readNfcTag();
     if (!tagValue) {
-      Alert.alert('Pas de tag', 'Aucun tag NFC détecté ou lecture impossible.');
+      Alert.alert(t('scanner.noTag'), t('scanner.noTagBody'));
       return;
     }
 
     Vibration.vibrate(100);
     const mat = await getMaterielByNfc(tagValue);
     if (mat) {
+      void triggerScanMatchHaptic();
       navigation.navigate('Stock', {
         screen: 'MaterielDetail',
         params: { materielId: mat.id },
       });
     } else if (editInventory) {
       Alert.alert(
-        'Tag NFC non associé',
-        `${tagValue}\n\nAucune fiche ne correspond. Créer une nouvelle fiche avec ce tag ?`,
+        t('scanner.nfcUnknownTitle'),
+        t('scanner.nfcUnknownBody', { tagValue }),
         [
-          { text: 'Annuler', style: 'cancel' },
+          { text: t('common.cancel'), style: 'cancel' },
           {
-            text: 'Fiche matériel (stock)',
+            text: t('scanner.createMaterialSheet'),
             onPress: () => {
               void (async () => {
                 try {
@@ -336,13 +348,13 @@ export default function ScannerScreen() {
                   await triggerSyncAfterActionIfEnabled();
                   openMaterielFicheFromAlerte(navigation, id, 'stock');
                 } catch (e) {
-                  Alert.alert('Création impossible', e instanceof Error ? e.message : String(e));
+                  Alert.alert(t('scanner.createImpossible'), e instanceof Error ? e.message : String(e));
                 }
               })();
             },
           },
           {
-            text: 'Fiche consommable',
+            text: t('scanner.createConsumableSheet'),
             onPress: () => {
               void (async () => {
                 try {
@@ -350,7 +362,7 @@ export default function ScannerScreen() {
                   await triggerSyncAfterActionIfEnabled();
                   openConsoFicheFromAlerte(navigation, id);
                 } catch (e) {
-                  Alert.alert('Création impossible', e instanceof Error ? e.message : String(e));
+                  Alert.alert(t('scanner.createImpossible'), e instanceof Error ? e.message : String(e));
                 }
               })();
             },
@@ -359,8 +371,8 @@ export default function ScannerScreen() {
       );
     } else {
       Alert.alert(
-        'Tag NFC non associé',
-        `Tag ID: ${tagValue}\n\nContactez un technicien pour l’association.`
+        t('scanner.nfcUnknownTitle'),
+        t('scanner.nfcUnknownReadOnlyBody', { tagValue })
       );
     }
   };
@@ -369,6 +381,7 @@ export default function ScannerScreen() {
     if (!manualInput.trim()) return;
     const mat = await getMaterielByQr(manualInput.trim());
     if (mat) {
+      void triggerScanMatchHaptic();
       navigation.navigate('Stock', {
         screen: 'MaterielDetail',
         params: { materielId: mat.id },
@@ -377,6 +390,7 @@ export default function ScannerScreen() {
     }
     const conso = await getConsommableByQr(manualInput.trim());
     if (conso) {
+      void triggerScanMatchHaptic();
       if (consoBurstEnabled) {
         if (consoBurstAskQtyEachScan) {
           setBurstNumpadConso(conso);
@@ -418,21 +432,21 @@ export default function ScannerScreen() {
     <BottomModal
       visible={!!consoMoveItem}
       onClose={closeConsoMove}
-      title="Mouvement consommable"
+      title={t('scanner.consoMoveTitle')}
     >
       {consoMoveItem ? (
         <>
           <Text style={{ color: Colors.white, fontSize: 16, fontWeight: '700' }}>{consoMoveItem.nom}</Text>
           <Text style={{ color: Colors.textSecondary, marginTop: 4, marginBottom: 10 }}>
-            Stock actuel: {consoMoveItem.stock_actuel} {consoMoveItem.unite}
+            {t('scanner.stockCurrent', { stock: consoMoveItem.stock_actuel, unit: consoMoveItem.unite })}
           </Text>
 
           <Input
-            label="Quantité"
+            label={t('scanner.quantity')}
             value={consoMoveQty}
             onChangeText={setConsoMoveQty}
             keyboardType="numeric"
-            placeholder="Ex: 5"
+            placeholder={t('scanner.qtyPlaceholder')}
           />
 
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 2, marginBottom: 10 }}>
@@ -454,14 +468,14 @@ export default function ScannerScreen() {
               onPress={() => submitConsoMove('sortie')}
               disabled={consoMoveBusy}
             >
-              <Text style={s.moveBtnText}>Sortie -{consoMoveQty || 0}</Text>
+              <Text style={s.moveBtnText}>{t('scanner.out') } -{consoMoveQty || 0}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[s.moveBtn, s.moveBtnIn, consoMoveBusy && { opacity: 0.7 }]}
               onPress={() => submitConsoMove('entrée')}
               disabled={consoMoveBusy}
             >
-              <Text style={s.moveBtnText}>Entrée +{consoMoveQty || 0}</Text>
+              <Text style={s.moveBtnText}>{t('scanner.in')} +{consoMoveQty || 0}</Text>
             </TouchableOpacity>
           </View>
         </>
@@ -475,12 +489,12 @@ export default function ScannerScreen() {
       return (
         <TabScreenSafeArea style={s.container}>
           <View style={s.center}>
-            <Text style={s.subtitle}>Permission caméra requise</Text>
+            <Text style={s.subtitle}>{t('scanner.cameraPermission')}</Text>
             <TouchableOpacity style={s.btnGreen} onPress={requestPermission}>
-              <Text style={s.btnGreenText}>Autoriser la caméra</Text>
+              <Text style={s.btnGreenText}>{t('scanner.allowCamera')}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setMode('home')} style={{ marginTop: 12 }}>
-              <Text style={{ color: Colors.textMuted }}>← Retour</Text>
+              <Text style={{ color: Colors.textMuted }}>{t('scanner.back')}</Text>
             </TouchableOpacity>
           </View>
         </TabScreenSafeArea>
@@ -542,7 +556,7 @@ export default function ScannerScreen() {
               setBurstNumpadConso(null);
             }}
           >
-            <Text style={{ color: Colors.white, fontWeight: '600' }}>← Fermer</Text>
+            <Text style={{ color: Colors.white, fontWeight: '600' }}>{t('scanner.close')}</Text>
           </TouchableOpacity>
         </View>
         {renderConsoMoveModal()}
@@ -584,7 +598,7 @@ export default function ScannerScreen() {
           )}
 
           <TouchableOpacity onPress={() => setMode('home')} style={{ marginTop: 24 }}>
-            <Text style={{ color: Colors.textMuted }}>← Retour</Text>
+            <Text style={{ color: Colors.textMuted }}>{t('scanner.back')}</Text>
           </TouchableOpacity>
         </View>
         {renderConsoMoveModal()}
@@ -601,8 +615,8 @@ export default function ScannerScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <Text style={s.screenTitle}>Scanner</Text>
-        <Text style={s.screenSubtitle}>QR, codes-barres, NFC ou saisie</Text>
+        <Text style={s.screenTitle}>{t('scanner.title')}</Text>
+        <Text style={s.screenSubtitle}>{t('scanner.subtitle')}</Text>
 
         {stats && (
           <View style={s.statsRow}>
@@ -636,7 +650,7 @@ export default function ScannerScreen() {
         >
           <Text style={s.heroCardIcon}>⊞</Text>
           <View style={s.heroCardTextCol}>
-            <Text style={s.heroCardTitle}>Scanner un code QR</Text>
+            <Text style={s.heroCardTitle}>{t('scanner.scanQr')}</Text>
             <Text style={s.heroCardSub}>Ouvrir la caméra</Text>
           </View>
           <Text style={s.heroChevron}>›</Text>
@@ -645,7 +659,7 @@ export default function ScannerScreen() {
         <TouchableOpacity style={s.secondaryCard} activeOpacity={0.88} onPress={() => setMode('nfc')}>
           <Text style={s.secondaryCardIcon}>📡</Text>
           <View style={s.heroCardTextCol}>
-            <Text style={s.secondaryCardTitle}>Scanner une puce NFC</Text>
+            <Text style={s.secondaryCardTitle}>{t('scanner.scanNfc')}</Text>
             <Text style={s.secondaryCardSub}>Lecture d’un tag matériel</Text>
           </View>
           <Text style={s.secondaryChevron}>›</Text>
@@ -682,7 +696,7 @@ export default function ScannerScreen() {
         </View>
 
         <View style={s.manualCard}>
-          <Text style={s.manualCardLabel}>Recherche manuelle</Text>
+          <Text style={s.manualCardLabel}>{t('scanner.manualSearch')}</Text>
           <Text style={s.manualCardHint}>
             Par nom d’article (matériel ou consommable), référence, ou par libellé de catégorie / sous-catégorie
             (ex. « Éclairage › LED » — un mot du chemin suffit).
@@ -691,7 +705,7 @@ export default function ScannerScreen() {
             <TextInput
               ref={manualInputRef}
               style={s.manualInput}
-              placeholder="Nom, catégorie, sous-catégorie, QR, n° série…"
+              placeholder={t('scanner.searchPlaceholder')}
               placeholderTextColor={Colors.textMuted}
               value={manualInput}
               onChangeText={setManualInput}
@@ -706,7 +720,7 @@ export default function ScannerScreen() {
 
         <View style={s.burstCard}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <Text style={s.burstTitle}>Mode rafale consommables</Text>
+            <Text style={s.burstTitle}>{t('scanner.burstMode')}</Text>
             <TouchableOpacity
               style={[s.burstToggle, consoBurstEnabled && s.burstToggleOn]}
               onPress={() => {
@@ -806,12 +820,12 @@ export default function ScannerScreen() {
           manualInput.trim().length > 0 &&
           recentMat.length === 0 &&
           manualConsoResults.length === 0 && (
-            <Text style={s.noResultsText}>Aucun matériel ni consommable ne correspond à « {manualInput.trim()} ».</Text>
+            <Text style={s.noResultsText}>{t('scanner.noResults')} « {manualInput.trim()} ».</Text>
           )}
 
         {recentMat.length > 0 && (
           <>
-            <Text style={s.sectionLabel}>{manualSearchActive ? 'MATÉRIELS' : 'DERNIERS AJOUTS'}</Text>
+            <Text style={s.sectionLabel}>{manualSearchActive ? t('scanner.section.materials') : t('scanner.section.latest')}</Text>
             {recentMat.map(mat => (
               <Card
                 key={mat.id}
@@ -851,7 +865,7 @@ export default function ScannerScreen() {
 
         {manualSearchActive && manualConsoResults.length > 0 && (
           <>
-            <Text style={[s.sectionLabel, { marginTop: 10 }]}>CONSOMMABLES</Text>
+            <Text style={[s.sectionLabel, { marginTop: 10 }]}>{t('scanner.section.consumables')}</Text>
             {manualConsoResults.map(conso => (
               <Card
                 key={conso.id}

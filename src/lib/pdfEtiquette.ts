@@ -61,7 +61,7 @@ export const ETIQUETTE_FORMAT_FAMILIES: { id: EtiquetteFormatFamilyId; label: st
   { id: 'courants', label: 'Formats courants (bacs)' },
   { id: 'marques', label: 'Marques (Bito, Sysfix…)' },
   { id: 'avery', label: 'Avery / Herma' },
-  { id: 'classiques', label: 'Classiques Stage Stock' },
+  { id: 'classiques', label: 'Classiques CATRACK Pro' },
 ];
 
 export const ETIQUETTE_FORMATS_BY_FAMILY: Record<EtiquetteFormatFamilyId, EtiquetteFormatId[]> = {
@@ -415,7 +415,7 @@ function buildRectLabelHtml(mat: Materiel, spec: RectLabelSpec, brand: PdfBrandi
   <meta charset="utf-8" />
   <style>
     @page { size: ${mm(spec.wMm)} ${mm(spec.hMm)}; margin: ${mm(spec.pageMarginMm)}; }
-    body { font-family: "Inter", "Segoe UI", Arial, sans-serif; margin: 0; padding: 2px; color: #111; }
+    body { font-family: "Times New Roman", Times, Arial, sans-serif; margin: 0; padding: 2px; color: #111; }
     .wrap {
       border: ${spec.borderMm}px solid #374151;
       border-radius: ${spec.borderRadiusMm}px;
@@ -459,7 +459,7 @@ function buildHtml(mat: Materiel, format: EtiquetteFormatId, brand: PdfBranding)
   <meta charset="utf-8" />
   <style>
     @page { size: A4 portrait; margin: 10mm; }
-    body { font-family: "Inter", "Segoe UI", Arial, sans-serif; margin: 0; color: #111; }
+    body { font-family: "Times New Roman", Times, Arial, sans-serif; margin: 0; color: #111; }
     table { width: 100%; border-collapse: collapse; }
     img { max-width: 32mm; height: auto; }
   </style>

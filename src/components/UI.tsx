@@ -8,16 +8,18 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format, parseISO, isValid } from 'date-fns';
-import { fr } from 'date-fns/locale';
 import { Colors, Shadow } from '../theme/colors';
+import { HitSlop, Radius, Spacing } from '../theme/spacing';
 import { Typography } from '../theme/typography';
 import { EtatMateriel, StatutMateriel, StatutPret } from '../types';
+import { getDateFnsLocale, getDatePickerLocaleTag } from '../i18n/dateLocales';
+import { getRuntimeLanguage, tRuntime } from '../i18n/runtime';
 
 /**
  * Même logique que DockTabBar : sur Android (souvent 3 boutons), `insets.bottom` peut être 0
  * alors que la zone système existe — les modales plein écran doivent quand même dégager le bas.
  */
-const ANDROID_BOTTOM_INSET_MIN_DP = 52;
+const ANDROID_BOTTOM_INSET_MIN_DP = 64;
 
 function useModalBottomInset(): number {
   const insets = useSafeAreaInsets();
@@ -36,7 +38,17 @@ const etatColors: Record<string, string> = {
 
 export const EtatBadge = ({ etat }: { etat: EtatMateriel }) => (
   <View style={[badge.base, { backgroundColor: etatColors[etat] ?? Colors.textMuted }]}>
-    <Text style={badge.text}>{etat.charAt(0).toUpperCase() + etat.slice(1)}</Text>
+    <Text style={badge.text}>
+      {etat === 'bon'
+        ? tRuntime('status.condition.good')
+        : etat === 'moyen'
+          ? tRuntime('status.condition.medium')
+          : etat === 'usé'
+            ? tRuntime('status.condition.worn')
+            : etat === 'hors service'
+              ? tRuntime('status.condition.out_of_service')
+              : `${String(etat).charAt(0).toUpperCase()}${String(etat).slice(1)}`}
+    </Text>
   </View>
 );
 
@@ -45,12 +57,23 @@ const statutBg: Record<string, string> = {
   'en prêt': Colors.statutEnPret,
   'en réparation': Colors.yellow,
   perdu: Colors.red,
+  'en tournée': Colors.blue,
 };
 
 export const StatutBadge = ({ statut }: { statut: StatutMateriel }) => (
   <View style={[badge.base, { backgroundColor: statutBg[statut] ?? Colors.textMuted }]}>
     <Text style={badge.text}>
-      {statut.charAt(0).toUpperCase() + statut.slice(1)}
+      {statut === 'en stock'
+        ? tRuntime('status.material.in_stock')
+        : statut === 'en prêt'
+          ? tRuntime('status.material.on_loan')
+          : statut === 'en tournée'
+            ? tRuntime('status.material.on_tour')
+            : statut === 'en réparation'
+              ? tRuntime('status.material.in_repair')
+              : statut === 'perdu'
+                ? tRuntime('status.material.lost')
+                : `${String(statut).charAt(0).toUpperCase()}${String(statut).slice(1)}`}
     </Text>
   </View>
 );
@@ -65,7 +88,19 @@ const pretColors: Record<string, string> = {
 
 export const PretStatutBadge = ({ statut }: { statut: StatutPret }) => (
   <View style={[badge.base, { backgroundColor: pretColors[statut] ?? Colors.textMuted }]}>
-    <Text style={badge.text}>{statut.charAt(0).toUpperCase() + statut.slice(1)}</Text>
+    <Text style={badge.text}>
+      {statut === 'en demande'
+        ? tRuntime('status.loan.pending')
+        : statut === 'en cours'
+          ? tRuntime('status.loan.active')
+          : statut === 'retourné'
+            ? tRuntime('status.loan.returned')
+            : statut === 'en retard'
+              ? tRuntime('status.loan.late')
+              : statut === 'annulé'
+                ? tRuntime('status.loan.cancelled')
+                : `${String(statut).charAt(0).toUpperCase()}${String(statut).slice(1)}`}
+    </Text>
   </View>
 );
 
@@ -149,11 +184,11 @@ export const Card = ({ children, style, onPress }: {
 const card = StyleSheet.create({
   base: {
     backgroundColor: Colors.bgCard,
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: Radius.card,
+    padding: 18,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: Colors.borderStrong,
     ...Shadow.card,
   },
 });
@@ -184,34 +219,46 @@ export const Input = ({
   secureTextEntry, onSubmitEditing, onBlur, returnKeyType, blurOnSubmit,
   editable = true,
   autoCapitalize,
-}: InputProps) => (
-  <View style={[input.wrap, style]}>
-    {label && (
-      <Text style={input.label}>
-        {label}{required && <Text style={{ color: Colors.green }}> *</Text>}
-      </Text>
-    )}
-    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-      <TextInput
-        style={[input.field, { flex: 1 }, multiline && { height: 80, textAlignVertical: 'top' }]}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={Colors.textMuted}
-        keyboardType={keyboardType}
-        multiline={multiline}
-        secureTextEntry={secureTextEntry}
-        onSubmitEditing={onSubmitEditing}
-        onBlur={onBlur}
-        returnKeyType={returnKeyType}
-        blurOnSubmit={blurOnSubmit}
-        editable={editable}
-        autoCapitalize={autoCapitalize}
-      />
-      {suffix}
+}: InputProps) => {
+  const a11yLabel =
+    label != null && label !== ''
+      ? `${label}${required ? ', obligatoire' : ''}`
+      : placeholder;
+  return (
+    <View style={[input.wrap, style]}>
+      {label && (
+        <Text style={input.label}>
+          {label}{required && <Text style={{ color: Colors.green }}> *</Text>}
+        </Text>
+      )}
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <TextInput
+          style={[
+            input.field,
+            { flex: 1 },
+            !multiline && input.fieldSingleLine,
+            multiline && { height: 80, textAlignVertical: 'top' },
+          ]}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor={Colors.textMuted}
+          keyboardType={keyboardType}
+          multiline={multiline}
+          secureTextEntry={secureTextEntry}
+          onSubmitEditing={onSubmitEditing}
+          onBlur={onBlur}
+          returnKeyType={returnKeyType}
+          blurOnSubmit={blurOnSubmit}
+          editable={editable}
+          autoCapitalize={autoCapitalize}
+          accessibilityLabel={a11yLabel}
+        />
+        {suffix}
+      </View>
     </View>
-  </View>
-);
+  );
+};
 
 const input = StyleSheet.create({
   wrap: { marginBottom: 14 },
@@ -220,12 +267,16 @@ const input = StyleSheet.create({
     backgroundColor: Colors.bgInput,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: 12,
+    borderRadius: Radius.md,
     color: Colors.textPrimary,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
     lineHeight: 20,
+  },
+  fieldSingleLine: {
+    minHeight: Spacing.touchMin,
+    paddingVertical: 13,
   },
 });
 
@@ -267,12 +318,15 @@ export const DateField = ({
     if (iosOpen) setIosDraft(parseDateString(value));
   }, [iosOpen, value]);
 
+  const lng = getRuntimeLanguage();
+  const dfLocale = getDateFnsLocale(lng);
+
   const display =
     value?.trim() && isValid(parseDateString(value))
-      ? format(parseDateString(value), 'd MMMM yyyy', { locale: fr })
+      ? format(parseDateString(value), 'd MMMM yyyy', { locale: dfLocale })
       : disabled
-        ? '—'
-        : 'Appuyer pour choisir…';
+        ? tRuntime('common.dash')
+        : tRuntime('dateField.tapPrompt');
 
   const open = () => {
     if (disabled) return;
@@ -294,8 +348,8 @@ export const DateField = ({
           {required && <Text style={{ color: Colors.green }}> *</Text>}
         </Text>
         {allowClear && !!value?.trim() && !disabled && (
-          <TouchableOpacity onPress={() => onChange('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Text style={{ color: Colors.textMuted, fontSize: 12 }}>Effacer</Text>
+          <TouchableOpacity onPress={() => onChange('')} hitSlop={HitSlop}>
+            <Text style={{ color: Colors.textMuted, fontSize: 12 }}>{tRuntime('dateField.clear')}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -342,7 +396,7 @@ export const DateField = ({
                   value={iosDraft}
                   mode="date"
                   display="spinner"
-                  locale="fr_FR"
+                  locale={getDatePickerLocaleTag(lng)}
                   minimumDate={minimumDate}
                   maximumDate={maximumDate}
                   onChange={(_, date) => {
@@ -352,7 +406,9 @@ export const DateField = ({
                 />
                 <View style={df.iosBtns}>
                   <TouchableOpacity style={df.iosBtnGhost} onPress={() => setIosOpen(false)}>
-                    <Text style={{ color: Colors.textSecondary, fontWeight: '600' }}>Annuler</Text>
+                    <Text style={{ color: Colors.textSecondary, fontWeight: '600' }}>
+                      {tRuntime('common.cancel')}
+                    </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={df.iosBtnOk}
@@ -361,7 +417,7 @@ export const DateField = ({
                       setIosOpen(false);
                     }}
                   >
-                    <Text style={{ color: Colors.white, fontWeight: '700' }}>OK</Text>
+                    <Text style={{ color: Colors.white, fontWeight: '700' }}>{tRuntime('common.ok')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -436,22 +492,24 @@ export const SelectPicker = ({
         disabled={disabled}
       >
         <Text style={{ color: selected ? Colors.white : Colors.textMuted, fontSize: 14 }}>
-          {selected?.label ?? 'Choisir...'}
+          {selected?.label ?? tRuntime('common.choose')}
         </Text>
         {!disabled && <Text style={{ color: Colors.textMuted }}>▾</Text>}
       </TouchableOpacity>
 
       <Modal visible={open} transparent animationType="fade">
         <View style={sel.overlay}>
-          <TouchableOpacity style={sel.overlayDim} activeOpacity={1} onPress={() => setOpen(false)} accessibilityRole="button" accessibilityLabel="Fermer la liste" />
+          <TouchableOpacity style={sel.overlayDim} activeOpacity={1} onPress={() => setOpen(false)} accessibilityRole="button" accessibilityLabel={tRuntime('common.closeList')} />
           <View style={[sel.sheet, { paddingBottom: 20 + modalBottomInset }]}>
-            <Text style={sel.title}>{label ?? 'Choisir'}</Text>
+          <Text style={sel.title}>{label ?? tRuntime('common.choose')}</Text>
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={sel.scrollContent}>
               {options.map(opt => (
                 <TouchableOpacity
                   key={opt.value}
                   style={[sel.option, opt.value === value && sel.optionActive]}
                   onPress={() => { onChange(opt.value); setOpen(false); }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: opt.value === value }}
                 >
                   <Text style={{ color: opt.value === value ? Colors.green : Colors.white, fontSize: 15 }}>
                     {opt.label}
@@ -494,7 +552,9 @@ const sel = StyleSheet.create({
     marginBottom: 12,
   },
   option: {
+    minHeight: Spacing.touchMin,
     paddingVertical: 14,
+    justifyContent: 'center',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.separator,
   },
@@ -516,11 +576,11 @@ export const BottomModal = ({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={bm.overlay}>
-        <TouchableOpacity style={{ flex: 1 }} onPress={onClose} accessibilityRole="button" accessibilityLabel="Fermer" />
+        <TouchableOpacity style={{ flex: 1 }} onPress={onClose} accessibilityRole="button" accessibilityLabel={tRuntime('common.close')} />
         <View style={[bm.sheet, { paddingBottom: 22 + modalBottomInset }]}>
           <View style={bm.header}>
             <Text style={bm.title}>{title}</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <TouchableOpacity onPress={onClose} hitSlop={HitSlop} accessibilityRole="button" accessibilityLabel={tRuntime('common.closeWindow')}>
               <Text style={{ color: Colors.textMuted, fontSize: 20 }}>✕</Text>
             </TouchableOpacity>
           </View>
@@ -595,13 +655,25 @@ export const BtnSecondary = ({ label, onPress }: { label: string; onPress: () =>
 );
 
 export const BtnIcon = ({
-  onPress, children, color, bg
+  onPress, children, color, bg, accessibilityLabel
 }: {
   onPress: () => void; children: ReactNode; color?: string; bg?: string;
+  accessibilityLabel?: string;
 }) => (
   <TouchableOpacity
     onPress={onPress}
-    style={{ padding: 8, borderRadius: 8, backgroundColor: bg ?? 'transparent' }}
+    hitSlop={HitSlop}
+    accessibilityRole="button"
+    accessibilityLabel={accessibilityLabel}
+    style={{
+      minWidth: Spacing.touchMin,
+      minHeight: Spacing.touchMin,
+      padding: 8,
+      borderRadius: Radius.sm,
+      backgroundColor: bg ?? 'transparent',
+      alignItems: 'center',
+      justifyContent: 'center',
+    }}
     activeOpacity={0.7}
   >
     {children}
@@ -644,8 +716,8 @@ export const FormButtons = ({
   onCancel: () => void; onSave: () => void; loading?: boolean;
 }) => (
   <View style={{ flexDirection: 'row', marginTop: 16, marginBottom: 8 }}>
-    <BtnSecondary label="Annuler" onPress={onCancel} />
-    <BtnPrimary label="Enregistrer" onPress={onSave} loading={loading} />
+    <BtnSecondary label={tRuntime('common.cancel')} onPress={onCancel} />
+    <BtnPrimary label={tRuntime('common.save')} onPress={onSave} loading={loading} />
   </View>
 );
 
@@ -653,6 +725,7 @@ export const FormButtons = ({
 export const ScreenHeader = ({
   icon,
   title,
+  subtitle,
   rightLabel,
   onRightPress,
   titleAccessibilityLabel,
@@ -661,6 +734,8 @@ export const ScreenHeader = ({
 }: {
   icon: ReactNode;
   title: string;
+  /** Texte d’aide sous le titre (pleine largeur). */
+  subtitle?: string;
   rightLabel?: string;
   onRightPress?: () => void;
   /** Par défaut = title (VoiceOver / TalkBack). */
@@ -669,49 +744,81 @@ export const ScreenHeader = ({
   rightAccessibilityLabel?: string;
   rightAccessibilityHint?: string;
 }) => (
-  <View style={sh.row}>
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-      {icon}
-      <Text
-        style={sh.title}
-        accessibilityRole="header"
-        accessibilityLabel={titleAccessibilityLabel ?? title}
-      >
-        {title}
-      </Text>
+  <View style={sh.wrap}>
+    <View style={sh.row}>
+      <View style={sh.left}>
+        <View style={sh.iconTitleRow}>
+          {icon}
+          <Text
+            style={sh.title}
+            numberOfLines={2}
+            accessibilityRole="header"
+            accessibilityLabel={titleAccessibilityLabel ?? title}
+          >
+            {title}
+          </Text>
+        </View>
+      </View>
+      {rightLabel ? (
+        <TouchableOpacity
+          style={sh.btn}
+          onPress={onRightPress}
+          hitSlop={HitSlop}
+          accessibilityRole="button"
+          accessibilityLabel={rightAccessibilityLabel ?? `${tRuntime('common.add')} ${rightLabel}`}
+          accessibilityHint={rightAccessibilityHint ?? 'Ouvre le formulaire pour créer un nouvel élément'}
+        >
+          <Text style={sh.btnText}>＋ {rightLabel}</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
-    {rightLabel && (
-      <TouchableOpacity
-        style={sh.btn}
-        onPress={onRightPress}
-        accessibilityRole="button"
-        accessibilityLabel={rightAccessibilityLabel ?? `Ajouter ${rightLabel}`}
-        accessibilityHint={rightAccessibilityHint ?? 'Ouvre le formulaire pour créer un nouvel élément'}
-      >
-        <Text style={sh.btnText}>＋ {rightLabel}</Text>
-      </TouchableOpacity>
-    )}
+    {subtitle ? (
+      <Text style={sh.subtitle} accessibilityRole="text">
+        {subtitle}
+      </Text>
+    ) : null}
   </View>
 );
 
 const sh = StyleSheet.create({
+  wrap: {
+    marginBottom: 18,
+    paddingHorizontal: 4,
+  },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 18,
-    paddingHorizontal: 4,
+    gap: Spacing.sm,
   },
-  title: { ...Typography.screenTitle },
+  left: {
+    flex: 1,
+    minWidth: 0,
+  },
+  iconTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  title: {
+    ...Typography.screenTitle,
+    flex: 1,
+    flexShrink: 1,
+  },
+  subtitle: {
+    ...Typography.screenIntro,
+    marginTop: Spacing.sm,
+  },
   btn: {
     backgroundColor: Colors.greenMuted,
     borderWidth: 1,
     borderColor: 'rgba(52, 211, 153, 0.35)',
-    borderRadius: 12,
-    paddingHorizontal: 16,
+    borderRadius: Radius.md,
+    paddingHorizontal: 14,
     paddingVertical: 10,
-    minHeight: 42,
+    minHeight: 44,
     justifyContent: 'center',
+    alignSelf: 'flex-start',
   },
   btnText: { color: Colors.green, fontWeight: '600', fontSize: 14, letterSpacing: 0.1 },
 });

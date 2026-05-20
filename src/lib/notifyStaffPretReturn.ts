@@ -1,7 +1,7 @@
 import { Linking } from 'react-native';
 import { format, parseISO, isValid } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { getStaffExpoPushTokens, getStaffNotificationEmails } from '../db/database';
+import { getStaffExpoPushTokens, getStaffNotificationEmails } from '../db/userDb';
 import type { Pret } from '../types';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -32,7 +32,7 @@ export async function notifyStaffAboutBorrowerReturn(
     lines.push(`Feuille n° ${pret.numero_feuille.trim()}.`);
   }
   const body = lines.join(' ');
-  const title = 'Stage Stock — retour matériel';
+  const title = 'CATRACK Pro — retour matériel';
 
   const tokens = await getStaffExpoPushTokens();
   if (tokens.length > 0) {
@@ -77,7 +77,7 @@ export async function notifyStaffAboutBorrowerReturn(
 
   const subject = encodeURIComponent(title);
   const mailBody = encodeURIComponent(
-    `${body}\n\n— Message envoyé depuis l’app Stage Stock (compte emprunteur).`
+    `${body}\n\n— Message envoyé depuis l’app CATRACK Pro (compte emprunteur).`
   );
   const mailto = `mailto:${emails.join(',')}?subject=${subject}&body=${mailBody}`;
 

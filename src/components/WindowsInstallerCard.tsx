@@ -6,11 +6,18 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'ex
 import { Colors, Shadow } from '../theme/colors';
 import { Card, Input, BottomModal } from './UI';
 import { resolveWindowsServerInstallerUrl, type WindowsInstallerResolved } from '../config/installerUrls';
+import { useLanguage } from '../context/LanguageContext';
 
 /**
- * Android uniquement : téléchargement de l’installateur serveur local Windows (PocketBase + scripts).
+ * Android uniquement : téléchargement de l’installateur serveur local Windows (backend CATRACK Pro).
  */
 export function WindowsInstallerCard() {
+  const { language } = useLanguage();
+  const isEn = language === 'en';
+  const tr = useCallback(
+    (fr: string, en: string) => (isEn ? en : fr),
+    [isEn]
+  );
   const [busy, setBusy] = useState(false);
   const [info, setInfo] = useState<WindowsInstallerResolved | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -36,15 +43,16 @@ export function WindowsInstallerCard() {
   const downloadInstallerToCache = useCallback(async (): Promise<{ uri: string; resolved: WindowsInstallerResolved }> => {
     const cacheBase = FileSystem.cacheDirectory;
     if (!cacheBase) {
-      throw new Error('Cache indisponible sur cet appareil.');
+      throw new Error(tr('Cache indisponible sur cet appareil.', 'Cache is unavailable on this device.'));
     }
     const resolved = await resolveWindowsServerInstallerUrl();
     setInfo(resolved);
     if (!resolved.url?.trim()) {
       throw new Error(
-        "Aucun URL d'installateur : définissez EXPO_PUBLIC_WINDOWS_INSTALLER_URL au build, ou " +
-          'expo.extra (windowsInstallerUrl / installerGitHubRepo) dans app.json, puis regénérez l\u0027APK. ' +
-          'Vous pouvez envoyer l\u0027EXE via le PC (champ /upload) ci-dessous.'
+        tr(
+          "Aucun URL d'installateur résolu automatiquement : définissez EXPO_PUBLIC_WINDOWS_INSTALLER_URL au build, ou expo.extra (windowsInstallerUrl / installerGitHubRepo) dans app.json, puis regénérez l'APK. Vous pouvez envoyer l'EXE via le PC (champ /upload) ci-dessous.",
+          "No installer URL was resolved automatically: define EXPO_PUBLIC_WINDOWS_INSTALLER_URL at build time, or expo.extra (windowsInstallerUrl / installerGitHubRepo) in app.json, then rebuild the APK. You can also send the EXE via PC upload (/upload) below."
+        )
       );
     }
     const target = `${cacheBase}Stagestock-Installer.exe`;
@@ -53,13 +61,13 @@ export function WindowsInstallerCard() {
     if (dl.status < 200 || dl.status >= 300) {
       if (dl.status === 404) {
         throw new Error(
-          'Fichier introuvable (404) : aucune release GitHub ne contient Stagestock-Installer.exe à cette URL, ' +
-            "ou l'URL personnalisée (app) est erronée. " +
-            'Publiez le build (tag v… sur le dépôt) ou hébergez l’EXE ailleurs et indiquez extra.windowsInstallerUrl (ou EXPO_PUBLIC_WINDOWS_INSTALLER_URL). ' +
-            `URL tentée : ${resolved.url}`
+          tr(
+            "Fichier introuvable (404) : aucune release GitHub ne contient un installateur serveur Windows (.exe) à cette URL, ou l'URL personnalisée (app) est erronée. Publiez le build (tag v... sur le depot) ou hebergez l'EXE ailleurs et indiquez extra.windowsInstallerUrl (ou EXPO_PUBLIC_WINDOWS_INSTALLER_URL). ",
+            'File not found (404): no GitHub release contains a Windows server installer (.exe) at this URL, or the custom app URL is incorrect. Publish the build (v... tag) or host the EXE elsewhere and set extra.windowsInstallerUrl (or EXPO_PUBLIC_WINDOWS_INSTALLER_URL). '
+          ) + `URL: ${resolved.url}`
         );
       }
-      throw new Error(`Téléchargement échoué (HTTP ${dl.status}). ${resolved.url}`);
+      throw new Error(tr('Telechargement echoue', 'Download failed') + ` (HTTP ${dl.status}). ${resolved.url}`);
     }
     return { uri: dl.uri, resolved };
   }, []);
@@ -76,7 +84,7 @@ export function WindowsInstallerCard() {
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(uri, {
           mimeType: 'application/octet-stream',
-          dialogTitle: 'Envoyer Stagestock-Installer.exe vers le PC',
+          dialogTitle: tr('Envoyer Stagestock-Installer.exe vers le PC', 'Send Stagestock-Installer.exe to PC'),
         });
         return;
       }
@@ -84,21 +92,24 @@ export function WindowsInstallerCard() {
       if (await Linking.canOpenURL(url)) {
         await Linking.openURL(url);
       } else {
-        Alert.alert('Partage impossible', `URL : ${url}`);
+        Alert.alert(tr('Partage impossible', 'Share unavailable'), `URL: ${url}`);
       }
     } catch (e) {
-      Alert.alert('Erreur', e instanceof Error ? e.message : String(e));
+      Alert.alert(tr('Erreur', 'Error'), e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
-  }, [downloadInstallerToCache]);
+  }, [downloadInstallerToCache, tr]);
 
   const onSendToPc = useCallback(async () => {
     const target = normalizeReceiverUploadUrl(receiverUploadUrl);
     if (!target) {
       Alert.alert(
-        'URL PC requise',
-        'Lancez le script Receive-Installer.ps1 sur le PC puis collez l’URL /upload affichée.'
+        tr('URL PC requise', 'PC URL required'),
+        tr(
+          'Lancez le script Receive-Installer.ps1 sur le PC puis collez l’URL /upload affichee.',
+          'Run Receive-Installer.ps1 on the PC, then paste the displayed /upload URL.'
+        )
       );
       return;
     }
@@ -117,21 +128,27 @@ export function WindowsInstallerCard() {
         throw new Error(`Upload refusé (HTTP ${up.status}) ${up.body ? `\n${up.body}` : ''}`);
       }
       Alert.alert(
-        'Transfert terminé',
-        'Le fichier a été envoyé au PC. Lancez ensuite l’EXE depuis le dossier de réception.'
+        tr('Transfert termine', 'Transfer completed'),
+        tr(
+          "Le fichier a ete envoye au PC. Lancez ensuite l'EXE depuis le dossier de reception.",
+          'The file was sent to the PC. Then run the EXE from the destination folder.'
+        )
       );
     } catch (e) {
-      Alert.alert('Erreur transfert', e instanceof Error ? e.message : String(e));
+      Alert.alert(tr('Erreur transfert', 'Transfer error'), e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
-  }, [downloadInstallerToCache, normalizeReceiverUploadUrl, receiverUploadUrl]);
+  }, [downloadInstallerToCache, normalizeReceiverUploadUrl, receiverUploadUrl, tr]);
 
   const onOpenQrScan = useCallback(async () => {
     if (!camPerm?.granted) {
       const req = await requestCamPerm();
       if (!req.granted) {
-        Alert.alert('Caméra requise', 'Autorisez la caméra pour scanner le QR du PC.');
+        Alert.alert(
+          tr('Camera requise', 'Camera required'),
+          tr('Autorisez la camera pour scanner le QR du PC.', 'Allow camera access to scan the PC QR code.')
+        );
         return;
       }
     }
@@ -152,8 +169,11 @@ export function WindowsInstallerCard() {
         return;
       }
       Alert.alert(
-        'QR non reconnu',
-        'Ce QR ne contient pas une URL /upload pour le transfert d’installateur.'
+        tr('QR non reconnu', 'Unrecognized QR'),
+        tr(
+          "Ce QR ne contient pas une URL /upload pour le transfert d'installateur.",
+          'This QR does not contain a /upload URL for installer transfer.'
+        )
       );
       setTimeout(() => setScanLocked(false), 800);
     },
@@ -164,21 +184,22 @@ export function WindowsInstallerCard() {
 
   return (
     <Card style={styles.card}>
-      <Text style={styles.title}>Serveur sur votre PC (Windows)</Text>
+      <Text style={styles.title}>{tr('Serveur sur votre PC (Windows)', 'Server on your PC (Windows)')}</Text>
       <Text style={styles.hint}>
-        Méthode simple : appuyez ci-dessous — le fichier se prépare puis le menu Partager s’ouvre. Choisissez comment
-        l’envoyer vers le PC (Bluetooth, Drive, e-mail, clé USB…). Sur le PC, double-cliquez l’EXE puis ouvrez
-        « StageStock Local » et scannez le QR affiché.
+        {tr(
+          "Methode simple : appuyez ci-dessous. Le fichier se prepare puis le menu Partager s'ouvre. Choisissez comment l'envoyer vers le PC (Bluetooth, Drive, e-mail, cle USB...). Sur le PC, double-cliquez l'installateur EXE puis ouvrez StageStock et scannez le QR affiche.",
+          'Simple method: tap below. The file is prepared, then the Share menu opens. Choose how to send it to your PC (Bluetooth, Drive, e-mail, USB key...). On the PC, double-click the installer EXE, open StageStock, and scan the displayed QR code.'
+        )}
       </Text>
       {info ? (
         <View style={styles.metaBox}>
           <Text style={styles.metaText}>
-            {info.appVersion ? `APK ${info.appVersion}` : 'APK (version non lue)'} →{' '}
+            {info.appVersion ? `APK ${info.appVersion}` : tr('APK (version non lue)', 'APK (version unread)')} {'->'}{' '}
             {info.source === 'version-matched'
-              ? `installateur compatible (${info.releaseTag ?? 'release'})`
+              ? tr(`installateur compatible (${info.releaseTag ?? 'release'})`, `compatible installer (${info.releaseTag ?? 'release'})`)
               : info.source === 'custom'
-                ? 'installateur personnalisé (config build)'
-                : 'installateur latest (fallback)'}
+                ? tr('installateur personnalise (config build)', 'custom installer (build config)')
+                : tr('installateur latest (fallback)', 'latest installer (fallback)')}
           </Text>
         </View>
       ) : null}
@@ -186,7 +207,7 @@ export function WindowsInstallerCard() {
         {busy ? (
           <ActivityIndicator color={Colors.white} />
         ) : (
-          <Text style={styles.btnText}>Installer le serveur sur PC</Text>
+          <Text style={styles.btnText}>{tr('Installer le serveur sur PC', 'Install server on PC')}</Text>
         )}
       </TouchableOpacity>
       <TouchableOpacity
@@ -195,17 +216,21 @@ export function WindowsInstallerCard() {
         activeOpacity={0.85}
       >
         <Text style={styles.advancedToggleText}>
-          {showAdvanced ? 'Masquer options avancées' : 'Options avancées (technicien)'}
+          {showAdvanced
+            ? tr('Masquer options avancees', 'Hide advanced options')
+            : tr('Options avancees (technicien)', 'Advanced options (technician)')}
         </Text>
       </TouchableOpacity>
       {showAdvanced ? (
         <View style={styles.advancedBox}>
           <Text style={styles.advancedHint}>
-            Envoi direct vers PC : lancez sur le PC le script `Receive-Installer.ps1`, puis collez ici l’URL
-            `/upload?...` affichée.
+            {tr(
+              "Envoi direct vers PC : lancez sur le PC le script `Receive-Installer.ps1`, puis collez ici l'URL `/upload?...` affichee.",
+              'Direct send to PC: run `Receive-Installer.ps1` on the PC, then paste the displayed `/upload?...` URL here.'
+            )}
           </Text>
           <Input
-            label="URL de réception PC (/upload...)"
+            label={tr('URL de reception PC (/upload...)', 'PC receiver URL (/upload...)')}
             value={receiverUploadUrl}
             onChangeText={setReceiverUploadUrl}
             placeholder="ex. http://192.168.1.40:8765/upload?token=..."
@@ -213,25 +238,32 @@ export function WindowsInstallerCard() {
             keyboardType="url"
           />
           <TouchableOpacity onPress={() => void onOpenQrScan()} style={styles.linkScan} activeOpacity={0.85}>
-            <Text style={styles.linkScanText}>Scanner QR du PC</Text>
+            <Text style={styles.linkScanText}>{tr('Scanner QR du PC', 'Scan PC QR')}</Text>
           </TouchableOpacity>
           {scanSuccessHintVisible ? (
             <View style={styles.scanOkPill}>
-              <Text style={styles.scanOkText}>✅ URL remplie automatiquement</Text>
+              <Text style={styles.scanOkText}>
+                {tr('✅ URL remplie automatiquement', '✅ URL filled automatically')}
+              </Text>
             </View>
           ) : null}
           <TouchableOpacity style={styles.btnSecondary} onPress={onSendToPc} disabled={busy} activeOpacity={0.85}>
             {busy ? (
               <ActivityIndicator color={Colors.green} />
             ) : (
-              <Text style={styles.btnSecondaryText}>Télécharger puis envoyer au PC</Text>
+              <Text style={styles.btnSecondaryText}>
+                {tr('Telecharger puis envoyer au PC', 'Download then send to PC')}
+              </Text>
             )}
           </TouchableOpacity>
         </View>
       ) : null}
-      <BottomModal visible={scanOpen} onClose={() => setScanOpen(false)} title="Scanner le QR du PC">
+      <BottomModal visible={scanOpen} onClose={() => setScanOpen(false)} title={tr('Scanner le QR du PC', 'Scan PC QR')}>
         <Text style={styles.scanHelp}>
-          Pointez la caméra vers le QR affiché sur le PC (script Receive-Installer.ps1).
+          {tr(
+            'Pointez la camera vers le QR affiche sur le PC (script Receive-Installer.ps1).',
+            'Point the camera at the QR shown on the PC (Receive-Installer.ps1 script).'
+          )}
         </Text>
         <View style={styles.scanFrame}>
           <CameraView

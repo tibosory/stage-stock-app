@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
 import { Colors } from '../theme/colors';
-import { insertMaterielsSerieBatch, insertCategorie, insertLocalisation } from '../db/database';
+import { insertMaterielsSerieBatch } from '../db/inventoryOpsDb';
+import { insertCategorie, insertLocalisation } from '../db/catalogDb';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 import { Categorie, Localisation, EtatMateriel, StatutMateriel } from '../types';
 import { Input, SelectPicker, BottomModal, FormButtons, DateField } from './UI';
@@ -26,6 +27,7 @@ const ETATS: { label: string; value: EtatMateriel }[] = [
 const STATUTS: { label: string; value: StatutMateriel }[] = [
   { label: 'En stock', value: 'en stock' },
   { label: 'En prêt', value: 'en prêt' },
+  { label: 'On tour', value: 'en tournée' },
   { label: 'En réparation', value: 'en réparation' },
   { label: 'Perdu', value: 'perdu' },
 ];

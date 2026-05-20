@@ -4,7 +4,7 @@ import { fetchWithTimeout } from '../lib/fetchWithTimeout';
 
 const WINDOWS_INSTALLER_FILENAME = 'Stagestock-Installer.exe';
 const WINDOWS_INSTALLER_NAME_HINTS = ['stagestock', 'serveur', 'oneclick', 'setup', 'installer'];
-const DEFAULT_INSTALLER_REPO = { owner: 'tibosory', repo: 'stagestock' };
+const DEFAULT_INSTALLER_REPO = { owner: 'tibosory', repo: 'stage-stock-app' };
 
 type Extra = {
   windowsInstallerUrl?: string;
@@ -34,6 +34,10 @@ function buildGitHubLatestReleasePageUrl(owner: string, repo: string): string {
   return `https://github.com/${owner}/${repo}/releases/latest`;
 }
 
+function buildGitHubTagDownloadUrl(owner: string, repo: string, tag: string): string {
+  return `https://github.com/${owner}/${repo}/releases/download/${encodeURIComponent(tag)}/${WINDOWS_INSTALLER_FILENAME}`;
+}
+
 function githubApiHeaders(): Record<string, string> {
   return {
     Accept: 'application/vnd.github+json',
@@ -41,6 +45,38 @@ function githubApiHeaders(): Record<string, string> {
     // Certains environnements RN obtiennent des réponses plus fiables avec un User-Agent explicite.
     'User-Agent': 'StageStock-App',
   };
+}
+
+async function tryFetchJson(url: string, timeoutMs: number): Promise<any | null> {
+  try {
+    const r = await fetchWithTimeout(url, { method: 'GET', headers: githubApiHeaders() }, timeoutMs);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeGitHubHref(href: string): string {
+  const h = href.replace(/&amp;/g, '&').trim();
+  if (!h) return '';
+  if (/^https?:\/\//i.test(h)) return h;
+  if (h.startsWith('/')) return `https://github.com${h}`;
+  return '';
+}
+
+function pickExeDownloadUrlFromReleaseHtml(html: string): string | null {
+  const byAssetPath = html.match(/href="([^"]*\/releases\/download\/[^"]*\.exe[^"]*)"/i)?.[1];
+  if (byAssetPath) {
+    const n = normalizeGitHubHref(byAssetPath);
+    if (n) return n;
+  }
+  const byNameHint = html.match(/href="([^"]*\.exe[^"]*)"/i)?.[1];
+  if (byNameHint) {
+    const n = normalizeGitHubHref(byNameHint);
+    if (n) return n;
+  }
+  return null;
 }
 
 /**
@@ -156,35 +192,80 @@ export async function resolveWindowsServerInstallerUrl(): Promise<WindowsInstall
   const latestReleaseApi = `https://api.github.com/repos/${gh.owner}/${gh.repo}/releases/latest`;
   const releasesApi = `https://api.github.com/repos/${gh.owner}/${gh.repo}/releases?per_page=30`;
   try {
-    const latest = await fetchWithTimeout(latestReleaseApi, { method: 'GET', headers: githubApiHeaders() }, 7000);
-    if (latest.ok) {
-      const latestJson = await latest.json();
-      const pickedLatest = pickReleaseAssetUrl([latestJson], normalizeVersionKeys(appVersion));
-      if (pickedLatest) {
-        return {
-          url: pickedLatest.url,
-          source: pickedLatest.matched ? 'version-matched' : 'latest-fallback',
-          appVersion,
-          releaseTag: pickedLatest.tag || undefined,
-        };
+    // Retry léger API GitHub (mobile/réseau lent)
+    for (let i = 0; i < 2; i += 1) {
+      const latestJson = await tryFetchJson(latestReleaseApi, 15000);
+      if (latestJson) {
+        const pickedLatest = pickReleaseAssetUrl([latestJson], normalizeVersionKeys(appVersion));
+        if (pickedLatest) {
+          return {
+            url: pickedLatest.url,
+            source: pickedLatest.matched ? 'version-matched' : 'latest-fallback',
+            appVersion,
+            releaseTag: pickedLatest.tag || undefined,
+          };
+        }
+      }
+      const json = await tryFetchJson(releasesApi, 15000);
+      if (Array.isArray(json)) {
+        const picked = pickReleaseAssetUrl(json, normalizeVersionKeys(appVersion));
+        if (picked) {
+          return {
+            url: picked.url,
+            source: picked.matched ? 'version-matched' : 'latest-fallback',
+            appVersion,
+            releaseTag: picked.tag || undefined,
+          };
+        }
       }
     }
-    const r = await fetchWithTimeout(releasesApi, { method: 'GET', headers: githubApiHeaders() }, 7000);
-    if (r.ok) {
-      const json = await r.json();
-      const releases = Array.isArray(json) ? json : [];
-      const picked = pickReleaseAssetUrl(releases, normalizeVersionKeys(appVersion));
-      if (picked) {
+  } catch {
+    // fallback
+  }
+
+  // Fallback HTML: récupère la page release et extrait un lien .exe réel.
+  try {
+    const latestHtml = await fetchWithTimeout(
+      buildGitHubLatestReleasePageUrl(gh.owner, gh.repo),
+      { method: 'GET' },
+      15000
+    );
+    if (latestHtml.ok) {
+      const html = await latestHtml.text();
+      const exeUrl = pickExeDownloadUrlFromReleaseHtml(html);
+      if (exeUrl) {
         return {
-          url: picked.url,
-          source: picked.matched ? 'version-matched' : 'latest-fallback',
+          url: exeUrl,
+          source: 'latest-fallback',
           appVersion,
-          releaseTag: picked.tag || undefined,
         };
       }
     }
   } catch {
     // fallback
+  }
+
+  // Fallback robuste: "latest/download" peut répondre 404 sur certains contextes GitHub.
+  // On résout alors d'abord le tag réel via la page /releases/latest, puis on construit /releases/download/<tag>/...
+  try {
+    const latestPage = await fetchWithTimeout(
+      buildGitHubLatestReleasePageUrl(gh.owner, gh.repo),
+      { method: 'GET' },
+      7000
+    );
+    const finalUrl = String((latestPage as any)?.url || '');
+    const m = finalUrl.match(/\/releases\/tag\/([^/?#]+)/i);
+    if (m?.[1]) {
+      const tag = decodeURIComponent(m[1]);
+      return {
+        url: buildGitHubTagDownloadUrl(gh.owner, gh.repo, tag),
+        source: 'latest-fallback',
+        appVersion,
+        releaseTag: tag,
+      };
+    }
+  } catch {
+    // fallback final
   }
 
   return {

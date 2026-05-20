@@ -24,6 +24,8 @@ import {
   type AssistantJsonPayload,
 } from '../lib/assistantApi';
 import { isConsumerApp } from '../config/appMode';
+import { useFeatureFlags } from '../saas/hooks/useFeatureFlags';
+import { useLanguage } from '../context/LanguageContext';
 
 const STORAGE_KEY = 'stagestock_assistant_history_v1';
 const MAX_MESSAGES = 80;
@@ -37,37 +39,56 @@ function consumerAssistantFailureMessage(
   body: AssistantAskError | string
 ): string {
   if (status === 0) {
-    const m = typeof body === 'string' ? body : 'Erreur réseau';
+    const m = typeof body === 'string' ? body : 'Network error';
     return (
-      `Impossible de joindre le serveur Stage Stock.\n\n` +
+      `Unable to reach the CATRACK Pro server.\n\n` +
       `(${m})\n\n` +
-      `→ Même Wi‑Fi que le PC ? URL correcte dans l’onglet « Connexion » ? ` +
-      `Le PC doit avoir le backend et Ollama démarrés si vous êtes en local.`
+      `→ Same Wi-Fi as the PC? Correct URL in the Connection tab? ` +
+      `The PC must have backend and Ollama running when local.`
     );
   }
   if (typeof body === 'string') {
     return (
-      `Le serveur a répondu une erreur (HTTP ${status}).\n\n` +
+      `Server returned an error (HTTP ${status}).\n\n` +
       `${body.slice(0, 400)}`
     );
   }
-  const err = body.error ?? 'Erreur';
+  const err = body.error ?? 'Error';
   const detail = body.detail ? `\n\n${String(body.detail).slice(0, 500)}` : '';
-  const hint = body.hint ? `\n\nIndication : ${body.hint}` : '';
+  const hint = body.hint ? `\n\nHint: ${body.hint}` : '';
   if (status === 401) {
     return (
-      `Connexion refusée (session ou clé API).\n\n` +
-      `• Si vous utilisez le serveur sur le PC : vérifiez la clé API dans l’onglet Connexion / Réseau (identique au fichier .env du serveur).\n` +
-      `• Compte cloud : déconnectez-vous puis reconnectez-vous, ou déconnexion du compte en ligne uniquement dans Paramètres.`
+      `Access denied (session or API key).\n\n` +
+      `• If using PC server: check API key in Connection/Network tab (must match server .env).\n` +
+      `• Cloud account: sign out then sign in again, or sign out online account in Settings.`
     );
   }
   if (status === 503 || status === 502) {
     return (
-      `L’assistant IA n’a pas pu répondre (moteur Ollama sur le serveur).\n\n` +
+      `AI assistant could not answer (Ollama engine on server).\n\n` +
       `${err}${detail}${hint}`
     );
   }
-  return `Connexion au service impossible.\n\n${err}${detail}`.slice(0, 1500);
+  if (status === 404) {
+    return (
+      `Incorrect server address for assistant (HTTP 404).\n\n` +
+      `${err}${detail}\n\n` +
+      `Assistant calls server root + /ask (e.g. http://IP:PORT/ask), not /api/ask.\n` +
+      `In Connection/Network, use URL **without** /api at the end (e.g. http://192.168.1.20:8091).`
+    ).slice(0, 1500);
+  }
+  if (status === 429) {
+    return (
+      `Too many requests to server (HTTP 429). Wait a minute then retry.\n\n${err}${detail}`
+    ).slice(0, 1500);
+  }
+  if (status === 500) {
+    return (
+      `Internal server error (HTTP 500).\n\n${err}${detail}\n\n` +
+      `Check backend logs on PC, PostgreSQL status, and server version.`
+    ).slice(0, 1500);
+  }
+  return `Unable to reach service.\n\n${err}${detail}${hint}`.slice(0, 1500);
 }
 
 export type ChatMessage = {
@@ -102,11 +123,16 @@ export default function AssistantScreen() {
   const { user } = useAppAuth();
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
+  const { flags: saasFlags, loading: flagsLoading } = useFeatureFlags();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const listRef = useRef<FlatList<ChatMessage>>(null);
+  const isSaasMode = process.env.EXPO_PUBLIC_SAAS_MODE === 'true';
+  const { t } = useLanguage();
+  const aiFeatureEnabled = isSaasMode ? saasFlags['saas.ai'] : true;
+  const sendDisabled = !input.trim() || sending || (isSaasMode && (flagsLoading || !aiFeatureEnabled));
 
   useEffect(() => {
     (async () => {
@@ -140,14 +166,24 @@ export default function AssistantScreen() {
   );
 
   const onSend = useCallback(async () => {
-    const t = input.trim();
-    if (!t || sending) return;
+    if (isSaasMode && (flagsLoading || !aiFeatureEnabled)) {
+      appendMessage({
+        id: `a-${Date.now()}`,
+        role: 'assistant',
+        createdAt: Date.now(),
+        error:
+          t('assistant.disabledSaas'),
+      });
+      return;
+    }
+    const q = input.trim();
+    if (!q || sending) return;
     setInput('');
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
       role: 'user',
       createdAt: Date.now(),
-      text: t,
+      text: q,
     };
     appendMessage(userMsg);
     setSending(true);
@@ -156,18 +192,18 @@ export default function AssistantScreen() {
     });
     try {
       const recent = [...messages, userMsg]
-        .slice(-4)
+        .slice(-2)
         .map(m => {
           const line =
             m.role === 'user'
               ? `Utilisateur: ${m.text ?? ''}`
               : `Assistant: ${m.assistant?.summary ?? m.error ?? ''}`;
-          return line.length > 450 ? `${line.slice(0, 450)}…` : line;
+          return line.length > 220 ? `${line.slice(0, 220)}…` : line;
         })
         .join('\n');
-      const res = await postAssistantAsk(t, {
+      const res = await postAssistantAsk(q, {
         userId: user?.id,
-        context: recent.length > t.length ? recent : undefined,
+        context: recent.length > q.length ? recent : undefined,
       });
       if (!res.ok) {
         const errText =
@@ -210,13 +246,13 @@ export default function AssistantScreen() {
     } finally {
       setSending(false);
     }
-  }, [input, sending, messages, user?.id, appendMessage]);
+  }, [flagsLoading, isSaasMode, aiFeatureEnabled, input, sending, messages, user?.id, appendMessage, t]);
 
   const clearHistory = useCallback(() => {
-    Alert.alert('Effacer l’historique', 'Supprimer tous les messages de cet appareil ?', [
-      { text: 'Annuler', style: 'cancel' },
+    Alert.alert(t('assistant.clearTitle'), t('assistant.clearBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Effacer',
+        text: t('assistant.clearBtn'),
         style: 'destructive',
         onPress: async () => {
           setMessages([]);
@@ -224,7 +260,7 @@ export default function AssistantScreen() {
         },
       },
     ]);
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -256,12 +292,12 @@ export default function AssistantScreen() {
               consumer={isConsumerApp()}
             />
           ) : (
-            <Text style={styles.muted}>Réponse vide</Text>
+            <Text style={styles.muted}>{t('assistant.answerEmpty')}</Text>
           )}
         </View>
       </View>
     );
-  }, []);
+  }, [t]);
 
   return (
     <TabScreenSafeArea style={styles.container}>
@@ -274,16 +310,18 @@ export default function AssistantScreen() {
           <View style={styles.titleRow}>
             <View style={styles.titleLeft}>
               <Text style={{ fontSize: 22 }}>✨</Text>
-              <Text style={styles.screenTitle}>Assistant IA</Text>
+              <Text style={styles.screenTitle}>{t('tab.ai')}</Text>
             </View>
             <TouchableOpacity onPress={clearHistory} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={styles.clearLink}>Effacer</Text>
+              <Text style={styles.clearLink}>{t('assistant.clearBtn')}</Text>
             </TouchableOpacity>
           </View>
           <Text style={styles.hint}>
-            {isConsumerApp()
-              ? 'Parlez comme en message : pas besoin de commandes précises. Questions vagues ou courtes acceptées.'
-              : 'Réponses JSON (Ollama / backend). Configurez l’URL et la clé dans Réseau.'}
+            {!aiFeatureEnabled
+              ? t('assistant.disabledBanner')
+              : isConsumerApp()
+              ? t('assistant.consumerHint')
+              : t('assistant.proHint')}
           </Text>
         </View>
 
@@ -306,8 +344,8 @@ export default function AssistantScreen() {
             ListEmptyComponent={
               <Text style={styles.empty}>
                 {isConsumerApp()
-                  ? 'Posez une question sur votre stock ou vos prêts.'
-                  : 'Posez une question sur le stock, le diagnostic serveur ou l’installation.'}
+                  ? t('assistant.consumerEmpty')
+                  : t('assistant.proEmpty')}
               </Text>
             }
           />
@@ -318,7 +356,7 @@ export default function AssistantScreen() {
             style={styles.input}
             value={input}
             onChangeText={setInput}
-            placeholder={isConsumerApp() ? 'Écrivez comme vous voulez…' : 'Votre message…'}
+            placeholder={isConsumerApp() ? t('assistant.placeholder.consumer') : t('assistant.placeholder.default')}
             placeholderTextColor={Colors.textMuted}
             multiline
             maxLength={4000}
@@ -327,15 +365,18 @@ export default function AssistantScreen() {
             blurOnSubmit={false}
           />
           <TouchableOpacity
-            style={[styles.sendBtn, (!input.trim() || sending) && styles.sendBtnOff]}
+            style={[
+              styles.sendBtn,
+              sendDisabled && styles.sendBtnOff,
+            ]}
             onPress={() => void onSend()}
-            disabled={!input.trim() || sending}
+            disabled={sendDisabled}
             activeOpacity={0.85}
           >
             {sending ? (
               <ActivityIndicator color={Colors.white} size="small" />
             ) : (
-              <Text style={styles.sendBtnText}>Envoyer</Text>
+              <Text style={styles.sendBtnText}>{t('common.send')}</Text>
             )}
           </TouchableOpacity>
         </View>

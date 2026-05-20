@@ -6,20 +6,22 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import { syncMaterielNoticeAttachments } from '../lib/materielAttachments';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
-import { pushMaterielNoticesToSupabaseAfterSave } from '../lib/supabase';
 import { Colors } from '../theme/colors';
 import {
-  insertMateriel, updateMateriel, insertCategorie, insertLocalisation, categoryPathById,
-} from '../db/database';
-import { Materiel, Categorie, Localisation, EtatMateriel, StatutMateriel } from '../types';
+  insertCategorie, insertLocalisation, categoryPathById,
+} from '../db/catalogDb';
+import { getTourById } from '../db/trackingDb';
+import { Materiel, Categorie, Localisation, EtatMateriel, StatutMateriel, Profile, FieldDefinition } from '../types';
 import {
   Input, SelectPicker, BottomModal, FormButtons, DateField,
 } from './UI';
 import { useNfc } from '../hooks/useNfc';
-import { useSpecialty } from '../context/SpecialtyContext';
-import { getSpecialtyDef } from '../config/specialties';
+import { DynamicProfileForm } from './DynamicProfileForm';
+import { ProfileSchemaSystem } from '../application/services';
+import { loadMaterialProfileSchema, saveMaterialUseCase } from '../application/usecases';
+type DynamicAttrs = Record<string, string | number | boolean | null>;
+
 
 interface Props {
   visible: boolean;
@@ -34,6 +36,8 @@ interface Props {
   onMetaRefresh?: () => void | Promise<void>;
   /** Fiches « en stock » au même libellé (nom) que la fiche ouverte — informatif. */
   sameNameEnStockCount?: number;
+  /** Raccourci vers l’écran d’édition des profils dynamiques. */
+  onOpenProfileEditor?: () => void;
 }
 
 const ETATS: { label: string; value: EtatMateriel }[] = [
@@ -46,14 +50,25 @@ const ETATS: { label: string; value: EtatMateriel }[] = [
 const STATUTS: { label: string; value: StatutMateriel }[] = [
   { label: 'En stock', value: 'en stock' },
   { label: 'En prêt', value: 'en prêt' },
+  { label: 'On tour', value: 'en tournée' },
   { label: 'En réparation', value: 'en réparation' },
   { label: 'Perdu', value: 'perdu' },
 ];
+
+function parseWeightKg(raw: string): number | undefined | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const normalized = trimmed.replace(',', '.');
+  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 export default function MaterielModal({
   visible, onClose, onSaved, item,
   categories, localisations, initialQr, initialNfc, onMetaRefresh,
   sameNameEnStockCount,
+  onOpenProfileEditor,
 }: Props) {
   const [nom, setNom] = useState('');
   const [type, setType] = useState('');
@@ -81,13 +96,14 @@ export default function MaterielModal({
   const [saving, setSaving] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newLocalisationName, setNewLocalisationName] = useState('');
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState('');
+  const [selectedProfileVersion, setSelectedProfileVersion] = useState<number | null>(null);
+  const [dynamicFields, setDynamicFields] = useState<FieldDefinition[]>([]);
+  const [dynamicAttrs, setDynamicAttrs] = useState<DynamicAttrs>({});
+  const [currentTourName, setCurrentTourName] = useState('');
 
   const { nfcSupported, nfcEnabled, scanning, readNfcTagId } = useNfc();
-  const { specialtyId, ready: specialtyReady } = useSpecialty();
-  const specialtyHint =
-    specialtyReady && specialtyId !== 'neutre'
-      ? getSpecialtyDef(specialtyId).materielHint.trim()
-      : '';
 
   useEffect(() => {
     if (!visible) return;
@@ -133,6 +149,67 @@ export default function MaterielModal({
     setNoticePdfTouched(false);
     setNoticePhotoTouched(false);
   }, [visible, item, initialQr, initialNfc]);
+
+  const statutLockedByTour = Boolean(item?.tracking_state === 'in_tour' && item?.current_tour_id);
+
+  useEffect(() => {
+    if (!visible || !item?.current_tour_id) {
+      setCurrentTourName('');
+      return;
+    }
+    let alive = true;
+    void getTourById(item.current_tour_id)
+      .then(tour => {
+        if (!alive) return;
+        setCurrentTourName(tour?.name?.trim() || item.current_tour_id || '');
+      })
+      .catch(() => {
+        if (!alive) return;
+        setCurrentTourName(item.current_tour_id || '');
+      });
+    return () => {
+      alive = false;
+    };
+  }, [visible, item?.current_tour_id]);
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    (async () => {
+      const loaded = await loadMaterialProfileSchema({
+        materialProfileId: item?.profile_id ?? null,
+        materialProfileVersion: item?.profile_version ?? null,
+      });
+      if (cancelled) return;
+      setProfiles(loaded.profiles);
+      setSelectedProfileId(loaded.selectedProfileId);
+      setDynamicFields(loaded.fields);
+      setSelectedProfileVersion(loaded.selectedProfileVersion);
+      const existingTechnical =
+        item?.technical_data && typeof item.technical_data === 'string'
+          ? JSON.parse(item.technical_data || '{}')
+          : (item?.technical_data as DynamicAttrs | null) ?? {};
+      setDynamicAttrs((existingTechnical ?? {}) as DynamicAttrs);
+    })().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, item]);
+
+  useEffect(() => {
+    if (!visible) return;
+    if (!selectedProfileId) {
+      // Sans profil dynamique, aucune règle de champ requis ne doit s'appliquer.
+      setDynamicFields([]);
+      setSelectedProfileVersion(null);
+      return;
+    }
+    (async () => {
+      const schema = await ProfileSchemaSystem.getCurrentSchema(selectedProfileId);
+      setDynamicFields(schema?.fields ?? []);
+      setSelectedProfileVersion(schema?.version ?? null);
+    })().catch(() => undefined);
+  }, [visible, selectedProfileId]);
 
   const handleAddLocalisation = async () => {
     const t = newLocalisationName.trim();
@@ -246,9 +323,21 @@ export default function MaterielModal({
     else Alert.alert('NFC', 'Aucun tag détecté');
   };
 
+  const handlePoidsChange = (next: string) => {
+    const normalized = next.replace('.', ',');
+    if (/^\d*(?:[.,]\d{0,2})?$/.test(normalized)) {
+      setPoids(normalized);
+    }
+  };
+
   const handleSave = async () => {
     if (!nom.trim()) {
       Alert.alert('Champ requis', 'Le nom est obligatoire');
+      return;
+    }
+    const parsedWeight = parseWeightKg(poids);
+    if (parsedWeight === null) {
+      Alert.alert('Poids invalide', 'Utilisez un nombre avec 2 décimales max (ex: 12,34).');
       return;
     }
     setSaving(true);
@@ -258,11 +347,11 @@ export default function MaterielModal({
         type: type || undefined,
         marque: marque || undefined,
         numero_serie: numeroSerie || undefined,
-        poids_kg: poids ? parseFloat(poids) : undefined,
+        poids_kg: parsedWeight,
         categorie_id: categorieId || undefined,
         localisation_id: localisationId || undefined,
         etat,
-        statut,
+        statut: statutLockedByTour ? 'en tournée' : statut,
         date_achat: dateAchat || undefined,
         date_validite: dateValidite || undefined,
         prochain_controle: prochainControle || undefined,
@@ -277,23 +366,20 @@ export default function MaterielModal({
         qr_code: qrCode || undefined,
         nfc_tag_id: nfcTagId || undefined,
         photo_local: photoLocal || undefined,
+        technical_data: dynamicAttrs,
+        profile_id: selectedProfileId || undefined,
+        profile_version: selectedProfileVersion ?? undefined,
       };
-
-      if (item) {
-        await updateMateriel(item.id, data);
-        const pdfArg = noticePdfTouched ? noticePdfUri : undefined;
-        const photoArg = noticePhotoTouched ? noticePhotoUri : undefined;
-        const n = await syncMaterielNoticeAttachments(item.id, pdfArg, photoArg);
-        if (Object.keys(n).length) await updateMateriel(item.id, n);
-        const urlPatch = await pushMaterielNoticesToSupabaseAfterSave(item.id, n);
-        if (Object.keys(urlPatch).length) await updateMateriel(item.id, urlPatch);
-      } else {
-        const newId = await insertMateriel(data as any);
-        const n = await syncMaterielNoticeAttachments(newId, noticePdfUri, noticePhotoUri);
-        if (Object.keys(n).length) await updateMateriel(newId, n);
-        const urlPatch = await pushMaterielNoticesToSupabaseAfterSave(newId, n);
-        if (Object.keys(urlPatch).length) await updateMateriel(newId, urlPatch);
-      }
+      await saveMaterialUseCase({
+        existingMaterialId: item?.id,
+        materialData: data as any,
+        profileFields: dynamicFields as any,
+        dynamicAttrs,
+        noticePdfUri,
+        noticePhotoUri,
+        noticePdfTouched,
+        noticePhotoTouched,
+      });
       onSaved();
       void triggerSyncAfterActionIfEnabled();
       onClose();
@@ -345,13 +431,6 @@ export default function MaterielModal({
         </View>
       )}
 
-      {specialtyHint ? (
-        <View style={s.specialtyHintBox}>
-          <Text style={s.specialtyHintLabel}>Rappel ({getSpecialtyDef(specialtyId).label})</Text>
-          <Text style={s.specialtyHintText}>{specialtyHint}</Text>
-        </View>
-      ) : null}
-
       <Input label="Nom" value={nom} onChangeText={setNom} placeholder="" required />
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -368,7 +447,13 @@ export default function MaterielModal({
           <Input label="N° de série" value={numeroSerie} onChangeText={setNumeroSerie} />
         </View>
         <View style={{ flex: 1 }}>
-          <Input label="Poids (kg)" value={poids} onChangeText={setPoids} keyboardType="decimal-pad" />
+          <Input
+            label="Poids (kg)"
+            value={poids}
+            onChangeText={handlePoidsChange}
+            keyboardType="decimal-pad"
+            placeholder="Ex: 12,34"
+          />
         </View>
       </View>
 
@@ -418,9 +503,20 @@ export default function MaterielModal({
           <SelectPicker label="État" value={etat} options={ETATS} onChange={v => setEtat(v as EtatMateriel)} />
         </View>
         <View style={{ flex: 1 }}>
-          <SelectPicker label="Statut" value={statut} options={STATUTS} onChange={v => setStatut(v as StatutMateriel)} />
+          <SelectPicker
+            label="Statut"
+            value={statutLockedByTour ? 'en tournée' : statut}
+            options={STATUTS}
+            onChange={v => setStatut(v as StatutMateriel)}
+            disabled={statutLockedByTour}
+          />
         </View>
       </View>
+      {statutLockedByTour ? (
+        <Text style={s.lockInfo}>
+          Statut verrouillé : ce matériel est en tournée ({currentTourName || item?.current_tour_id}). Modifiez-le depuis la tournée.
+        </Text>
+      ) : null}
 
       <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
         <View style={{ flex: 1 }}>
@@ -499,6 +595,34 @@ export default function MaterielModal({
           )}
         </View>
       </View>
+
+      <Text style={s.sectionLabel}>Profil métier dynamique</Text>
+      {onOpenProfileEditor ? (
+        <TouchableOpacity style={s.profileEditorBtn} onPress={onOpenProfileEditor}>
+          <Text style={s.profileEditorBtnText}>Ouvrir l’éditeur de profils dynamiques</Text>
+        </TouchableOpacity>
+      ) : null}
+      <SelectPicker
+        label="Profil"
+        value={selectedProfileId}
+        options={[
+          { label: 'Aucun profil', value: '' },
+          ...profiles.map(p => ({ label: `${p.name} (v${p.version})`, value: p.id })),
+        ]}
+        onChange={setSelectedProfileId}
+      />
+      {!!selectedProfileVersion && (
+        <Text style={s.sectionHint}>Version appliquée au matériel: v{selectedProfileVersion}</Text>
+      )}
+      {!!selectedProfileId && (
+        <DynamicProfileForm
+          fields={dynamicFields}
+          values={dynamicAttrs}
+          onChange={(fieldId, value) =>
+            setDynamicAttrs(prev => ({ ...prev, [fieldId]: (value ?? null) as DynamicAttrs[string] }))
+          }
+        />
+      )}
 
       {/* NFC */}
       <View style={s.nfcRow}>
@@ -648,16 +772,7 @@ const s = StyleSheet.create({
     marginBottom: 14,
   },
   sameNameInfoText: { color: Colors.textSecondary, fontSize: 13, lineHeight: 19 },
-  specialtyHintBox: {
-    backgroundColor: Colors.bgCardAlt,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: 10,
-    marginBottom: 12,
-  },
-  specialtyHintLabel: { color: Colors.textMuted, fontSize: 11, fontWeight: '700', marginBottom: 4 },
-  specialtyHintText: { color: Colors.textSecondary, fontSize: 12, lineHeight: 17 },
+  lockInfo: { color: Colors.yellow, fontSize: 12, marginTop: -6, marginBottom: 10, lineHeight: 17 },
   maintActionsRow: { flexDirection: 'row', gap: 8, marginBottom: 12, marginTop: 2 },
   maintBtn: {
     flex: 1,
@@ -676,4 +791,14 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   maintBtnGhostText: { color: Colors.textSecondary, fontSize: 12, fontWeight: '600' },
+  profileEditorBtn: {
+    borderWidth: 1,
+    borderColor: Colors.green,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    backgroundColor: Colors.greenBg,
+  },
+  profileEditorBtnText: { color: Colors.green, fontSize: 13, fontWeight: '700', textAlign: 'center' },
 });

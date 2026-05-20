@@ -8,7 +8,7 @@ import {
   clearSupabaseOverride,
   type SupabaseOverride,
 } from './supabaseConfigStorage';
-import { getDB } from '../db/database';
+import { getDB } from '../db/coreDb';
 import type { Materiel } from '../types';
 
 const buildUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
@@ -222,6 +222,39 @@ function materielRowForRemote(m: Record<string, unknown>) {
   };
 }
 
+function extractMissingColumnName(raw: string): string | null {
+  const m =
+    /column\s+"?([a-zA-Z0-9_]+)"?\s+(?:of relation|does not exist)/i.exec(raw) ??
+    /Could not find the '([a-zA-Z0-9_]+)' column/i.exec(raw);
+  return m?.[1] ?? null;
+}
+
+function removeColumnFromRows<T extends Record<string, unknown>>(rows: T[], col: string): T[] {
+  return rows.map(row => {
+    const next = { ...row };
+    delete next[col];
+    return next;
+  });
+}
+
+async function safeUpsertWithMissingColumnRetry(
+  table: 'materiels' | 'consommables' | 'prets',
+  rows: Record<string, unknown>[]
+): Promise<{ error: PostgrestError | null; removedColumns: string[] }> {
+  let current = rows;
+  const removedColumns: string[] = [];
+  const sb = getSupabase();
+  for (let i = 0; i < 8; i += 1) {
+    const { error } = await sb.from(table).upsert(current);
+    if (!error) return { error: null, removedColumns };
+    const missing = extractMissingColumnName(error.message);
+    if (!missing) return { error, removedColumns };
+    removedColumns.push(missing);
+    current = removeColumnFromRows(current, missing);
+  }
+  return { error: { message: 'Trop de colonnes incompatibles détectées côté Supabase.' } as PostgrestError, removedColumns };
+}
+
 export const syncToSupabase = async (): Promise<{ ok: boolean; error?: string }> => {
   if (!effectiveConfigured) {
     return { ok: false, error: MSG_SUPABASE_MANQUE };
@@ -234,13 +267,18 @@ export const syncToSupabase = async (): Promise<{ ok: boolean; error?: string }>
       'SELECT * FROM materiels WHERE synced = 0'
     );
     if (materielsToSync.length > 0) {
-      const { error } = await sb
-        .from('materiels')
-        .upsert(materielsToSync.map(m => materielRowForRemote(m)));
+      const { error, removedColumns } = await safeUpsertWithMissingColumnRetry(
+        'materiels',
+        materielsToSync.map(m => materielRowForRemote(m))
+      );
       if (!error) {
         await database.runAsync("UPDATE materiels SET synced = 1 WHERE synced = 0");
       } else {
+        if (removedColumns.length) {
+          console.log('[supabase] syncToSupabase materiels colonnes ignorées:', removedColumns.join(', '));
+        }
         console.log('[supabase] syncToSupabase materiels error:', error);
+        return { ok: false, error: `Supabase materiels: ${error.message}` };
       }
     }
 
@@ -248,13 +286,18 @@ export const syncToSupabase = async (): Promise<{ ok: boolean; error?: string }>
       'SELECT * FROM consommables WHERE synced = 0'
     );
     if (consoToSync.length > 0) {
-      const { error } = await sb
-        .from('consommables')
-        .upsert(consoToSync.map(c => ({ ...c, synced: true })));
+      const { error, removedColumns } = await safeUpsertWithMissingColumnRetry(
+        'consommables',
+        consoToSync.map(c => ({ ...c, synced: true }))
+      );
       if (!error) {
         await database.runAsync("UPDATE consommables SET synced = 1 WHERE synced = 0");
       } else {
+        if (removedColumns.length) {
+          console.log('[supabase] syncToSupabase consommables colonnes ignorées:', removedColumns.join(', '));
+        }
         console.log('[supabase] syncToSupabase consommables error:', error);
+        return { ok: false, error: `Supabase consommables: ${error.message}` };
       }
     }
 
@@ -262,13 +305,18 @@ export const syncToSupabase = async (): Promise<{ ok: boolean; error?: string }>
       'SELECT * FROM prets WHERE synced = 0'
     );
     if (pretsToSync.length > 0) {
-      const { error } = await sb
-        .from('prets')
-        .upsert(pretsToSync.map(p => ({ ...p, synced: true })));
+      const { error, removedColumns } = await safeUpsertWithMissingColumnRetry(
+        'prets',
+        pretsToSync.map(p => ({ ...p, synced: true }))
+      );
       if (!error) {
         await database.runAsync("UPDATE prets SET synced = 1 WHERE synced = 0");
       } else {
+        if (removedColumns.length) {
+          console.log('[supabase] syncToSupabase prets colonnes ignorées:', removedColumns.join(', '));
+        }
         console.log('[supabase] syncToSupabase prets error:', error);
+        return { ok: false, error: `Supabase prets: ${error.message}` };
       }
     }
 
@@ -286,10 +334,20 @@ export const syncFromSupabase = async (): Promise<{ ok: boolean; error?: string 
     const database = await getDB();
     const sb = getSupabase();
 
-    const { data: materiels, error: e1 } = await sb
+    let { data: materiels, error: e1 } = await sb
       .from('materiels')
       .select('*')
       .order('updated_at', { ascending: false });
+
+    if (
+      e1 &&
+      /does not exist/i.test(e1.message) &&
+      /updated_at/i.test(e1.message)
+    ) {
+      const retry = await sb.from('materiels').select('*');
+      materiels = retry.data;
+      e1 = retry.error;
+    }
 
     if (e1) throw e1;
     if (materiels) {

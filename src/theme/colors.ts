@@ -1,79 +1,68 @@
 // src/theme/colors.ts
 /**
- * Thème sombre éditorial : surfaces en couches, vert émeraude discret, contrastes maîtrisés.
+ * Alias rétro-compat des tokens sémantiques (cf. `./tokens.ts`).
+ *
+ * Cette surface `Colors`/`Shadow` est conservée telle quelle pour le code existant.
+ * Les nouveaux composants doivent importer depuis `./tokens` (`surface`, `accent`, …)
+ * — voir `docs/DESIGN_SYSTEM.md`. Aucune valeur ne change ici : les comparaisons
+ * pixel-par-pixel restent vraies, seules les sources d’indirection diffèrent.
  */
+import { accent, alert, border, elevation, status, surface, tab, text } from './tokens';
+
 export const Colors = {
-  bg: '#09090B',
-  bgElevated: '#141416',
-  bgCard: '#1A1A1E',
-  bgCardAlt: '#16161A',
-  bgInput: '#121214',
-  bgInputBorder: '#2A2A30',
+  bg: surface.base,
+  bgElevated: surface.raised,
+  bgCard: surface.card,
+  bgCardAlt: surface.cardAlt,
+  bgInput: surface.input,
+  bgInputBorder: border.input,
 
   /** Accent principal (actions, liens actifs, succès). */
-  green: '#34D399',
-  greenDark: '#059669',
-  greenMuted: 'rgba(52, 211, 153, 0.14)',
-  greenBg: 'rgba(52, 211, 153, 0.1)',
-  tabIconActiveBg: 'rgba(52, 211, 153, 0.18)',
+  green: accent.primary,
+  greenDark: accent.primaryStrong,
+  greenMuted: accent.primarySoft,
+  greenBg: accent.primarySurface,
+  tabIconActiveBg: tab.itemActiveBg,
 
-  red: '#F87171',
-  redBg: 'rgba(248, 113, 113, 0.12)',
+  red: accent.danger,
+  redBg: accent.dangerSurface,
 
-  yellow: '#FBBF24',
-  yellowBg: 'rgba(251, 191, 36, 0.12)',
+  yellow: accent.warn,
+  yellowBg: accent.warnSurface,
 
-  blue: '#60A5FA',
-  blueBg: 'rgba(96, 165, 250, 0.12)',
+  blue: accent.info,
+  blueBg: accent.infoSurface,
 
-  white: '#FAFAFA',
-  textPrimary: '#F4F4F5',
-  textSecondary: '#A1A1AA',
-  textMuted: '#71717A',
+  white: text.onAccent,
+  textPrimary: text.primary,
+  textSecondary: text.secondary,
+  textMuted: text.muted,
 
-  border: 'rgba(255, 255, 255, 0.08)',
-  borderStrong: 'rgba(255, 255, 255, 0.12)',
-  separator: 'rgba(255, 255, 255, 0.06)',
+  border: border.hairline,
+  borderStrong: border.strong,
+  separator: border.subtle,
 
   /** Dock : légèrement au-dessus du fond pour effet « îlot ». */
-  tabBar: '#0C0C0F',
-  tabBarActive: '#34D399',
-  tabBarInactive: '#71717A',
+  tabBar: tab.background,
+  tabBarActive: tab.itemActive,
+  tabBarInactive: tab.itemInactive,
 
-  etatBon: '#34D399',
-  etatMoyen: '#FBBF24',
-  etatUse: '#FBBF24',
-  etatHorsService: '#F87171',
+  etatBon: status.ok,
+  etatMoyen: status.watch,
+  etatUse: status.watch,
+  etatHorsService: status.critical,
 
-  statutEnStock: '#3F3F46',
-  statutEnPret: '#F87171',
-  statutEnReparation: '#FBBF24',
+  statutEnStock: status.neutral,
+  statutEnPret: status.inUse,
+  statutEnReparation: status.repair,
 
-  alerteRouge: '#F87171',
-  alerteOrange: '#FBBF24',
+  alerteRouge: alert.high,
+  alerteOrange: alert.medium,
 };
 
 export const Shadow = {
-  card: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-    elevation: 3,
-  },
-  primaryGlow: {
-    shadowColor: '#34D399',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.35,
-    shadowRadius: 14,
-    elevation: 6,
-  },
+  card: elevation.card,
+  primaryGlow: elevation.primaryGlow,
   /** Barre du bas : léger décollement. */
-  dock: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 8,
-  },
+  dock: elevation.dock,
 };

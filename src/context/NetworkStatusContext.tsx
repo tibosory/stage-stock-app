@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 import { getIsOnlineRuntime, setIsOnlineRuntime } from '../lib/networkRuntime';
-import { syncOnNetworkBack } from '../../services/syncService';
+import { runForegroundInventorySync } from '../lib/foregroundInventorySync';
 
 type NetworkStatusCtx = {
   isOnline: boolean;
@@ -47,7 +47,7 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
       if (mounted) setIsOnline(next);
       console.log(next ? 'ONLINE' : 'OFFLINE');
       if (!prev && next) {
-        void syncOnNetworkBack();
+        void runForegroundInventorySync();
       }
     });
 

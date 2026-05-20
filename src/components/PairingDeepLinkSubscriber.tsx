@@ -1,6 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { Alert, Linking } from 'react-native';
 import { applyPairingDeepLink } from '../lib/pairingDeepLink';
+import { setServerPairingVerified } from '../lib/workspaceOnboardingStorage';
+import { pingStageStockApi } from '../config/stageStockApi';
 import { useConnection } from '../context/ConnectionContext';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -19,11 +21,19 @@ export function PairingDeepLinkSubscriber() {
       const ok = await applyPairingDeepLink(url);
       if (ok) {
         await refresh();
+        const ping = await pingStageStockApi();
+        if (ping.ok) {
+          await setServerPairingVerified();
+        }
         Alert.alert(
           language === 'en' ? 'Pairing' : 'Jumelage',
           language === 'en'
-            ? 'Local server address has been saved.'
-            : 'L’adresse du serveur local a été enregistrée.'
+            ? ping.ok
+              ? 'Local server connected. You can continue in the app.'
+              : 'Server address saved. Check Wi‑Fi and tap Verify connection in setup.'
+            : ping.ok
+              ? 'Serveur local connecté. Vous pouvez continuer dans l’app.'
+              : 'Adresse enregistrée. Vérifiez le Wi‑Fi puis « Vérifier la connexion » dans l’assistant.'
         );
       } else {
         seen.current.delete(url);

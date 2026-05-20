@@ -4,6 +4,7 @@
  */
 import * as Notifications from 'expo-notifications';
 import type { NotificationContentInput } from 'expo-notifications';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 /** Nouveaux IDs de canal : l’importance d’un canal Android existant ne peut pas être relevée après création. */
@@ -12,8 +13,10 @@ export const TRAY_CHANNEL_VGP = 'stagestock-tray-vgp-v1';
 export const TRAY_CHANNEL_SEUILS = 'stagestock-tray-seuils-v1';
 
 let handlerConfigured = false;
+const isExpoGoRuntime = Constants.appOwnership === 'expo';
 
 export function configureNotificationsForSystemTray(): void {
+  if (isExpoGoRuntime) return;
   if (handlerConfigured) return;
   handlerConfigured = true;
   Notifications.setNotificationHandler({
@@ -29,6 +32,7 @@ export function configureNotificationsForSystemTray(): void {
 
 /** Canaux Android : importance HIGH + visibilité écran de verrouillage pour le volet « Notifications ». */
 export async function ensureTrayAndroidChannels(): Promise<void> {
+  if (isExpoGoRuntime) return;
   if (Platform.OS !== 'android') return;
   const common = {
     importance: Notifications.AndroidImportance.HIGH,

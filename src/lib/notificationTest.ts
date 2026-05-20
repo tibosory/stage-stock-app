@@ -8,7 +8,8 @@ import {
   type TimeIntervalTriggerInput,
 } from 'expo-notifications';
 import { getResolvedApiBase, stageStockApiHeadersAsync, checkServerReachableQuick } from '../config/stageStockApi';
-import { getAlertesEmail, getStaffExpoPushTokens } from '../db/database';
+import { getAlertesEmail } from '../db/metadataDb';
+import { getStaffExpoPushTokens } from '../db/userDb';
 import { loadMailRecipientAlerteIds } from './notificationPrefs';
 import { ensureTrayAndroidChannels, TRAY_CHANNEL_PRETS } from './systemNotificationSetup';
 
@@ -31,7 +32,7 @@ export async function scheduleTestLocalNotification(
   title: string,
   body: string
 ): Promise<{ ok: boolean; message: string }> {
-  const t = title.trim() || 'Stage Stock — test';
+  const t = title.trim() || 'CATRACK Pro — test';
   const b = (body.trim() || 'Notification locale de test.').slice(0, 400);
   await ensureTrayAndroidChannels();
   const trigger: TimeIntervalTriggerInput = {
@@ -60,7 +61,7 @@ export async function sendTestExpoPushToStaff(options: {
   title: string;
   body: string;
 }): Promise<{ ok: boolean; message: string }> {
-  const title = (options.title.trim() || 'Stage Stock — test push').slice(0, 120);
+  const title = (options.title.trim() || 'CATRACK Pro — test push').slice(0, 120);
   const body = (options.body.trim() || 'Message de test.').slice(0, 400);
   const tokens = await getStaffExpoPushTokens();
   if (tokens.length === 0) {
@@ -114,7 +115,7 @@ export async function sendTestSmtpAlertEmail(options: {
   subject: string;
   text: string;
 }): Promise<{ ok: boolean; message: string }> {
-  const subject = (options.subject.trim() || '[Stage Stock] Test e-mail').slice(0, 300);
+  const subject = (options.subject.trim() || '[CATRACK Pro] Test e-mail').slice(0, 300);
   const text = (options.text.trim() || 'Message de test.').slice(0, 50_000);
   const base = await getResolvedApiBase();
   if (!base || !/^https?:\/\//i.test(base) || base.length < 8) {
@@ -140,7 +141,7 @@ export async function sendTestSmtpAlertEmail(options: {
       ...headers,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ to, subject, text: `${text}\n\n— Stage Stock (test manuel)` }),
+    body: JSON.stringify({ to, subject, text: `${text}\n\n— CATRACK Pro (test manuel)` }),
   });
   if (res.status === 501) {
     const j = (await res.json().catch(() => ({}))) as { hint?: string };

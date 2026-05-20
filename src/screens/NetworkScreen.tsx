@@ -239,7 +239,7 @@ export default function NetworkScreen() {
     const host = parse?.hostname ?? '';
     const protocol = parse?.protocol === 'https:' ? 'https' : 'http';
     const currentPort = parse?.port ? Number(parse.port) : undefined;
-    const ports = [currentPort, 8095, 3847, ...Array.from({ length: 21 }, (_, i) => 8090 + i)].filter(
+    const ports = [currentPort, 8091, 8095, 3847, ...Array.from({ length: 21 }, (_, i) => 8090 + i)].filter(
       (v): v is number => Number.isFinite(v as number) && (v as number) > 0
     );
     const uniqPorts = Array.from(new Set(ports));

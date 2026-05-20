@@ -4,6 +4,7 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import type { Route } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '../theme/colors';
+import { Spacing } from '../theme/spacing';
 import { Typography } from '../theme/typography';
 import { useAppAuth } from '../context/AuthContext';
 import {
@@ -12,7 +13,7 @@ import {
   staffVisibleTabNames,
 } from './mainMenuConfig';
 
-const ANDROID_BOTTOM_NAV_MIN_DP = 52;
+const ANDROID_BOTTOM_NAV_MIN_DP = 64;
 
 type TabRoute = Route<string>;
 
@@ -182,6 +183,7 @@ const styles = StyleSheet.create({
   tabBtn: {
     flex: 1,
     minWidth: 0,
+    minHeight: Spacing.touchMin,
     paddingVertical: 4,
     paddingHorizontal: 2,
     justifyContent: 'center',

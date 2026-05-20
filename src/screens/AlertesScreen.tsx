@@ -1,19 +1,20 @@
 // src/screens/AlertesScreen.tsx
 import React, { useState, useCallback, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, SectionList, RefreshControl, TouchableOpacity, Alert, Linking, TextInput
+  View, Text, StyleSheet, SectionList, RefreshControl, TouchableOpacity, Alert, Linking, TextInput, Platform
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { format, parseISO, isValid } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Colors } from '../theme/colors';
+import { getAlertesEmail } from '../db/metadataDb';
 import {
-  getAlertesEmail,
   getConsommablesAlerte,
-  getPrets,
   getMaterielsPourMaintenanceAlertes,
   getMaterielsPourVgpAlertes,
-} from '../db/database';
+} from '../db/inventoryDb';
+import { getPrets } from '../db/loanDb';
 import { loadMailRecipientAlerteIds, loadNotificationPrefs } from '../lib/notificationPrefs';
 import { loadUserProfile, formatMailSignature } from '../lib/userProfileStorage';
 import { Consommable, Pret, Materiel } from '../types';
@@ -25,6 +26,7 @@ import {
   openMaterielFicheFromAlerte,
   openPretFicheFromAlerte,
 } from '../navigation/openFicheFromAlerte';
+import { useLanguage } from '../context/LanguageContext';
 
 type AlerteRow =
   | { type: 'pret'; data: Pret }
@@ -42,8 +44,30 @@ function formatDateCourt(raw: string | undefined): string {
   return format(d, 'd MMM yyyy', { locale: fr });
 }
 
+function formatQtyUnit(qty: number, unitRaw: string | undefined): string {
+  const unit = (unitRaw ?? '').trim().toLowerCase();
+  if (!unit) return String(qty);
+  if (unit === 'kg' || unit === 'm' || unit === 'mètre') {
+    return `${qty} ${unit}`;
+  }
+  const irregularPluralMap: Record<string, string> = {
+    pièce: 'pièces',
+    boite: 'boites',
+    boîte: 'boîtes',
+    rouleau: 'rouleaux',
+    feuille: 'feuilles',
+    litre: 'litres',
+    paquet: 'paquets',
+    mètre: 'mètres',
+  };
+  if (qty <= 1) return `${qty} ${unit}`;
+  return `${qty} ${irregularPluralMap[unit] ?? `${unit}s`}`;
+}
+
 export default function AlertesScreen() {
+  const { t } = useLanguage();
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   const [consoBas, setConsoBas] = useState<Consommable[]>([]);
   const [pretsRetard, setPretsRetard] = useState<Pret[]>([]);
   const [maint, setMaint] = useState<Materiel[]>([]);
@@ -123,7 +147,7 @@ export default function AlertesScreen() {
       .filter(row => row.selected && row.qty > 0);
 
     if (selected.length === 0) {
-      Alert.alert('Aucune ligne', 'Sélectionne au moins un article avec une quantité > 0.');
+      Alert.alert(t('alerts.noLine'), t('alerts.noLineBody'));
       return;
     }
 
@@ -133,10 +157,10 @@ export default function AlertesScreen() {
       '[Votre nom]\n[Votre fonction]\n[Votre entreprise]\n[Vos coordonnées]';
     const bulletLines = selected.map(({ conso, qty }) => {
       const ref = conso.reference?.trim() ? ` — ref. ${conso.reference.trim()}` : '';
-      return `- ${conso.nom}${ref} — ${qty} ${conso.unite}`;
+      return `- ${conso.nom}${ref} — ${formatQtyUnit(qty, conso.unite)}`;
     });
 
-    const subject = '[Stage Stock] Demande de devis — fournitures';
+    const subject = '[CATRACK Pro] Demande de devis — fournitures';
     const body = [
       'Bonjour,',
       '',
@@ -155,16 +179,13 @@ export default function AlertesScreen() {
 
     const to = destEmail.trim();
     if (!to) {
-      Alert.alert(
-        'Destinataire',
-        'Indiquez au moins une adresse (séparées par des virgules si besoin) ou enregistrez des contacts dans Paramètres.'
-      );
+      Alert.alert(t('alerts.recipient'), t('alerts.recipientBody'));
       return;
     }
     const url = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     const ok = await Linking.canOpenURL(url);
     if (!ok) {
-      Alert.alert('Aucun client mail', 'Impossible d’ouvrir une application e-mail sur cet appareil.');
+      Alert.alert(t('alerts.noMailClient'), t('alerts.noMailClientBody'));
       return;
     }
     await Linking.openURL(url);
@@ -193,6 +214,8 @@ export default function AlertesScreen() {
   );
 
   const total = consoBas.length + pretsRetard.length + maint.length + vgp.length;
+  const bottomSafePad =
+    Platform.OS === 'android' ? Math.max(insets.bottom, 64) : Math.max(insets.bottom, 16);
 
   const sections = useMemo(() => {
     const out: AlerteSection[] = [];
@@ -234,7 +257,7 @@ export default function AlertesScreen() {
       <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8 }}>
         <View style={s.header}>
           <Text style={{ fontSize: 22, color: Colors.green }}>🔔</Text>
-          <Text style={s.title}>Alertes</Text>
+          <Text style={s.title}>{t('alerts.title')}</Text>
           {total > 0 && (
             <View style={s.badge}>
               <Text style={s.badgeText}>{total}</Text>
@@ -243,7 +266,7 @@ export default function AlertesScreen() {
         </View>
         {consoBas.length > 0 && mailSeuilEnabled && (
           <TouchableOpacity style={s.purchaseBtn} onPress={() => void openOrderModal()} activeOpacity={0.8}>
-            <Text style={s.purchaseBtnText}>Préparer un e-mail d'achat ({consoBas.length})</Text>
+            <Text style={s.purchaseBtnText}>{t('alerts.preparePurchase')} ({consoBas.length})</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -251,15 +274,15 @@ export default function AlertesScreen() {
       {total === 0 ? (
         <View style={[s.empty, { paddingHorizontal: 20 }]}>
           <Text style={{ fontSize: 48 }}>✅</Text>
-          <Text style={{ color: Colors.textMuted, marginTop: 12, fontSize: 16 }}>Aucune alerte</Text>
+          <Text style={{ color: Colors.textMuted, marginTop: 12, fontSize: 16 }}>{t('alerts.none')}</Text>
           <Text style={{ color: Colors.textMuted, marginTop: 4, fontSize: 13 }}>
-            Prêts à jour, stocks, maintenance et VGP OK
+            {t('alerts.noneHint')}
           </Text>
         </View>
       ) : (
         <SectionList<AlerteRow, AlerteSection>
           sections={sections}
-          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 + bottomSafePad }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.green} />}
           keyExtractor={(item: AlerteRow) => `${item.type}-${item.data.id}`}
           renderSectionHeader={({ section }: { section: AlerteSection }) => (
@@ -379,19 +402,19 @@ export default function AlertesScreen() {
       <BottomModal
         visible={orderModalOpen}
         onClose={() => setOrderModalOpen(false)}
-        title="Achat consommables (seuil bas)"
+        title={t('alerts.purchaseModal')}
       >
         <Text style={s.modalHint}>
-          Sélectionne les articles à recommander et ajuste les quantités avant d’ouvrir l’e-mail.
+          {t('alerts.modalHint')}
         </Text>
-        <Text style={s.modalLabel}>Destinataire e-mail (optionnel)</Text>
+        <Text style={s.modalLabel}>{t('alerts.recipientOptional')}</Text>
         <TextInput
           style={s.mailInput}
           value={destEmail}
           onChangeText={setDestEmail}
           keyboardType="email-address"
           autoCapitalize="none"
-          placeholder="fournisseur@exemple.com"
+          placeholder={t('alerts.mailPlaceholder')}
           placeholderTextColor={Colors.textMuted}
         />
         <View style={s.bulkRow}>
@@ -399,13 +422,13 @@ export default function AlertesScreen() {
             style={s.bulkBtn}
             onPress={() => setAchatDrafts(prev => prev.map(r => ({ ...r, selected: true })))}
           >
-            <Text style={s.bulkBtnText}>Tout sélectionner</Text>
+            <Text style={s.bulkBtnText}>{t('common.selectAll')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={s.bulkBtn}
             onPress={() => setAchatDrafts(prev => prev.map(r => ({ ...r, selected: false })))}
           >
-            <Text style={s.bulkBtnText}>Tout désélectionner</Text>
+            <Text style={s.bulkBtnText}>{t('common.unselectAll')}</Text>
           </TouchableOpacity>
         </View>
         {consoBas.map(c => {
@@ -422,7 +445,7 @@ export default function AlertesScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={s.lineTitle}>{c.nom}</Text>
                 <Text style={s.lineSub}>
-                  Stock {c.stock_actuel} / Seuil {c.seuil_minimum}
+                  {t('alerts.stockThreshold', { stock: c.stock_actuel, threshold: c.seuil_minimum })}
                   {c.fournisseur ? ` · ${c.fournisseur}` : ''}
                 </Text>
               </View>
@@ -436,8 +459,8 @@ export default function AlertesScreen() {
           );
         })}
         <View style={{ flexDirection: 'row', marginTop: 16 }}>
-          <BtnSecondary label="Annuler" onPress={() => setOrderModalOpen(false)} />
-          <BtnPrimary label="Ouvrir l'e-mail" onPress={composePurchaseMail} />
+          <BtnSecondary label={t('common.cancel')} onPress={() => setOrderModalOpen(false)} />
+          <BtnPrimary label={t('alerts.openMail')} onPress={composePurchaseMail} />
         </View>
       </BottomModal>
     </TabScreenSafeArea>

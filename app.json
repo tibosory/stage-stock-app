@@ -1,9 +1,10 @@
 {
   "expo": {
-    "name": "Stage Stock",
+    "name": "CATRACK Pro",
     "slug": "stage-stock",
     "scheme": "stagestock",
-    "version": "1.0.7",
+    "version": "1.0.8",
+    "jsEngine": "hermes",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -19,10 +20,12 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.vellein.stagestock",
       "infoPlist": {
+        "CFBundleDisplayName": "CATRACK Pro",
         "NSCameraUsageDescription": "Nécessaire pour scanner les QR codes et photographier le matériel",
         "NSPhotoLibraryUsageDescription": "Nécessaire pour accéder aux photos du matériel",
         "NFCReaderUsageDescription": "Nécessaire pour lire et écrire les puces NFC du matériel",
-        "NSLocalNetworkUsageDescription": "Permet de joindre un serveur Stage Stock sur le réseau Wi‑Fi local (adresse IP du PC).",
+        "NSLocalNetworkUsageDescription": "Permet de joindre un serveur CATRACK Pro sur le réseau Wi‑Fi local (adresse IP du PC).",
+        "UIBackgroundModes": ["fetch"],
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         }
@@ -54,15 +57,17 @@
       ],
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.NFC",
         "android.permission.VIBRATE",
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.POST_NOTIFICATIONS",
-        "android.permission.RECORD_AUDIO",
         "android.permission.REQUEST_INSTALL_PACKAGES"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
     },
     "web": {
@@ -88,7 +93,9 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": true,
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
           }
         }
       ]
@@ -98,11 +105,12 @@
         "projectId": "0b1c50f3-1781-4d5e-8b21-841b8ecfb802"
       },
       "consumerApp": true,
+      "v1Lan": true,
       "installerGitHubRepo": "tibosory/stage-stock-app",
       "privacyPolicyUrl": "",
       "termsOfServiceUrl": ""
     },
-    "runtimeVersion": "1.0.7",
+    "runtimeVersion": "1.0.8",
     "updates": {
       "enabled": false
     },

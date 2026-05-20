@@ -1,4 +1,5 @@
 import { getBundledDefaultApiBase, getResolvedApiBase } from '../config/stageStockApi';
+import { fetchWithTimeout } from './fetchWithTimeout';
 
 type DiscoverResult = { baseUrl: string; healthUrl: string; note: string };
 
@@ -50,20 +51,10 @@ function candidatePrefixes(extra?: string | null): string[] {
   return [...out];
 }
 
-async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    return await fetch(url, { method: 'GET', signal: ctrl.signal });
-  } finally {
-    clearTimeout(t);
-  }
-}
-
 async function probe(baseUrl: string, timeoutMs: number): Promise<DiscoverResult | null> {
   const healthUrl = `${stripTrailingSlash(baseUrl)}/health`;
   try {
-    const res = await fetchWithTimeout(healthUrl, timeoutMs);
+    const res = await fetchWithTimeout(healthUrl, { method: 'GET' }, timeoutMs);
     if (!res.ok) return null;
     const text = await res.text();
     const low = text.toLowerCase();
@@ -115,7 +106,9 @@ export async function discoverStageStockOnLan(
     (s): s is string => typeof s === 'string' && s.trim().length > 0
   );
   const prefixes = [...new Set([...devicePrefs, ...candidatePrefixes(pref)])];
-  const ports = [3847, 3000];
+  const ports = [
+    ...new Set([8091, 8095, 3847, ...Array.from({ length: 21 }, (_, i) => 8090 + i), 3000]),
+  ];
 
   const directCandidates = [resolved, bundled]
     .map(stripTrailingSlash)

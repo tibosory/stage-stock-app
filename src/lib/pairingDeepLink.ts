@@ -1,4 +1,9 @@
-import { setApiBaseOverride, setApiKeyOverride, looksLikeHttpUrl } from './apiEndpointStorage';
+import {
+  setApiBaseOverride,
+  setApiKeyOverride,
+  looksLikeHttpUrl,
+  stripStageStockServerRootSuffix,
+} from './apiEndpointStorage';
 
 /**
  * Liens profonds : stagestock://pair?base=...&key=... (émis par GET /pair sur le PC).
@@ -12,7 +17,7 @@ export function parsePairingDeepLink(url: string): { baseUrl: string; apiKey: st
   const base = params.get('base')?.trim() ?? '';
   if (!base || !looksLikeHttpUrl(base)) return null;
   const key = params.get('key')?.trim();
-  return { baseUrl: base.replace(/\/+$/, ''), apiKey: key || null };
+  return { baseUrl: stripStageStockServerRootSuffix(base.replace(/\/+$/, '')), apiKey: key || null };
 }
 
 export async function applyPairingDeepLink(url: string): Promise<boolean> {

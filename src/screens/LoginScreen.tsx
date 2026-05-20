@@ -13,6 +13,7 @@ import { isSupabaseConfigured, saveAndApplySupabaseConfig } from '../lib/supabas
 import { finalizeAccueilProInvitation, previewAccueilProInvitation } from '../lib/accueilproInvitations';
 import { ACCUEILPRO_ORGANISATEUR_ROLE } from '../modules/accueilpro/types/roles';
 import { AppUserRole } from '../types';
+import { isV1LanMode } from '../config/appMode';
 import { useLanguage } from '../context/LanguageContext';
 
 function roleLabelKey(role: AppUserRole): string {
@@ -51,6 +52,8 @@ export default function LoginScreen() {
   const [apInvitePreview, setApInvitePreview] = useState('');
   const [apInviteBusy, setApInviteBusy] = useState(false);
   const { t } = useLanguage();
+
+  const v1Lan = isV1LanMode();
 
   useEffect(() => {
     listAppUsersForLogin().then(u => {
@@ -151,9 +154,9 @@ export default function LoginScreen() {
     <FullScreenSafeArea style={{ flex: 1, backgroundColor: Colors.bg }}>
     <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
       <Text style={s.title}>{t('login.title')}</Text>
-      <Text style={s.sub}>{t('login.subtitle')}</Text>
+      <Text style={s.sub}>{v1Lan ? t('login.subtitleV1') : t('login.subtitle')}</Text>
 
-      {!isSupabaseConfigured() ? (
+      {!v1Lan && !isSupabaseConfigured() ? (
         <View style={{ marginBottom: 20 }}>
           <Text style={s.section}>{t('login.supabase.section')}</Text>
           <Text style={s.subSmall}>{t('login.supabase.hint')}</Text>
@@ -202,6 +205,8 @@ export default function LoginScreen() {
         </View>
       ) : null}
 
+      {!v1Lan ? (
+        <>
       <Text style={s.label}>{t('login.cloud.serviceLabel')}</Text>
       {cloudUser ? (
         <Text style={s.cloudOk}>{t('login.cloud.connectedLine', { email: cloudUser.email ?? '—' })}</Text>
@@ -379,9 +384,11 @@ export default function LoginScreen() {
           )}
         </>
       ) : null}
+        </>
+      ) : null}
 
       <Text style={s.section}>{t('login.device.section')}</Text>
-      <Text style={s.subSmall}>{t('login.device.pinHint')}</Text>
+      <Text style={s.subSmall}>{v1Lan ? t('login.device.pinHintV1') : t('login.device.pinHint')}</Text>
 
       <Text style={s.label}>{t('login.device.userLabel')}</Text>
       <View style={s.chips}>

@@ -1,35 +1,31 @@
 /**
- * À l’ouverture / retour au premier plan : tente d’abord d’envoyer les changements locaux,
- * puis de recevoir le snapshot serveur (GET /api/sync/snapshot) pour aligner l’inventaire.
- * Silencieux (pas d’alerte) — échoue proprement si l’API est injoignable.
+ * À l’ouverture / retour au premier plan : sync API inventaire (PC LAN).
+ * Supabase ignoré en mode V1 LAN.
  */
 import { AppState, type AppStateStatus } from 'react-native';
 import { checkServerReachableQuick } from '../config/stageStockApi';
 import { runAutoLanDiscoveryWhenUnreachable } from './consumerAutoConnect';
-import { getConsommablesAlerte, getPrets, getMateriel } from '../db/database';
+import { getPrets } from '../db/loanDb';
+import { getMateriel, getConsommablesAlerte } from '../db/inventoryDb';
 import { reschedulePretReturnReminders } from './pretNotifications';
 import { rescheduleVgpDueReminders } from './vgpNotifications';
 import { rescheduleSeuilBasReminders } from './seuilNotifications';
 import { syncFromInventoryApi, syncToInventoryApi } from './inventoryApiSync';
 import { maybeSendAutoAlertEmailsIfNeeded } from './autoAlertEmails';
-import { isSupabaseConfigured, syncFromSupabase, syncToSupabase } from './supabase';
-import { recordSyncTelemetry } from './syncTelemetry';
 import { canCallApiSync } from './syncGuards';
-import { getDoubleBackendRuntime } from './doubleBackendRuntime';
-import { getIsOnlineRuntime } from './networkRuntime';
+import { recordSyncTelemetry } from './syncTelemetry';
+import { runSupabaseSyncCycleIfEnabled } from './supabaseSyncCycle';
+import { notifyForegroundSyncIssue } from './syncUserFeedback';
 
 let lastRunAt = 0;
-/** Évite double exécution (connexion + bascule d’état) sur le même retour d’app. */
 const MIN_MS_BETWEEN_RUNS = 4_000;
 
-/** Enregistré depuis App.tsx pour rafraîchir la session après sync (comptes utilisateurs). */
 let refreshSessionAfterSync: (() => Promise<void>) | null = null;
 
 export function setForegroundInventorySyncRefreshSession(fn: (() => Promise<void>) | null): void {
   refreshSessionAfterSync = fn;
 }
 
-/** Après sync inventaire (pull réussi), rafraîchit la session si enregistré (même mécanisme que retour au 1er plan). */
 export async function runRefreshSessionAfterInventoryPullIfRegistered(): Promise<void> {
   try {
     await refreshSessionAfterSync?.();
@@ -45,39 +41,36 @@ export async function runForegroundInventorySync(): Promise<void> {
 
   try {
     await runAutoLanDiscoveryWhenUnreachable();
-    const dualBackend = getDoubleBackendRuntime();
     let gotFreshData = false;
     const apiGuard = await canCallApiSync('runForegroundInventorySync');
-
     const reachable = apiGuard.ok ? await checkServerReachableQuick() : false;
+
+    if (await runSupabaseSyncCycleIfEnabled()) {
+      gotFreshData = true;
+    }
+
     if (apiGuard.ok && reachable) {
       const pushApi = await syncToInventoryApi();
       await recordSyncTelemetry('api', 'push', pushApi.ok ? 'ok' : 'error', pushApi.error);
       const pull = await syncFromInventoryApi();
       await recordSyncTelemetry('api', 'pull', pull.ok ? 'ok' : 'error', pull.error);
       if (pull.ok) gotFreshData = true;
+      if (!pushApi.ok || !pull.ok) {
+        notifyForegroundSyncIssue(
+          'Synchronisation incomplète',
+          pushApi.error ?? pull.error ?? 'Le PC de la salle est injoignable ou a refusé la sync. Vérifiez le Wi‑Fi et l’onglet Connexion.'
+        );
+      }
     } else if (!apiGuard.ok) {
       await recordSyncTelemetry('api', 'push', 'skipped', apiGuard.reason);
       await recordSyncTelemetry('api', 'pull', 'skipped', apiGuard.reason);
     } else {
       await recordSyncTelemetry('api', 'push', 'skipped', 'Serveur API injoignable');
       await recordSyncTelemetry('api', 'pull', 'skipped', 'Serveur API injoignable');
-    }
-
-    if (isSupabaseConfigured() && getIsOnlineRuntime()) {
-      const pushSb = await syncToSupabase();
-      await recordSyncTelemetry('supabase', 'push', pushSb.ok ? 'ok' : 'error', pushSb.error);
-      if (pushSb.ok) {
-        const pullSb = await syncFromSupabase();
-        await recordSyncTelemetry('supabase', 'pull', pullSb.ok ? 'ok' : 'error', pullSb.error);
-        if (pullSb.ok) gotFreshData = true;
-      }
-    } else if (!getIsOnlineRuntime()) {
-      await recordSyncTelemetry('supabase', 'push', 'skipped', 'OFFLINE');
-      await recordSyncTelemetry('supabase', 'pull', 'skipped', 'OFFLINE');
-    } else if (!isSupabaseConfigured()) {
-      await recordSyncTelemetry('supabase', 'push', 'skipped', 'Supabase non configuré');
-      await recordSyncTelemetry('supabase', 'pull', 'skipped', 'Supabase non configuré');
+      notifyForegroundSyncIssue(
+        'PC non joignable',
+        'Le serveur local ne répond pas. Vérifiez que le PC est allumé, sur le même Wi‑Fi, puis ouvrez Connexion pour tester.'
+      );
     }
 
     if (gotFreshData) {
@@ -93,7 +86,7 @@ export async function runForegroundInventorySync(): Promise<void> {
       void maybeSendAutoAlertEmailsIfNeeded();
     }
   } catch {
-    /* silencieux — hors ligne ou API indisponible */
+    /* ignore */
   }
 }
 

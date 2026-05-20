@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Materiel, Consommable, Pret, PretMateriel, Categorie, Localisation, AlerteEmail,
   AppUser, AppUserRole, MaterielEmpruntHistorique, Beneficiaire, MouvementStockDetail,
+  Profile, ProfileSchema, FieldDefinition, Tour, TourLocation, Assignment, ActivityLog,
 } from '../types';
 
 const APP_SESSION_USER_ID_KEY = 'stagestock_session_user_id';
@@ -20,6 +21,83 @@ export const getDB = async (): Promise<SQLite.SQLiteDatabase> => {
 };
 
 async function runSchemaMigrations(database: SQLite.SQLiteDatabase): Promise<void> {
+  // Legacy installs may not have these tracking tables yet.
+  // Ensure they exist before ALTER/INDEX migration steps that reference them.
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS tours (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'planned',
+      start_date TEXT NOT NULL,
+      end_date TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS tour_locations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      address TEXT,
+      date_start TEXT,
+      date_end TEXT,
+      tour_id TEXT NOT NULL REFERENCES tours(id) ON DELETE CASCADE,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS tour_flightcases (
+      id TEXT PRIMARY KEY,
+      tour_id TEXT NOT NULL REFERENCES tours(id) ON DELETE CASCADE,
+      case_number INTEGER NOT NULL,
+      total_cases INTEGER NOT NULL,
+      label TEXT NOT NULL,
+      qr_code TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS material_assignments (
+      id TEXT PRIMARY KEY,
+      material_id TEXT NOT NULL REFERENCES materiels(id),
+      tour_id TEXT NOT NULL REFERENCES tours(id) ON DELETE CASCADE,
+      location_id TEXT REFERENCES tour_locations(id),
+      flightcase_id TEXT REFERENCES tour_flightcases(id),
+      packaging_photo_local TEXT,
+      quantity INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL DEFAULT 'assigned',
+      assigned_at TEXT NOT NULL,
+      returned_at TEXT,
+      assigned_to TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS activity_logs (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      material_id TEXT NOT NULL REFERENCES materiels(id),
+      tour_id TEXT,
+      location_id TEXT,
+      user_id TEXT,
+      timestamp TEXT NOT NULL,
+      note TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS tour_documents (
+      id TEXT PRIMARY KEY,
+      tour_id TEXT NOT NULL REFERENCES tours(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      mime_type TEXT,
+      file_size INTEGER,
+      local_uri TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+  `);
+
   const addCol = async (table: string, name: string, defSql: string) => {
     const rows = await database.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
     if (!rows.some(r => r.name === name)) {
@@ -49,12 +127,73 @@ async function runSchemaMigrations(database: SQLite.SQLiteDatabase): Promise<voi
   await addCol('materiels', 'gel_brand', 'TEXT');
   await addCol('materiels', 'gel_code', 'TEXT');
   await addCol('materiels', 'gel_instead_of_photo', 'INTEGER DEFAULT 0');
+  await addCol('materiels', 'technical_data', 'TEXT');
   await addCol('categories', 'parent_id', 'TEXT');
   await addCol('consommables', 'photo_local', 'TEXT');
   await addCol('consommables', 'photo_url', 'TEXT');
   await addCol('consommables', 'gel_brand', 'TEXT');
   await addCol('consommables', 'gel_code', 'TEXT');
   await addCol('consommables', 'gel_instead_of_photo', 'INTEGER DEFAULT 0');
+  await addCol('materiels', 'profile_id', 'TEXT');
+  await addCol('materiels', 'profile_version', 'INTEGER');
+  await addCol('materiels', 'tracking_state', 'TEXT');
+  await addCol('materiels', 'current_tour_id', 'TEXT');
+  await addCol('materiels', 'current_location_id', 'TEXT');
+  await addCol('material_assignments', 'flightcase_id', 'TEXT');
+  await addCol('material_assignments', 'packaging_photo_local', 'TEXT');
+  await addCol('tour_documents', 'mime_type', 'TEXT');
+  await addCol('tour_documents', 'file_size', 'INTEGER');
+
+  await database.execAsync(`
+    CREATE INDEX IF NOT EXISTS idx_materiels_nom ON materiels(nom);
+    CREATE INDEX IF NOT EXISTS idx_materiels_statut ON materiels(statut);
+    CREATE INDEX IF NOT EXISTS idx_materiels_categorie ON materiels(categorie_id);
+    CREATE INDEX IF NOT EXISTS idx_materiels_qr ON materiels(qr_code);
+    CREATE INDEX IF NOT EXISTS idx_consommables_nom ON consommables(nom);
+    CREATE INDEX IF NOT EXISTS idx_consommables_categorie ON consommables(categorie_id);
+    CREATE INDEX IF NOT EXISTS idx_tour_documents_tour ON tour_documents(tour_id);
+    CREATE INDEX IF NOT EXISTS idx_tour_documents_title ON tour_documents(title);
+  `);
+
+  // Tables du moteur de synchronisation Caractère (@caractere/sync-engine).
+  // Créées idempotemment au boot — inertes tant que l'adapter SQLite n'est
+  // pas branché en production (cf. docs/SYNC_ENGINE_ARCHITECTURE.md §14, étapes S2.3+).
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS sync_outbox (
+      id TEXT PRIMARY KEY,
+      entity TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      base_version TEXT,
+      created_at TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      next_attempt_at TEXT,
+      status TEXT NOT NULL DEFAULT 'pending'
+    );
+    CREATE INDEX IF NOT EXISTS idx_sync_outbox_status_due ON sync_outbox(status, next_attempt_at);
+    CREATE INDEX IF NOT EXISTS idx_sync_outbox_entity ON sync_outbox(entity, entity_id);
+
+    CREATE TABLE IF NOT EXISTS sync_cursor (
+      entity TEXT PRIMARY KEY,
+      last_pulled_at TEXT,
+      etag TEXT,
+      record_count INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts TEXT NOT NULL,
+      level TEXT NOT NULL,
+      event TEXT NOT NULL,
+      entity TEXT,
+      entity_id TEXT,
+      detail TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_sync_log_ts ON sync_log(ts);
+  `);
 
   await database.execAsync(`
     CREATE TABLE IF NOT EXISTS app_users (
@@ -65,6 +204,94 @@ async function runSchemaMigrations(database: SQLite.SQLiteDatabase): Promise<voi
       pin_hash TEXT NOT NULL,
       actif INTEGER DEFAULT 1,
       created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS profiles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      current_version INTEGER DEFAULT 1,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS profile_schemas (
+      profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL,
+      fields_json TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (profile_id, version)
+    );
+    CREATE TABLE IF NOT EXISTS tours (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'planned',
+      start_date TEXT NOT NULL,
+      end_date TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS tour_locations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      address TEXT,
+      date_start TEXT,
+      date_end TEXT,
+      tour_id TEXT NOT NULL REFERENCES tours(id) ON DELETE CASCADE,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS material_assignments (
+      id TEXT PRIMARY KEY,
+      material_id TEXT NOT NULL REFERENCES materiels(id),
+      tour_id TEXT NOT NULL REFERENCES tours(id) ON DELETE CASCADE,
+      location_id TEXT REFERENCES tour_locations(id),
+      flightcase_id TEXT REFERENCES tour_flightcases(id),
+      packaging_photo_local TEXT,
+      quantity INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL DEFAULT 'assigned',
+      assigned_at TEXT NOT NULL,
+      returned_at TEXT,
+      assigned_to TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS tour_flightcases (
+      id TEXT PRIMARY KEY,
+      tour_id TEXT NOT NULL REFERENCES tours(id) ON DELETE CASCADE,
+      case_number INTEGER NOT NULL,
+      total_cases INTEGER NOT NULL,
+      label TEXT NOT NULL,
+      qr_code TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS activity_logs (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      material_id TEXT NOT NULL REFERENCES materiels(id),
+      tour_id TEXT,
+      location_id TEXT,
+      user_id TEXT,
+      timestamp TEXT NOT NULL,
+      note TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS tour_documents (
+      id TEXT PRIMARY KEY,
+      tour_id TEXT NOT NULL REFERENCES tours(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      mime_type TEXT,
+      file_size INTEGER,
+      local_uri TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS materiel_emprunt_historique (
       id TEXT PRIMARY KEY,
@@ -151,6 +378,9 @@ export const initDB = async (): Promise<void> => {
       nfc_tag_id TEXT,
       photo_url TEXT,
       photo_local TEXT,
+      technical_data TEXT,
+      profile_id TEXT,
+      profile_version INTEGER,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
       synced INTEGER DEFAULT 0
@@ -219,7 +449,7 @@ export const generateId = (): string => {
   return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
 };
 
-/** INSERT matériel : colonnes hors synced — 35 placeholders + synced=0 littéral. */
+/** INSERT matériel : colonnes hors synced — 36 placeholders + synced=0 littéral. */
 function materielInsertSqlAndParams(
   data: Omit<Materiel, 'id' | 'created_at' | 'updated_at' | 'synced'>,
   id: string,
@@ -233,6 +463,12 @@ function materielInsertSqlAndParams(
   const gelBrand =
     data.gel_brand === 'lee' || data.gel_brand === 'rosco' ? data.gel_brand : null;
   const gelCode = gelBrand && data.gel_code?.trim() ? data.gel_code.trim() : null;
+  const technicalData =
+    typeof data.technical_data === 'string'
+      ? data.technical_data
+      : data.technical_data != null
+        ? JSON.stringify(data.technical_data)
+        : null;
   const params: (string | number | null)[] = [
     id,
     data.nom,
@@ -267,13 +503,16 @@ function materielInsertSqlAndParams(
     gelBrand,
     gelCode,
     gelInstead,
+    technicalData,
+    data.profile_id ?? null,
+    data.profile_version ?? null,
     now,
     now,
   ];
-  if (params.length !== 35) {
-    throw new Error(`insert materiel: 35 paramètres attendus, ${params.length} fournis`);
+  if (params.length !== 38) {
+    throw new Error(`insert materiel: 38 paramètres attendus, ${params.length} fournis`);
   }
-  const placeholders = Array(35).fill('?').join(', ');
+  const placeholders = Array(38).fill('?').join(', ');
   const sql = `
     INSERT INTO materiels (id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id,
       etat, statut, date_achat, date_validite, prochain_controle, intervalle_controle_jours,
@@ -282,6 +521,8 @@ function materielInsertSqlAndParams(
       notice_pdf_local, notice_photo_local, notice_pdf_url, notice_photo_url,
       vgp_actif, vgp_periodicite_jours, vgp_derniere_visite, vgp_libelle, vgp_epi,
       gel_brand, gel_code, gel_instead_of_photo,
+      technical_data,
+      profile_id, profile_version,
       created_at, updated_at, synced)
     VALUES (${placeholders}, 0)`;
   return { sql, params };
@@ -333,56 +574,30 @@ function consommableInsertSqlAndParams(
   return { sql, params };
 }
 
-/** INSERT prêt : synced=0 littéral — 18 placeholders. */
-function pretInsertSqlAndParams(
-  pret: Omit<Pret, 'id' | 'created_at' | 'updated_at' | 'synced'>,
-  id: string,
-  now: string
-): { sql: string; params: (string | number | null)[] } {
-  const rappel =
-    pret.rappel_jours_avant != null && Number.isFinite(Number(pret.rappel_jours_avant))
-      ? Math.min(365, Math.max(1, Math.floor(Number(pret.rappel_jours_avant))))
-      : null;
-  const params: (string | number | null)[] = [
-    id,
-    pret.numero_feuille ?? null,
-    pret.statut,
-    pret.emprunteur,
-    pret.organisation ?? null,
-    pret.telephone ?? null,
-    pret.email ?? null,
-    pret.date_depart,
-    pret.retour_prevu ?? null,
-    pret.retour_reel ?? null,
-    pret.valeur_estimee ?? null,
-    pret.commentaire ?? null,
-    pret.signature_emprunteur_data ?? null,
-    pret.signed_at ?? null,
-    pret.emprunteur_user_id ?? null,
-    rappel,
-    now,
-    now,
-  ];
-  if (params.length !== 18) {
-    throw new Error(`insert pret: 18 paramètres attendus, ${params.length} fournis`);
-  }
-  const placeholders = Array(18).fill('?').join(', ');
-  const sql = `
-    INSERT INTO prets (id, numero_feuille, statut, emprunteur, organisation, telephone, email,
-      date_depart, retour_prevu, retour_reel, valeur_estimee, commentaire,
-      signature_emprunteur_data, signed_at, emprunteur_user_id, rappel_jours_avant,
-      created_at, updated_at, synced)
-    VALUES (${placeholders}, 0)`;
-  return { sql, params };
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // MATÉRIELS
 // ═══════════════════════════════════════════════════════════════════
 
+function buildCategoryPathResolver(categories: Categorie[]): (leafId: string | null | undefined) => string {
+  const byId = new Map(categories.map(c => [c.id, c]));
+  return (leafId: string | null | undefined): string => {
+    if (!leafId) return '';
+    const parts: string[] = [];
+    let cur: Categorie | undefined = byId.get(leafId);
+    let guard = 0;
+    while (cur && guard++ < 64) {
+      parts.unshift(cur.nom);
+      const pid = cur.parent_id;
+      cur = pid ? byId.get(pid) : undefined;
+    }
+    return parts.join(' › ');
+  };
+}
+
 export const getMateriel = async (): Promise<Materiel[]> => {
   const database = await getDB();
   const cats = await getCategories();
+  const pathFor = buildCategoryPathResolver(cats);
   const rows = await database.getAllAsync<any>(`
     SELECT m.*, c.nom as categorie_nom, l.nom as localisation_nom
     FROM materiels m
@@ -393,27 +608,15 @@ export const getMateriel = async (): Promise<Materiel[]> => {
   return rows.map(r => ({
     ...r,
     synced: !!r.synced,
-    categorie_nom: r.categorie_id ? categoryPathById(cats, r.categorie_id) : r.categorie_nom,
+    categorie_nom: r.categorie_id ? pathFor(r.categorie_id) : r.categorie_nom,
   }));
 };
 
 /** Matériels suivis pour les VGP (visites / contrôles périodiques obligatoires). */
+/** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export const getMaterielsVgpSuivi = async (): Promise<Materiel[]> => {
-  const database = await getDB();
-  const cats = await getCategories();
-  const rows = await database.getAllAsync<any>(`
-    SELECT m.*, c.nom as categorie_nom, l.nom as localisation_nom
-    FROM materiels m
-    LEFT JOIN categories c ON m.categorie_id = c.id
-    LEFT JOIN localisations l ON m.localisation_id = l.id
-    WHERE COALESCE(m.vgp_actif, 0) = 1
-    ORDER BY m.nom ASC
-  `);
-  return rows.map(r => ({
-    ...r,
-    synced: !!r.synced,
-    categorie_nom: r.categorie_id ? categoryPathById(cats, r.categorie_id) : r.categorie_nom,
-  }));
+  const mod = await import('./inventoryOpsDb');
+  return mod.getMaterielsVgpSuivi();
 };
 
 /** Alertes VGP : échéance passée, dans les N prochains jours, ou fiche incomplète. */
@@ -430,91 +633,29 @@ export const getMaterielById = async (id: string): Promise<Materiel | null> => {
   return row ? { ...row, synced: !!row.synced } : null;
 };
 
+/** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export const getMaterielByQr = async (qr: string): Promise<Materiel | null> => {
-  const database = await getDB();
-  const row = await database.getFirstAsync<any>(
-    'SELECT * FROM materiels WHERE qr_code = ? OR numero_serie = ? OR id = ?', [qr, qr, qr]
-  );
-  return row ? { ...row, synced: !!row.synced } : null;
+  const mod = await import('./inventoryOpsDb');
+  return mod.getMaterielByQr(qr);
 };
 
+/** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export const getMaterielByNfc = async (nfcId: string): Promise<Materiel | null> => {
-  const database = await getDB();
-  const row = await database.getFirstAsync<any>(
-    'SELECT * FROM materiels WHERE nfc_tag_id = ?', [nfcId]
-  );
-  return row ? { ...row, synced: !!row.synced } : null;
+  const mod = await import('./inventoryOpsDb');
+  return mod.getMaterielByNfc(nfcId);
 };
 
+/** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export const searchMateriels = async (query: string): Promise<Materiel[]> => {
-  const database = await getDB();
-  const cats = await getCategories();
-  const raw = query.trim();
-  if (!raw) {
-    const rows = await database.getAllAsync<any>(
-      `SELECT * FROM materiels ORDER BY created_at DESC LIMIT 5`
-    );
-    return rows.map(r => ({
-      ...r,
-      synced: !!r.synced,
-      categorie_nom: r.categorie_id ? categoryPathById(cats, r.categorie_id) : undefined,
-    }));
-  }
-  const q = `%${raw}%`;
-  const catIds = categoryIdsMatchingPathQuery(cats, raw);
-  let sql = `
-    SELECT * FROM materiels
-    WHERE nom LIKE ? OR IFNULL(qr_code,'') LIKE ? OR IFNULL(numero_serie,'') LIKE ? OR IFNULL(type,'') LIKE ? OR IFNULL(marque,'') LIKE ?
-      OR IFNULL(gel_code,'') LIKE ? OR IFNULL(gel_brand,'') LIKE ?
-  `;
-  const params: (string | number)[] = [q, q, q, q, q, q, q];
-  if (catIds.length) {
-    sql += ` OR categorie_id IN (${catIds.map(() => '?').join(',')})`;
-    params.push(...catIds);
-  }
-  sql += ` ORDER BY created_at DESC LIMIT 50`;
-  const rows = await database.getAllAsync<any>(sql, params);
-  return rows.map(r => ({
-    ...r,
-    synced: !!r.synced,
-    categorie_nom: r.categorie_id ? categoryPathById(cats, r.categorie_id) : undefined,
-  }));
+  const mod = await import('./inventoryOpsDb');
+  return mod.searchMateriels(query);
 };
 
 /** Recherche texte sur consommables (nom, ref., QR, fournisseur) et sur le chemin de catégorie. */
+/** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export const searchConsommables = async (query: string): Promise<Consommable[]> => {
-  const database = await getDB();
-  const cats = await getCategories();
-  const raw = query.trim();
-  if (!raw) {
-    const rows = await database.getAllAsync<any>(
-      `SELECT * FROM consommables ORDER BY nom ASC LIMIT 8`
-    );
-    return rows.map(r => ({
-      ...r,
-      synced: !!r.synced,
-      categorie_nom: r.categorie_id ? categoryPathById(cats, r.categorie_id) : undefined,
-    }));
-  }
-  const q = `%${raw}%`;
-  const catIds = categoryIdsMatchingPathQuery(cats, raw);
-  let sql = `
-    SELECT * FROM consommables
-    WHERE nom LIKE ? OR IFNULL(reference,'') LIKE ? OR IFNULL(qr_code,'') LIKE ? OR IFNULL(nfc_tag_id,'') LIKE ?
-      OR IFNULL(fournisseur,'') LIKE ?
-  `;
-  const params: (string | number)[] = [q, q, q, q, q];
-  if (catIds.length) {
-    sql += ` OR categorie_id IN (${catIds.map(() => '?').join(',')})`;
-    params.push(...catIds);
-  }
-  sql += ` ORDER BY nom ASC LIMIT 50`;
-  const rows = await database.getAllAsync<any>(sql, params);
-  return rows.map(r => ({
-    ...r,
-    synced: !!r.synced,
-    categorie_nom: r.categorie_id ? categoryPathById(cats, r.categorie_id) : undefined,
-  }));
+  const mod = await import('./inventoryOpsDb');
+  return mod.searchConsommables(query);
 };
 
 export const insertMateriel = async (data: Omit<Materiel, 'id' | 'created_at' | 'updated_at' | 'synced'>): Promise<string> => {
@@ -527,21 +668,12 @@ export const insertMateriel = async (data: Omit<Materiel, 'id' | 'created_at' | 
 };
 
 /** Crée plusieurs matériels en une transaction (série même modèle, n° de série / QR distincts). */
+/** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export const insertMaterielsSerieBatch = async (
   rows: Array<Omit<Materiel, 'id' | 'created_at' | 'updated_at' | 'synced'>>
 ): Promise<number> => {
-  const database = await getDB();
-  let count = 0;
-  await database.withTransactionAsync(async () => {
-    for (const data of rows) {
-      const id = generateId();
-      const now = new Date().toISOString();
-      const { sql, params } = materielInsertSqlAndParams(data, id, now);
-      await database.runAsync(sql, params);
-      count++;
-    }
-  });
-  return count;
+  const mod = await import('./inventoryOpsDb');
+  return mod.insertMaterielsSerieBatch(rows);
 };
 
 export const updateMateriel = async (id: string, data: Partial<Materiel>): Promise<void> => {
@@ -549,33 +681,30 @@ export const updateMateriel = async (id: string, data: Partial<Materiel>): Promi
   const now = new Date().toISOString();
   const fields = Object.keys(data).filter(k => !['id', 'created_at', 'synced'].includes(k));
   const setClause = [...fields.map(f => `${f} = ?`), 'updated_at = ?', 'synced = 0'].join(', ');
-  const values = [...fields.map(f => (data as any)[f]), now, id];
+  const values = [
+    ...fields.map(f => {
+      const v = (data as any)[f];
+      if (f === 'technical_data' && v && typeof v === 'object') {
+        return JSON.stringify(v);
+      }
+      return v;
+    }),
+    now,
+    id,
+  ];
   await database.runAsync(`UPDATE materiels SET ${setClause} WHERE id = ?`, values);
 };
 
+/** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export const deleteMateriel = async (id: string): Promise<void> => {
-  await removeMaterielAttachmentsDir(id);
-  const database = await getDB();
-  /** Lier un prêt à un matériel crée une FK sans CASCADE : libérer les lignes avant la fiche. */
-  await database.withTransactionAsync(async () => {
-    await database.runAsync('DELETE FROM pret_materiels WHERE materiel_id = ?', [id]);
-    await database.runAsync('DELETE FROM materiel_emprunt_historique WHERE materiel_id = ?', [id]);
-    await database.runAsync('DELETE FROM materiels WHERE id = ?', [id]);
-  });
-  try {
-    const { removeMaterielNoticesFromRemoteStorage } = await import('../lib/supabase');
-    await removeMaterielNoticesFromRemoteStorage(id);
-  } catch {
-    /* pas de réseau / Supabase non configuré */
-  }
+  const mod = await import('./inventoryOpsDb');
+  return mod.deleteMateriel(id);
 };
 
+/** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export const setNfcTagMateriel = async (materielId: string, nfcTagId: string): Promise<void> => {
-  const database = await getDB();
-  // Supprimer l'ancien tag de tout autre matériel
-  await database.runAsync('UPDATE materiels SET nfc_tag_id = NULL WHERE nfc_tag_id = ?', [nfcTagId]);
-  await database.runAsync('UPDATE materiels SET nfc_tag_id = ?, updated_at = ?, synced = 0 WHERE id = ?',
-    [nfcTagId, new Date().toISOString(), materielId]);
+  const mod = await import('./inventoryOpsDb');
+  return mod.setNfcTagMateriel(materielId, nfcTagId);
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -588,18 +717,16 @@ export const getConsommableById = async (id: string): Promise<Consommable | null
   return row ? { ...row, synced: !!row.synced } : null;
 };
 
+/** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export const getConsommableByQr = async (qr: string): Promise<Consommable | null> => {
-  const database = await getDB();
-  const row = await database.getFirstAsync<any>(
-    'SELECT * FROM consommables WHERE qr_code = ? OR reference = ? OR id = ?',
-    [qr, qr, qr]
-  );
-  return row ? { ...row, synced: !!row.synced } : null;
+  const mod = await import('./inventoryOpsDb');
+  return mod.getConsommableByQr(qr);
 };
 
 export const getConsommables = async (): Promise<Consommable[]> => {
   const database = await getDB();
   const cats = await getCategories();
+  const pathFor = buildCategoryPathResolver(cats);
   const rows = await database.getAllAsync<any>(`
     SELECT c.*, cat.nom as categorie_nom, l.nom as localisation_nom
     FROM consommables c
@@ -610,7 +737,7 @@ export const getConsommables = async (): Promise<Consommable[]> => {
   return rows.map(r => ({
     ...r,
     synced: !!r.synced,
-    categorie_nom: r.categorie_id ? categoryPathById(cats, r.categorie_id) : r.categorie_nom,
+    categorie_nom: r.categorie_id ? pathFor(r.categorie_id) : r.categorie_nom,
   }));
 };
 
@@ -632,38 +759,23 @@ export const insertConsommable = async (data: Omit<Consommable, 'id' | 'created_
 };
 
 /** Fiche matériel minimale : le code scanné devient le QR (ou l’ID NFC le `nfc_tag_id`). */
+/** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export async function createMaterielStubWithScannedCode(opts: {
   qrCode?: string;
   nfcTagId?: string;
 }): Promise<string> {
-  const q = opts.qrCode?.trim();
-  const n = opts.nfcTagId?.trim();
-  if (!q && !n) throw new Error('Code QR ou ID NFC requis');
-  return insertMateriel({
-    nom: 'Nouveau matériel',
-    etat: 'bon',
-    statut: 'en stock',
-    qr_code: q || undefined,
-    nfc_tag_id: n || undefined,
-  });
+  const mod = await import('./inventoryOpsDb');
+  return mod.createMaterielStubWithScannedCode(opts);
 }
 
 /** Fiche consommable minimale : le code scanné est enregistré sur la fiche. */
+/** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export async function createConsommableStubWithScannedCode(opts: {
   qrCode?: string;
   nfcTagId?: string;
 }): Promise<string> {
-  const q = opts.qrCode?.trim();
-  const n = opts.nfcTagId?.trim();
-  if (!q && !n) throw new Error('Code QR ou ID NFC requis');
-  return insertConsommable({
-    nom: 'Nouveau consommable',
-    unite: 'pièce',
-    stock_actuel: 0,
-    seuil_minimum: 1,
-    qr_code: q || undefined,
-    nfc_tag_id: n || undefined,
-  });
+  const mod = await import('./inventoryOpsDb');
+  return mod.createConsommableStubWithScannedCode(opts);
 }
 
 export const updateConsommable = async (id: string, data: Partial<Consommable>): Promise<void> => {
@@ -675,23 +787,16 @@ export const updateConsommable = async (id: string, data: Partial<Consommable>):
   await database.runAsync(`UPDATE consommables SET ${setClause} WHERE id = ?`, values);
 };
 
+/** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export const deleteConsommable = async (id: string): Promise<void> => {
-  const database = await getDB();
-  await database.runAsync('DELETE FROM consommables WHERE id = ?', [id]);
+  const mod = await import('./inventoryOpsDb');
+  return mod.deleteConsommable(id);
 };
 
+/** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export const ajusterStock = async (consommableId: string, delta: number, note?: string): Promise<void> => {
-  const database = await getDB();
-  const mvtId = generateId();
-  const now = new Date().toISOString();
-  await database.runAsync(
-    'UPDATE consommables SET stock_actuel = MAX(0, stock_actuel + ?), updated_at = ?, synced = 0 WHERE id = ?',
-    [delta, now, consommableId]
-  );
-  await database.runAsync(
-    'INSERT INTO mouvements_stock (id, consommable_id, type, quantite, note, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    [mvtId, consommableId, delta >= 0 ? 'entrée' : 'sortie', Math.abs(delta), note ?? null, now]
-  );
+  const mod = await import('./inventoryOpsDb');
+  return mod.ajusterStock(consommableId, delta, note);
 };
 
 export type MouvementsStockHistoriqueOptions = {
@@ -706,53 +811,12 @@ export type MouvementsStockHistoriqueOptions = {
 };
 
 /** Historique des mouvements de stock consommables (les plus récents en premier). `limit` seul reste supporté. */
+/** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export const getMouvementsStockHistorique = async (
   options: MouvementsStockHistoriqueOptions | number = {}
 ): Promise<MouvementStockDetail[]> => {
-  const database = await getDB();
-  let limit = 800;
-  let filt: MouvementsStockHistoriqueOptions = {};
-  if (typeof options === 'number') {
-    limit = options;
-  } else {
-    filt = options;
-    limit = options.limit ?? 800;
-  }
-  const lim = Math.min(Math.max(1, Math.floor(limit)), 5000);
-  const clauses: string[] = [];
-  const params: (string | number)[] = [];
-
-  if (filt.type) {
-    clauses.push('m.type = ?');
-    params.push(filt.type);
-  }
-  if (filt.dateFrom?.trim()) {
-    clauses.push('m.created_at >= ?');
-    params.push(filt.dateFrom.trim());
-  }
-  if (filt.dateTo?.trim()) {
-    clauses.push('m.created_at <= ?');
-    params.push(filt.dateTo.trim());
-  }
-  const q = filt.search?.trim().replace(/%/g, '').replace(/'/g, '') ?? '';
-  if (q.length > 0) {
-    const like = `%${q.toLowerCase()}%`;
-    clauses.push("(lower(coalesce(c.nom, '')) LIKE ? OR lower(coalesce(m.note, '')) LIKE ?)");
-    params.push(like, like);
-  }
-
-  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-  const sql = `
-    SELECT m.id, m.consommable_id, m.type, m.quantite, m.note, m.created_at,
-            coalesce(c.nom, '(consommable supprimé)') AS consommable_nom,
-            coalesce(c.unite, 'pièce') AS consommable_unite
-     FROM mouvements_stock m
-     LEFT JOIN consommables c ON c.id = m.consommable_id
-     ${where}
-     ORDER BY datetime(m.created_at) DESC
-     LIMIT ?`;
-  params.push(lim);
-  return database.getAllAsync<MouvementStockDetail>(sql, params);
+  const mod = await import('./inventoryOpsDb');
+  return mod.getMouvementsStockHistorique(options);
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -779,6 +843,7 @@ export const getPrets = async (): Promise<Pret[]> => {
   }));
 };
 
+/** @deprecated Migre vers `src/db/loanDb.ts` (`getPretMateriel`). */
 export const getPretMateriel = async (pretId: string): Promise<PretMateriel[]> => {
   const database = await getDB();
   return database.getAllAsync<PretMateriel>(`
@@ -793,187 +858,18 @@ export const getPretMateriel = async (pretId: string): Promise<PretMateriel[]> =
   `, [pretId]);
 };
 
-export const insertPret = async (
-  pret: Omit<Pret, 'id' | 'created_at' | 'updated_at' | 'synced'>,
-  materielIds: string[]
-): Promise<string> => {
-  const database = await getDB();
-  const id = generateId();
-  const now = new Date().toISOString();
-
-  const { sql: pretSql, params: pretParams } = pretInsertSqlAndParams(pret, id, now);
-  await database.runAsync(pretSql, pretParams);
-
-  for (const mid of materielIds) {
-    await database.runAsync(
-      'INSERT INTO pret_materiels (id, pret_id, materiel_id, quantite, retourne, etat_au_retour) VALUES (?, ?, ?, 1, 0, NULL)',
-      [generateId(), id, mid]
-    );
-    await database.runAsync(
-      "UPDATE materiels SET statut = 'en prêt', updated_at = ?, synced = 0 WHERE id = ?",
-      [now, mid]
-    );
-    await database.runAsync(
-      `INSERT INTO materiel_emprunt_historique (id, materiel_id, pret_id, emprunteur, organisation, date_depart, retour_prevu, retour_reel, etat_au_retour, statut_pret)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'en cours')`,
-      [generateId(), mid, id, pret.emprunteur, pret.organisation ?? null, pret.date_depart, pret.retour_prevu ?? null]
-    );
-  }
-
-  return id;
-};
-
-/** Demande emprunteur : lignes sans sortir le matériel du stock tant que l’admin n’a pas validé. */
-export const insertPretDemande = async (
-  pret: Omit<Pret, 'id' | 'created_at' | 'updated_at' | 'synced'>,
-  materielIds: string[]
-): Promise<string> => {
-  if (pret.statut !== 'en demande') {
-    throw new Error('Une demande de prêt doit avoir le statut « en demande ».');
-  }
-  const database = await getDB();
-  const id = generateId();
-  const now = new Date().toISOString();
-  const { sql: pretSql, params: pretParams } = pretInsertSqlAndParams(pret, id, now);
-  await database.runAsync(pretSql, pretParams);
-  for (const mid of materielIds) {
-    await database.runAsync(
-      'INSERT INTO pret_materiels (id, pret_id, materiel_id, quantite, retourne, etat_au_retour) VALUES (?, ?, ?, 1, 0, NULL)',
-      [generateId(), id, mid]
-    );
-  }
-  return id;
-};
-
-/** Remplace les lignes matériel d’une demande (statut « en demande » uniquement). */
-export const replacePretDemandeMateriels = async (pretId: string, materielIds: string[]): Promise<void> => {
-  const database = await getDB();
-  const row = await database.getFirstAsync<{ statut: string }>('SELECT statut FROM prets WHERE id = ?', [pretId]);
-  if (row?.statut !== 'en demande') return;
-  await database.runAsync('DELETE FROM pret_materiels WHERE pret_id = ?', [pretId]);
-  for (const mid of materielIds) {
-    await database.runAsync(
-      'INSERT INTO pret_materiels (id, pret_id, materiel_id, quantite, retourne, etat_au_retour) VALUES (?, ?, ?, 1, 0, NULL)',
-      [generateId(), pretId, mid]
-    );
-  }
-};
-
-async function promoteDemandeMaterielsToPret(pretId: string): Promise<void> {
-  const database = await getDB();
-  const now = new Date().toISOString();
-  const pret = await database.getFirstAsync<any>('SELECT * FROM prets WHERE id = ?', [pretId]);
-  if (!pret) throw new Error('Prêt introuvable.');
-  const items = await getPretMateriel(pretId);
-  if (items.length === 0) {
-    throw new Error('Aucun matériel sur la demande : ajoutez au moins un article avant validation.');
-  }
-  for (const line of items) {
-    const mat = await database.getFirstAsync<{ statut: string; nom: string }>(
-      'SELECT statut, nom FROM materiels WHERE id = ?',
-      [line.materiel_id]
-    );
-    if (!mat || mat.statut !== 'en stock') {
-      throw new Error(
-        `« ${mat?.nom ?? line.materiel_id} » n’est pas disponible au prêt (statut : ${mat?.statut ?? 'introuvable'}).`
-      );
-    }
-  }
-  for (const line of items) {
-    await database.runAsync(
-      "UPDATE materiels SET statut = 'en prêt', updated_at = ?, synced = 0 WHERE id = ?",
-      [now, line.materiel_id]
-    );
-    await database.runAsync(
-      `INSERT INTO materiel_emprunt_historique (id, materiel_id, pret_id, emprunteur, organisation, date_depart, retour_prevu, retour_reel, etat_au_retour, statut_pret)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'en cours')`,
-      [
-        generateId(),
-        line.materiel_id,
-        pretId,
-        pret.emprunteur,
-        pret.organisation ?? null,
-        pret.date_depart,
-        pret.retour_prevu ?? null,
-      ]
-    );
-  }
-}
-
-export type UpdatePretOptions = {
-  lignesEtatRetour?: { materiel_id: string; etat_au_retour: string }[];
-};
-
-export const updatePret = async (id: string, data: Partial<Pret>, options?: UpdatePretOptions): Promise<void> => {
-  const database = await getDB();
-  const existingRow = await database.getFirstAsync<{ statut: string }>('SELECT statut FROM prets WHERE id = ?', [id]);
-  const previousStatut = existingRow?.statut;
-  const now = new Date().toISOString();
-  const fields = Object.keys(data).filter(k => !['id', 'created_at', 'synced'].includes(k));
-  const setClause = [...fields.map(f => `${f} = ?`), 'updated_at = ?', 'synced = 0'].join(', ');
-  const values = [...fields.map(f => (data as any)[f]), now, id];
-  await database.runAsync(`UPDATE prets SET ${setClause} WHERE id = ?`, values);
-
-  if (previousStatut === 'en demande' && data.statut === 'en cours') {
-    await promoteDemandeMaterielsToPret(id);
-  }
-  if (previousStatut === 'en demande' && data.statut === 'annulé') {
-    await database.runAsync('DELETE FROM pret_materiels WHERE pret_id = ?', [id]);
-  }
-
-  if (data.statut === 'retourné') {
-    const items = await getPretMateriel(id);
-    const retourReelFinal = data.retour_reel ?? new Date().toISOString().split('T')[0];
-    for (const item of items) {
-      const etat =
-        options?.lignesEtatRetour?.find(x => x.materiel_id === item.materiel_id)?.etat_au_retour ?? 'bon';
-      await database.runAsync(
-        'UPDATE pret_materiels SET etat_au_retour = ?, retourne = 1 WHERE pret_id = ? AND materiel_id = ?',
-        [etat, id, item.materiel_id]
-      );
-      await database.runAsync(
-        `UPDATE materiel_emprunt_historique SET retour_reel = ?, etat_au_retour = ?, statut_pret = 'retourné' WHERE pret_id = ? AND materiel_id = ?`,
-        [retourReelFinal, etat, id, item.materiel_id]
-      );
-      await database.runAsync(
-        "UPDATE materiels SET statut = 'en stock', updated_at = ?, synced = 0 WHERE id = ?",
-        [now, item.materiel_id]
-      );
-    }
-  }
-};
-
-export const deletePret = async (id: string): Promise<void> => {
-  const database = await getDB();
-  await database.runAsync('DELETE FROM materiel_emprunt_historique WHERE pret_id = ?', [id]);
-  const items = await getPretMateriel(id);
-  const now = new Date().toISOString();
-  for (const item of items) {
-    await database.runAsync(
-      "UPDATE materiels SET statut = 'en stock', updated_at = ?, synced = 0 WHERE id = ?",
-      [now, item.materiel_id]
-    );
-  }
-  await database.runAsync('DELETE FROM prets WHERE id = ?', [id]);
-};
+/** @deprecated Migre vers `src/db/loanDb.ts` (`insertPret`). */
+export { insertPret, insertPretDemande, replacePretDemandeMateriels, updatePret, deletePret } from './loanDb';
+export type { UpdatePretOptions } from './loanDb';
 
 // ═══════════════════════════════════════════════════════════════════
 // CATÉGORIES & LOCALISATIONS
 // ═══════════════════════════════════════════════════════════════════
 
 /** Chaîne « parent › enfant › feuille » pour affichage / listes déroulantes. */
+/** @deprecated Use `src/db/catalogDb.ts` */
 export function categoryPathById(categories: Categorie[], leafId: string | null | undefined): string {
-  if (!leafId) return '';
-  const byId = new Map(categories.map(c => [c.id, c]));
-  const parts: string[] = [];
-  let cur: Categorie | undefined = byId.get(leafId);
-  let guard = 0;
-  while (cur && guard++ < 64) {
-    parts.unshift(cur.nom);
-    const pid = cur.parent_id;
-    cur = pid ? byId.get(pid) : undefined;
-  }
-  return parts.join(' › ');
+  return buildCategoryPathResolver(categories)(leafId);
 }
 
 /**
@@ -983,168 +879,109 @@ export function categoryPathById(categories: Categorie[], leafId: string | null 
 function categoryIdsMatchingPathQuery(categories: Categorie[], q: string): string[] {
   const qn = q.trim().toLowerCase();
   if (!qn) return [];
+  const pathFor = buildCategoryPathResolver(categories);
   const out = new Set<string>();
   for (const c of categories) {
     if (c.nom && c.nom.toLowerCase().includes(qn)) out.add(c.id);
-    const path = categoryPathById(categories, c.id);
+    const path = pathFor(c.id);
     if (path && path.toLowerCase().includes(qn)) out.add(c.id);
   }
   return [...out];
 }
 
+/** @deprecated Use `src/db/catalogDb.ts` */
 export const getCategories = async (): Promise<Categorie[]> => {
-  const database = await getDB();
-  const rows = await database.getAllAsync<Categorie>('SELECT * FROM categories ORDER BY nom ASC');
-  return rows.map(r => ({
-    ...r,
-    parent_id: r.parent_id ?? null,
-  }));
+  const mod = await import('./catalogDb');
+  return mod.getCategories();
 };
 
 /** Nouvelle catégorie ; `parentId` optionnel pour une sous-catégorie. */
+/** @deprecated Use `src/db/catalogDb.ts` */
 export const insertCategorie = async (nom: string, parentId?: string | null): Promise<string> => {
-  const database = await getDB();
-  const id = generateId();
-  const parent = parentId?.trim() || null;
-  if (parent) {
-    const exists = await database.getFirstAsync<{ id: string }>('SELECT id FROM categories WHERE id = ?', [parent]);
-    if (!exists) throw new Error('Catégorie parente introuvable.');
-  }
-  await database.runAsync(
-    'INSERT INTO categories (id, nom, parent_id) VALUES (?, ?, ?)',
-    [id, nom.trim(), parent]
-  );
-  return id;
+  const mod = await import('./catalogDb');
+  return mod.insertCategorie(nom, parentId);
 };
 
+/** @deprecated Use `src/db/catalogDb.ts` */
 export const deleteCategorie = async (id: string): Promise<void> => {
-  const database = await getDB();
-  const child = await database.getFirstAsync<{ n: number }>(
-    'SELECT COUNT(*) as n FROM categories WHERE parent_id = ?',
-    [id]
-  );
-  if ((child?.n ?? 0) > 0) {
-    throw new Error('Impossible de supprimer : des sous-catégories existent. Supprimez-les d’abord.');
-  }
-  const m = await database.getFirstAsync<{ n: number }>(
-    'SELECT COUNT(*) as n FROM materiels WHERE categorie_id = ?',
-    [id]
-  );
-  if ((m?.n ?? 0) > 0) {
-    throw new Error('Impossible de supprimer : des matériels utilisent cette catégorie.');
-  }
-  const c = await database.getFirstAsync<{ n: number }>(
-    'SELECT COUNT(*) as n FROM consommables WHERE categorie_id = ?',
-    [id]
-  );
-  if ((c?.n ?? 0) > 0) {
-    throw new Error('Impossible de supprimer : des consommables utilisent cette catégorie.');
-  }
-  await database.runAsync('DELETE FROM categories WHERE id = ?', [id]);
+  const mod = await import('./catalogDb');
+  return mod.deleteCategorie(id);
 };
 
+/** @deprecated Use `src/db/catalogDb.ts` */
 export const getLocalisations = async (): Promise<Localisation[]> => {
-  const database = await getDB();
-  return database.getAllAsync<Localisation>('SELECT * FROM localisations ORDER BY nom ASC');
+  const mod = await import('./catalogDb');
+  return mod.getLocalisations();
 };
 
+/** @deprecated Use `src/db/catalogDb.ts` */
 export const insertLocalisation = async (nom: string): Promise<string> => {
-  const database = await getDB();
-  const id = generateId();
-  await database.runAsync(
-    'INSERT INTO localisations (id, nom) VALUES (?, ?)', [id, nom]
-  );
-  return id;
+  const mod = await import('./catalogDb');
+  return mod.insertLocalisation(nom);
 };
 
+/** @deprecated Use `src/db/catalogDb.ts` */
 export const deleteLocalisation = async (id: string): Promise<void> => {
-  const database = await getDB();
-  await database.runAsync('DELETE FROM localisations WHERE id = ?', [id]);
+  const mod = await import('./catalogDb');
+  return mod.deleteLocalisation(id);
 };
 
 // ═══════════════════════════════════════════════════════════════════
 // BÉNÉFICIAIRES (répertoire emprunteurs pour les prêts)
 // ═══════════════════════════════════════════════════════════════════
 
+/** @deprecated Use `src/db/metadataDb.ts` */
 export const getBeneficiaires = async (): Promise<Beneficiaire[]> => {
-  const database = await getDB();
-  return database.getAllAsync<Beneficiaire>(
-    'SELECT * FROM beneficiaires ORDER BY nom COLLATE NOCASE ASC'
-  );
+  const mod = await import('./metadataDb');
+  return mod.getBeneficiaires();
 };
 
+/** @deprecated Use `src/db/metadataDb.ts` */
 export const insertBeneficiaire = async (data: {
   nom: string;
   organisation?: string | null;
   telephone?: string | null;
   email?: string | null;
 }): Promise<string> => {
-  const database = await getDB();
-  const id = generateId();
-  const now = new Date().toISOString();
-  await database.runAsync(
-    `INSERT INTO beneficiaires (id, nom, organisation, telephone, email, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      id,
-      data.nom.trim(),
-      data.organisation?.trim() || null,
-      data.telephone?.trim() || null,
-      data.email?.trim() || null,
-      now,
-      now,
-    ]
-  );
-  return id;
+  const mod = await import('./metadataDb');
+  return mod.insertBeneficiaire(data);
 };
 
+/** @deprecated Use `src/db/metadataDb.ts` */
 export const updateBeneficiaire = async (
   id: string,
   patch: { nom?: string; organisation?: string | null; telephone?: string | null; email?: string | null }
 ): Promise<void> => {
-  const database = await getDB();
-  const row = await database.getFirstAsync<Beneficiaire>('SELECT * FROM beneficiaires WHERE id = ?', [id]);
-  if (!row) throw new Error('Bénéficiaire introuvable');
-  const nom = patch.nom !== undefined ? patch.nom.trim() : row.nom;
-  const organisation =
-    patch.organisation !== undefined ? (patch.organisation?.trim() || null) : (row.organisation ?? null);
-  const telephone =
-    patch.telephone !== undefined ? (patch.telephone?.trim() || null) : (row.telephone ?? null);
-  const email = patch.email !== undefined ? (patch.email?.trim() || null) : (row.email ?? null);
-  const now = new Date().toISOString();
-  await database.runAsync(
-    `UPDATE beneficiaires SET nom = ?, organisation = ?, telephone = ?, email = ?, updated_at = ? WHERE id = ?`,
-    [nom, organisation, telephone, email, now, id]
-  );
+  const mod = await import('./metadataDb');
+  return mod.updateBeneficiaire(id, patch);
 };
 
+/** @deprecated Use `src/db/metadataDb.ts` */
 export const deleteBeneficiaire = async (id: string): Promise<void> => {
-  const database = await getDB();
-  await database.runAsync('DELETE FROM beneficiaires WHERE id = ?', [id]);
+  const mod = await import('./metadataDb');
+  return mod.deleteBeneficiaire(id);
 };
 
 // ═══════════════════════════════════════════════════════════════════
 // ALERTES EMAIL
 // ═══════════════════════════════════════════════════════════════════
 
+/** @deprecated Use `src/db/metadataDb.ts` */
 export const getAlertesEmail = async (): Promise<AlerteEmail[]> => {
-  const database = await getDB();
-  return database.getAllAsync<AlerteEmail>('SELECT * FROM alertes_email ORDER BY email ASC');
+  const mod = await import('./metadataDb');
+  return mod.getAlertesEmail();
 };
 
+/** @deprecated Use `src/db/metadataDb.ts` */
 export const insertAlerteEmail = async (data: { nom?: string; email: string; role?: string }): Promise<string> => {
-  const database = await getDB();
-  const id = generateId();
-  await database.runAsync(
-    'INSERT OR REPLACE INTO alertes_email (id, nom, email, role) VALUES (?, ?, ?, ?)',
-    [id, data.nom ?? null, data.email, data.role ?? null]
-  );
-  return id;
+  const mod = await import('./metadataDb');
+  return mod.insertAlerteEmail(data);
 };
 
+/** @deprecated Use `src/db/metadataDb.ts` */
 export const deleteAlerteEmail = async (id: string): Promise<void> => {
-  const database = await getDB();
-  await database.runAsync('DELETE FROM alertes_email WHERE id = ?', [id]);
+  const mod = await import('./metadataDb');
+  return mod.deleteAlerteEmail(id);
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1152,157 +989,87 @@ export const deleteAlerteEmail = async (id: string): Promise<void> => {
 // ═══════════════════════════════════════════════════════════════════
 
 /** Rôle de l’utilisateur actuellement connecté (PIN), pour la sync admin. */
+/** @deprecated Use `src/db/userDb.ts` */
 export async function getSessionAppUserRole(): Promise<AppUserRole | null> {
-  const id = await AsyncStorage.getItem(APP_SESSION_USER_ID_KEY);
-  if (!id) return null;
-  const database = await getDB();
-  const row = await database.getFirstAsync<{ role: string }>(
-    'SELECT role FROM app_users WHERE id = ? AND actif = 1',
-    [id]
-  );
-  if (!row?.role) return null;
-  return row.role as AppUserRole;
+  const mod = await import('./userDb');
+  return mod.getSessionAppUserRole();
 }
 
+/** @deprecated Use `src/db/userDb.ts` */
 export const listAppUsersForLogin = async (): Promise<Pick<AppUser, 'id' | 'nom' | 'role'>[]> => {
-  const database = await getDB();
-  return database.getAllAsync<Pick<AppUser, 'id' | 'nom' | 'role'>>(
-    'SELECT id, nom, role FROM app_users WHERE actif = 1 ORDER BY nom ASC'
-  );
+  const mod = await import('./userDb');
+  return mod.listAppUsersForLogin();
 };
 
+/** @deprecated Use `src/db/userDb.ts` */
 export const listAppUsersAll = async (): Promise<AppUser[]> => {
-  const database = await getDB();
-  const rows = await database.getAllAsync<any>('SELECT * FROM app_users ORDER BY nom ASC');
-  return rows.map(r => ({ ...r, actif: !!r.actif, role: r.role as AppUserRole }));
+  const mod = await import('./userDb');
+  return mod.listAppUsersAll();
 };
 
+/** @deprecated Use `src/db/userDb.ts` */
 export const insertAppUser = async (
   nom: string,
   role: AppUserRole,
   pin: string,
   email?: string
 ): Promise<string> => {
-  const database = await getDB();
-  const { hashPin } = await import('../lib/pinAuth');
-  const uid = generateId();
-  const h = await hashPin(pin);
-  await database.runAsync(
-    `INSERT INTO app_users (id, nom, email, role, pin_hash, actif) VALUES (?, ?, ?, ?, ?, 1)`,
-    [uid, nom.trim(), email?.trim() ?? null, role, h]
-  );
-  return uid;
+  const mod = await import('./userDb');
+  return mod.insertAppUser(nom, role, pin, email);
 };
 
+/** @deprecated Use `src/db/userDb.ts` */
 export const verifyAppUserPin = async (userId: string, pin: string): Promise<AppUser | null> => {
-  const database = await getDB();
-  const row = await database.getFirstAsync<any>('SELECT * FROM app_users WHERE id = ? AND actif = 1', [userId]);
-  if (!row) return null;
-  const { verifyPin } = await import('../lib/pinAuth');
-  const ok = await verifyPin(pin, row.pin_hash);
-  if (!ok) return null;
-  return { ...row, actif: !!row.actif, role: row.role as AppUserRole };
+  const mod = await import('./userDb');
+  return mod.verifyAppUserPin(userId, pin);
 };
 
+/** @deprecated Use `src/db/userDb.ts` */
 export const updateAppUserExpoPushToken = async (userId: string, token: string | null): Promise<void> => {
-  const database = await getDB();
-  await database.runAsync('UPDATE app_users SET expo_push_token = ? WHERE id = ?', [token, userId]);
+  const mod = await import('./userDb');
+  return mod.updateAppUserExpoPushToken(userId, token);
 };
 
 /** Jetons distincts des comptes admin / technicien (réception des notifications « retour matériel »). */
+/** @deprecated Use `src/db/userDb.ts` */
 export const getStaffExpoPushTokens = async (): Promise<string[]> => {
-  const database = await getDB();
-  const rows = await database.getAllAsync<{ t: string }>(
-    `SELECT DISTINCT trim(expo_push_token) AS t FROM app_users
-     WHERE actif = 1 AND role IN ('admin', 'technicien')
-       AND expo_push_token IS NOT NULL AND trim(expo_push_token) != ''`
-  );
-  return rows.map(r => r.t).filter(Boolean);
+  const mod = await import('./userDb');
+  return mod.getStaffExpoPushTokens();
 };
 
+/** @deprecated Use `src/db/userDb.ts` */
 export const getAdminExpoPushTokens = async (): Promise<string[]> => {
-  const database = await getDB();
-  const rows = await database.getAllAsync<{ t: string }>(
-    `SELECT DISTINCT trim(expo_push_token) AS t FROM app_users
-     WHERE actif = 1 AND role = 'admin'
-       AND expo_push_token IS NOT NULL AND trim(expo_push_token) != ''`
-  );
-  return rows.map(r => r.t).filter(Boolean);
+  const mod = await import('./userDb');
+  return mod.getAdminExpoPushTokens();
 };
 
+/** @deprecated Use `src/db/userDb.ts` */
 export const getAdminNotificationEmails = async (): Promise<string[]> => {
-  const database = await getDB();
-  const fromUsers = await database.getAllAsync<{ email: string }>(
-    `SELECT email FROM app_users
-     WHERE actif = 1 AND role = 'admin'
-       AND email IS NOT NULL AND trim(email) != ''`
-  );
-  const set = new Set<string>();
-  for (const r of fromUsers) {
-    const e = r.email?.trim().toLowerCase();
-    if (e && e.includes('@')) set.add(e);
-  }
-  return [...set];
+  const mod = await import('./userDb');
+  return mod.getAdminNotificationEmails();
 };
 
+/** @deprecated Use `src/db/userDb.ts` */
 export const getExpoPushTokenForUserId = async (userId: string | undefined | null): Promise<string | null> => {
-  if (!userId?.trim()) return null;
-  const database = await getDB();
-  const row = await database.getFirstAsync<{ t: string | null }>(
-    `SELECT trim(expo_push_token) AS t FROM app_users WHERE id = ? AND actif = 1`,
-    [userId.trim()]
-  );
-  const t = row?.t?.trim();
-  return t || null;
+  const mod = await import('./userDb');
+  return mod.getExpoPushTokenForUserId(userId);
 };
 
 /** Emails staff + liste alertes (repli courriel si aucun jeton push). */
+/** @deprecated Use `src/db/userDb.ts` */
 export const getStaffNotificationEmails = async (): Promise<string[]> => {
-  const database = await getDB();
-  const fromAlertes = await database.getAllAsync<{ email: string }>(
-    `SELECT email FROM alertes_email WHERE email IS NOT NULL AND trim(email) != ''`
-  );
-  const fromUsers = await database.getAllAsync<{ email: string }>(
-    `SELECT email FROM app_users
-     WHERE actif = 1 AND role IN ('admin', 'technicien')
-       AND email IS NOT NULL AND trim(email) != ''`
-  );
-  const set = new Set<string>();
-  for (const r of [...fromAlertes, ...fromUsers]) {
-    const e = r.email?.trim().toLowerCase();
-    if (e && e.includes('@')) set.add(e);
-  }
-  return [...set];
+  const mod = await import('./userDb');
+  return mod.getStaffNotificationEmails();
 };
 
 // ═══════════════════════════════════════════════════════════════════
 // HISTORIQUE EMPRUNTS PAR MATÉRIEL
 // ═══════════════════════════════════════════════════════════════════
 
+/** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export const getHistoriqueEmpruntsMateriel = async (materielId: string): Promise<MaterielEmpruntHistorique[]> => {
-  const database = await getDB();
-  const rows = await database.getAllAsync<any>(
-    `SELECT h.*, p.numero_feuille AS numero_feuille
-     FROM materiel_emprunt_historique h
-     LEFT JOIN prets p ON p.id = h.pret_id
-     WHERE h.materiel_id = ?
-     ORDER BY h.date_depart DESC, h.created_at DESC`,
-    [materielId]
-  );
-  return rows.map(r => ({
-    id: r.id,
-    materiel_id: r.materiel_id,
-    pret_id: r.pret_id,
-    emprunteur: r.emprunteur,
-    organisation: r.organisation ?? undefined,
-    date_depart: r.date_depart,
-    retour_prevu: r.retour_prevu ?? undefined,
-    retour_reel: r.retour_reel ?? undefined,
-    etat_au_retour: r.etat_au_retour ?? undefined,
-    statut_pret: r.statut_pret,
-    created_at: r.created_at,
-    numero_feuille: r.numero_feuille ?? undefined,
-  }));
+  const mod = await import('./inventoryOpsDb');
+  return mod.getHistoriqueEmpruntsMateriel(materielId);
 };
 
 export const getMaterielsPourMaintenanceAlertes = async (fenetreJours: number = 30): Promise<Materiel[]> => {
@@ -1328,6 +1095,7 @@ export const getMaterielsPourMaintenanceAlertes = async (fenetreJours: number = 
 // STATS DASHBOARD
 // ═══════════════════════════════════════════════════════════════════
 
+/** @deprecated Use `src/db/metadataDb.ts` */
 export const getStats = async () => {
   const database = await getDB();
   const totalMat = await database.getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM materiels');
@@ -1342,3 +1110,490 @@ export const getStats = async () => {
     alertesConsommables: alertesConso?.count ?? 0,
   };
 };
+
+// ═══════════════════════════════════════════════════════════════════
+// PROFILS MÉTIER DYNAMIQUES (SCHEMAS VERSIONNÉS)
+// ═══════════════════════════════════════════════════════════════════
+
+function sanitizeFieldsForSchema(fields: FieldDefinition[]): FieldDefinition[] {
+  const seen = new Set<string>();
+  return fields.map(f => {
+    const id = String(f.id || '').trim();
+    if (!id) throw new Error('Chaque champ doit avoir un id.');
+    if (seen.has(id)) throw new Error(`ID de champ dupliqué: ${id}`);
+    seen.add(id);
+    return {
+      ...f,
+      id,
+      label: String(f.label || '').trim(),
+      type: f.type,
+      required: !!f.required,
+      unit: f.unit ?? null,
+      defaultValue: f.defaultValue ?? null,
+      options: Array.isArray(f.options) ? f.options.map(o => String(o).trim()).filter(Boolean) : [],
+      min: f.min ?? null,
+      max: f.max ?? null,
+      isDeleted: !!f.isDeleted,
+    };
+  });
+}
+
+function mapProfileRow(r: any): Profile {
+  return {
+    id: r.id,
+    name: r.name,
+    version: Number(r.current_version ?? 1),
+    isActive: !!r.is_active,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+export const getProfiles = async (): Promise<Profile[]> => {
+  const database = await getDB();
+  const rows = await database.getAllAsync<any>(
+    'SELECT * FROM profiles ORDER BY is_active DESC, updated_at DESC'
+  );
+  return rows.map(mapProfileRow);
+};
+
+export const createProfile = async (name: string): Promise<Profile> => {
+  const database = await getDB();
+  const id = generateId();
+  const now = new Date().toISOString();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Nom de profil requis.');
+
+  await database.runAsync(
+    `INSERT INTO profiles (id, name, current_version, is_active, created_at, updated_at)
+     VALUES (?, ?, 1, 1, ?, ?)`,
+    [id, trimmed, now, now]
+  );
+  await database.runAsync(
+    `INSERT INTO profile_schemas (profile_id, version, fields_json, created_at, updated_at)
+     VALUES (?, 1, ?, ?, ?)`,
+    [id, JSON.stringify([]), now, now]
+  );
+  const row = await database.getFirstAsync<any>('SELECT * FROM profiles WHERE id = ?', [id]);
+  return mapProfileRow(row);
+};
+
+export const setProfileActive = async (profileId: string, isActive: boolean): Promise<void> => {
+  const database = await getDB();
+  await database.runAsync(
+    'UPDATE profiles SET is_active = ?, updated_at = ? WHERE id = ?',
+    [isActive ? 1 : 0, new Date().toISOString(), profileId]
+  );
+};
+
+export const getProfileVersionHistory = async (profileId: string): Promise<ProfileSchema[]> => {
+  const database = await getDB();
+  const rows = await database.getAllAsync<any>(
+    'SELECT * FROM profile_schemas WHERE profile_id = ? ORDER BY version DESC',
+    [profileId]
+  );
+  return rows.map(r => ({
+    profileId: r.profile_id,
+    version: Number(r.version),
+    fields: JSON.parse(r.fields_json || '[]'),
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
+};
+
+export const getProfileSchema = async (
+  profileId: string,
+  version?: number
+): Promise<ProfileSchema | null> => {
+  const database = await getDB();
+  let row: any;
+  if (version != null) {
+    row = await database.getFirstAsync<any>(
+      'SELECT * FROM profile_schemas WHERE profile_id = ? AND version = ?',
+      [profileId, version]
+    );
+  } else {
+    row = await database.getFirstAsync<any>(
+      `SELECT s.* FROM profile_schemas s
+       JOIN profiles p ON p.id = s.profile_id AND p.current_version = s.version
+       WHERE s.profile_id = ?`,
+      [profileId]
+    );
+  }
+  if (!row) return null;
+  return {
+    profileId: row.profile_id,
+    version: Number(row.version),
+    fields: JSON.parse(row.fields_json || '[]'),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
+
+export const saveProfileSchemaNewVersion = async (
+  profileId: string,
+  fields: FieldDefinition[],
+  nextName?: string
+): Promise<ProfileSchema> => {
+  const database = await getDB();
+  const now = new Date().toISOString();
+  const sanitized = sanitizeFieldsForSchema(fields);
+  const profile = await database.getFirstAsync<any>('SELECT * FROM profiles WHERE id = ?', [profileId]);
+  if (!profile) throw new Error('Profil introuvable.');
+  const nextVersion = Number(profile.current_version ?? 1) + 1;
+
+  await database.runAsync(
+    `INSERT INTO profile_schemas (profile_id, version, fields_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    [profileId, nextVersion, JSON.stringify(sanitized), now, now]
+  );
+  await database.runAsync(
+    `UPDATE profiles
+     SET current_version = ?, updated_at = ?, name = COALESCE(?, name)
+     WHERE id = ?`,
+    [nextVersion, now, nextName?.trim() || null, profileId]
+  );
+
+  return {
+    profileId,
+    version: nextVersion,
+    fields: sanitized,
+    createdAt: now,
+    updatedAt: now,
+  };
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// TOUR MODE / TRACKING
+// ═══════════════════════════════════════════════════════════════════
+
+function mapTourRow(r: any): Tour {
+  return {
+    id: r.id,
+    name: r.name,
+    status: r.status,
+    startDate: r.start_date,
+    endDate: r.end_date ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    synced: !!r.synced,
+  };
+}
+
+function mapLocationRow(r: any): TourLocation {
+  return {
+    id: r.id,
+    name: r.name,
+    address: r.address ?? null,
+    dateStart: r.date_start ?? null,
+    dateEnd: r.date_end ?? null,
+    tourId: r.tour_id,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    synced: !!r.synced,
+  };
+}
+
+function mapAssignmentRow(r: any): Assignment {
+  return {
+    id: r.id,
+    materialId: r.material_id,
+    tourId: r.tour_id,
+    locationId: r.location_id ?? null,
+    quantity: Number(r.quantity ?? 0),
+    status: r.status,
+    assignedAt: r.assigned_at,
+    returnedAt: r.returned_at ?? null,
+    assignedTo: r.assigned_to ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    synced: !!r.synced,
+  };
+}
+
+function mapLogRow(r: any): ActivityLog {
+  return {
+    id: r.id,
+    type: r.type,
+    materialId: r.material_id,
+    tourId: r.tour_id ?? null,
+    locationId: r.location_id ?? null,
+    userId: r.user_id ?? null,
+    timestamp: r.timestamp,
+    note: r.note ?? null,
+    createdAt: r.created_at,
+    synced: !!r.synced,
+    materialName: r.material_name ?? null,
+    tourName: r.tour_name ?? null,
+    locationName: r.location_name ?? null,
+  };
+}
+
+export async function listTours(): Promise<Tour[]> {
+  const database = await getDB();
+  const rows = await database.getAllAsync<any>('SELECT * FROM tours ORDER BY start_date DESC, created_at DESC');
+  return rows.map(mapTourRow);
+}
+
+export async function createTour(input: {
+  name: string;
+  status?: Tour['status'];
+  startDate: string;
+  endDate?: string | null;
+}): Promise<Tour> {
+  const database = await getDB();
+  const now = new Date().toISOString();
+  const id = generateId();
+  await database.runAsync(
+    `INSERT INTO tours (id, name, status, start_date, end_date, created_at, updated_at, synced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+    [id, input.name.trim(), input.status ?? 'planned', input.startDate, input.endDate ?? null, now, now]
+  );
+  const row = await database.getFirstAsync<any>('SELECT * FROM tours WHERE id = ?', [id]);
+  return mapTourRow(row);
+}
+
+export async function listTourLocations(tourId: string): Promise<TourLocation[]> {
+  const database = await getDB();
+  const rows = await database.getAllAsync<any>(
+    'SELECT * FROM tour_locations WHERE tour_id = ? ORDER BY date_start ASC, created_at ASC',
+    [tourId]
+  );
+  return rows.map(mapLocationRow);
+}
+
+export async function createTourLocation(input: {
+  name: string;
+  address?: string | null;
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  tourId: string;
+}): Promise<TourLocation> {
+  const database = await getDB();
+  const now = new Date().toISOString();
+  const id = generateId();
+  await database.runAsync(
+    `INSERT INTO tour_locations (id, name, address, date_start, date_end, tour_id, created_at, updated_at, synced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [id, input.name.trim(), input.address ?? null, input.dateStart ?? null, input.dateEnd ?? null, input.tourId, now, now]
+  );
+  const row = await database.getFirstAsync<any>('SELECT * FROM tour_locations WHERE id = ?', [id]);
+  return mapLocationRow(row);
+}
+
+export async function listAssignmentsByTour(tourId: string): Promise<Assignment[]> {
+  const database = await getDB();
+  const rows = await database.getAllAsync<any>(
+    'SELECT * FROM material_assignments WHERE tour_id = ? ORDER BY assigned_at DESC',
+    [tourId]
+  );
+  return rows.map(mapAssignmentRow);
+}
+
+export async function listAssignmentsByMaterial(materialId: string): Promise<Assignment[]> {
+  const database = await getDB();
+  const rows = await database.getAllAsync<any>(
+    'SELECT * FROM material_assignments WHERE material_id = ? ORDER BY assigned_at DESC',
+    [materialId]
+  );
+  return rows.map(mapAssignmentRow);
+}
+
+export async function getAssignmentById(assignmentId: string): Promise<Assignment | null> {
+  const database = await getDB();
+  const row = await database.getFirstAsync<any>(
+    'SELECT * FROM material_assignments WHERE id = ?',
+    [assignmentId]
+  );
+  return row ? mapAssignmentRow(row) : null;
+}
+
+export async function createAssignment(input: {
+  materialId: string;
+  tourId: string;
+  locationId?: string | null;
+  quantity: number;
+  status?: Assignment['status'];
+  assignedAt: string;
+  assignedTo?: string | null;
+}): Promise<Assignment> {
+  const database = await getDB();
+  const now = new Date().toISOString();
+  const id = generateId();
+  await database.runAsync(
+    `INSERT INTO material_assignments (
+      id, material_id, tour_id, location_id, quantity, status, assigned_at, assigned_to, created_at, updated_at, synced
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [
+      id,
+      input.materialId,
+      input.tourId,
+      input.locationId ?? null,
+      input.quantity,
+      input.status ?? 'assigned',
+      input.assignedAt,
+      input.assignedTo ?? null,
+      now,
+      now,
+    ]
+  );
+  await database.runAsync(
+    `UPDATE materiels
+     SET tracking_state = 'in_tour', statut = 'en tournée', current_tour_id = ?, current_location_id = ?, updated_at = ?, synced = 0
+     WHERE id = ?`,
+    [input.tourId, input.locationId ?? null, now, input.materialId]
+  );
+  const row = await database.getFirstAsync<any>('SELECT * FROM material_assignments WHERE id = ?', [id]);
+  return mapAssignmentRow(row);
+}
+
+export async function updateAssignmentStatus(
+  assignmentId: string,
+  input: { status: Assignment['status']; returnedAt?: string | null; locationId?: string | null }
+): Promise<void> {
+  const database = await getDB();
+  const now = new Date().toISOString();
+  await database.runAsync(
+    `UPDATE material_assignments
+     SET status = ?, returned_at = COALESCE(?, returned_at), location_id = COALESCE(?, location_id), updated_at = ?, synced = 0
+     WHERE id = ?`,
+    [input.status, input.returnedAt ?? null, input.locationId ?? null, now, assignmentId]
+  );
+
+  const row = await database.getFirstAsync<any>('SELECT * FROM material_assignments WHERE id = ?', [assignmentId]);
+  if (!row) return;
+
+  const trackingState =
+    input.status === 'returned'
+      ? 'available'
+      : input.status === 'lost'
+        ? 'lost'
+        : input.status === 'damaged'
+          ? 'damaged'
+          : 'in_tour';
+
+  await database.runAsync(
+    `UPDATE materiels
+     SET tracking_state = ?, statut = ?, current_tour_id = ?, current_location_id = ?, updated_at = ?, synced = 0
+     WHERE id = ?`,
+    [
+      trackingState,
+      trackingState === 'available' ? 'en stock' : trackingState === 'lost' ? 'perdu' : 'en tournée',
+      trackingState === 'available' ? null : row.tour_id,
+      input.locationId ?? row.location_id ?? null,
+      now,
+      row.material_id,
+    ]
+  );
+}
+
+export async function moveAssignment(assignmentId: string, locationId: string): Promise<void> {
+  const database = await getDB();
+  const now = new Date().toISOString();
+  await database.runAsync(
+    `UPDATE material_assignments SET location_id = ?, updated_at = ?, synced = 0 WHERE id = ?`,
+    [locationId, now, assignmentId]
+  );
+  const row = await database.getFirstAsync<any>('SELECT material_id FROM material_assignments WHERE id = ?', [assignmentId]);
+  if (row?.material_id) {
+    await database.runAsync(
+      `UPDATE materiels SET current_location_id = ?, updated_at = ?, synced = 0 WHERE id = ?`,
+      [locationId, now, row.material_id]
+    );
+  }
+}
+
+export async function logActivity(input: {
+  type: ActivityLog['type'];
+  materialId: string;
+  tourId?: string | null;
+  locationId?: string | null;
+  userId?: string | null;
+  timestamp: string;
+  note?: string | null;
+}): Promise<ActivityLog> {
+  const database = await getDB();
+  const id = generateId();
+  const now = new Date().toISOString();
+  await database.runAsync(
+    `INSERT INTO activity_logs (
+      id, type, material_id, tour_id, location_id, user_id, timestamp, note, created_at, synced
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [
+      id,
+      input.type,
+      input.materialId,
+      input.tourId ?? null,
+      input.locationId ?? null,
+      input.userId ?? null,
+      input.timestamp,
+      input.note ?? null,
+      now,
+    ]
+  );
+  const row = await database.getFirstAsync<any>('SELECT * FROM activity_logs WHERE id = ?', [id]);
+  return mapLogRow(row);
+}
+
+export async function listActivityLogs(filters?: {
+  materialId?: string;
+  tourId?: string;
+}): Promise<ActivityLog[]> {
+  const { listActivityLogs: list } = await import('./trackingDb');
+  return list(filters);
+}
+
+export async function getTrackingSnapshot(statusFilter?: string | null): Promise<
+  Array<{
+    materialId: string;
+    materialName: string;
+    assignmentQuantity: number;
+    assignmentStatus: string;
+    tourName: string | null;
+    locationName: string | null;
+    assignedTo: string | null;
+    assignedAt: string;
+  }>
+> {
+  const { getTrackingSnapshot: snap } = await import('./trackingDb');
+  return snap(statusFilter);
+}
+
+export async function listUnsyncedTourEntities(): Promise<{
+  tours: Tour[];
+  locations: TourLocation[];
+  assignments: Assignment[];
+  logs: ActivityLog[];
+}> {
+  const database = await getDB();
+  const [toursRows, locRows, asgRows, logRows] = await Promise.all([
+    database.getAllAsync<any>('SELECT * FROM tours WHERE synced = 0'),
+    database.getAllAsync<any>('SELECT * FROM tour_locations WHERE synced = 0'),
+    database.getAllAsync<any>('SELECT * FROM material_assignments WHERE synced = 0'),
+    database.getAllAsync<any>('SELECT * FROM activity_logs WHERE synced = 0'),
+  ]);
+  return {
+    tours: toursRows.map(mapTourRow),
+    locations: locRows.map(mapLocationRow),
+    assignments: asgRows.map(mapAssignmentRow),
+    logs: logRows.map(mapLogRow),
+  };
+}
+
+export async function markTourEntitiesSynced(input: {
+  tourIds?: string[];
+  locationIds?: string[];
+  assignmentIds?: string[];
+  logIds?: string[];
+}): Promise<void> {
+  const database = await getDB();
+  const mark = async (table: string, ids: string[]) => {
+    if (!ids.length) return;
+    const placeholders = ids.map(() => '?').join(', ');
+    await database.runAsync(`UPDATE ${table} SET synced = 1 WHERE id IN (${placeholders})`, ids);
+  };
+  await mark('tours', input.tourIds ?? []);
+  await mark('tour_locations', input.locationIds ?? []);
+  await mark('material_assignments', input.assignmentIds ?? []);
+  await mark('activity_logs', input.logIds ?? []);
+}

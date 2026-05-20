@@ -4,13 +4,12 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Shadow } from '../theme/colors';
 import { Card } from './UI';
 import { useAppAuth } from '../context/AuthContext';
-import { useSyncSettings } from '../context/SyncSettingsContext';
 import { useNetworkStatus } from '../context/NetworkStatusContext';
 import { syncToInventoryApi, syncFromInventoryApi } from '../lib/inventoryApiSync';
-import { getConsommablesAlerte, getMateriel } from '../db/database';
+import { getMateriel, getConsommablesAlerte } from '../db/inventoryDb';
 import { rescheduleVgpDueReminders } from '../lib/vgpNotifications';
 import { rescheduleSeuilBasReminders } from '../lib/seuilNotifications';
-import { isConsumerApp } from '../config/appMode';
+import { isConsumerApp, isV1LanMode } from '../config/appMode';
 import { isSupabaseConfigured, syncFromSupabase, syncToSupabase } from '../lib/supabase';
 import {
   getSyncAfterEachActionEnabled,
@@ -21,7 +20,6 @@ import { canCallApiSync } from '../lib/syncGuards';
 
 export function NetworkCloudSync() {
   const { can, refreshSession } = useAppAuth();
-  const { doubleBackendEnabled, setDoubleBackendEnabled } = useSyncSettings();
   const { isOnline } = useNetworkStatus();
   const [syncing, setSyncing] = useState(false);
   const [syncAfterEachAction, setSyncAfterEachAction] = useState(false);
@@ -51,6 +49,23 @@ export function NetworkCloudSync() {
 
   const handleSync = async (direction: 'push' | 'pull') => {
     setSyncing(true);
+    let supabaseResult: { ok: boolean; error?: string } | null = null;
+
+    if (!isV1LanMode() && isSupabaseConfigured() && isOnline) {
+      const fnSb = direction === 'push' ? syncToSupabase : syncFromSupabase;
+      supabaseResult = await fnSb();
+      await recordSyncTelemetry(
+        'supabase',
+        direction,
+        supabaseResult.ok ? 'ok' : 'error',
+        supabaseResult.error
+      );
+    } else if (!isV1LanMode() && !isOnline) {
+      await recordSyncTelemetry('supabase', direction, 'skipped', 'OFFLINE');
+    } else if (!isV1LanMode()) {
+      await recordSyncTelemetry('supabase', direction, 'skipped', 'Supabase non configuré');
+    }
+
     const apiGuard = await canCallApiSync(`NetworkCloudSync:${direction}`);
     let apiResult: { ok: boolean; error?: string };
     if (!apiGuard.ok) {
@@ -61,21 +76,6 @@ export function NetworkCloudSync() {
       apiResult = await fnApi();
       await recordSyncTelemetry('api', direction, apiResult.ok ? 'ok' : 'error', apiResult.error);
     }
-    let supabaseResult: { ok: boolean; error?: string } | null = null;
-    if (isSupabaseConfigured() && isOnline) {
-      const fnSb = direction === 'push' ? syncToSupabase : syncFromSupabase;
-      supabaseResult = await fnSb();
-      await recordSyncTelemetry(
-        'supabase',
-        direction,
-        supabaseResult.ok ? 'ok' : 'error',
-        supabaseResult.error
-      );
-    } else if (!isOnline) {
-      await recordSyncTelemetry('supabase', direction, 'skipped', 'OFFLINE');
-    } else if (!isSupabaseConfigured()) {
-      await recordSyncTelemetry('supabase', direction, 'skipped', 'Supabase non configuré');
-    }
     setSyncing(false);
     await refreshTelemetry();
     const syncedOk = apiResult.ok || supabaseResult?.ok;
@@ -84,29 +84,21 @@ export function NetworkCloudSync() {
       const [m, seuils] = await Promise.all([getMateriel(), getConsommablesAlerte()]);
       await rescheduleVgpDueReminders(m);
       await rescheduleSeuilBasReminders(seuils);
-      const lines = [
-        `API inventaire: ${apiResult.ok ? 'OK' : `Échec (${apiResult.error ?? 'inconnu'})`}`,
-      ];
-      if (!isOnline) {
-        lines.push('Supabase: OFFLINE');
-      } else if (isSupabaseConfigured()) {
-        lines.push(`Supabase: ${supabaseResult?.ok ? 'OK' : `Échec (${supabaseResult?.error ?? 'inconnu'})`}`);
-      } else {
-        lines.push('Supabase: non configuré');
-      }
-      Alert.alert('✓ Sync terminée', lines.join('\n'));
+      const msg = isV1LanMode()
+        ? `Synchronisation avec le PC : ${apiResult.ok ? 'OK' : 'échec'}`
+        : [
+            `Supabase: ${supabaseResult?.ok ? 'OK' : 'ignoré ou échec'}`,
+            `PC / API: ${apiResult.ok ? 'OK' : `Échec (${apiResult.error ?? 'inconnu'})`}`,
+          ].join('\n');
+      Alert.alert('✓ Sync terminée', msg);
     } else {
-      const lines = [
-        `API inventaire: ${apiResult.error ?? 'Erreur inconnue'}`,
-      ];
-      lines.push(
-        !isOnline
-          ? 'Supabase: OFFLINE'
-          : isSupabaseConfigured()
-          ? `Supabase: ${supabaseResult?.error ?? 'Erreur inconnue'}`
-          : 'Supabase: non configuré'
-      );
-      Alert.alert('Erreur sync', lines.join('\n'));
+      const msg = isV1LanMode()
+        ? apiResult.error ?? 'Le PC de la salle ne répond pas. Vérifiez le Wi‑Fi.'
+        : [
+            supabaseResult?.error ? `Supabase: ${supabaseResult.error}` : 'Supabase: ignoré',
+            `PC / API: ${apiResult.error ?? 'Erreur inconnue'}`,
+          ].join('\n');
+      Alert.alert('Erreur sync', msg);
     }
   };
 
@@ -136,33 +128,11 @@ export function NetworkCloudSync() {
       </Card>
 
       <Card style={{ marginBottom: 14 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.cardTitle}>Synchro double backend</Text>
-            <Text style={styles.hint}>
-              En plus de l’API inventaire, synchronise aussi Supabase (si configuré) pour garder les deux backends à jour.
-            </Text>
-          </View>
-          <Switch
-            value={doubleBackendEnabled}
-            onValueChange={async v => {
-              await setDoubleBackendEnabled(v);
-            }}
-            trackColor={{ false: Colors.border, true: Colors.greenMuted }}
-            thumbColor={doubleBackendEnabled ? Colors.green : Colors.textMuted}
-          />
-        </View>
-        {doubleBackendEnabled && !isSupabaseConfigured() ? (
-          <Text style={[styles.hintMuted, { marginTop: 8 }]}>
-            Supabase n’est pas configuré sur cet appareil : seule l’API inventaire sera utilisée.
-          </Text>
-        ) : null}
-      </Card>
-
-      <Card style={{ marginBottom: 14 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-          <Text style={{ fontSize: 16 }}>☁️</Text>
-            <Text style={styles.cardTitle}>Synchronisation cloud (Supabase + API optionnelle)</Text>
+          <Text style={{ fontSize: 16 }}>{isV1LanMode() ? '🖥️' : '☁️'}</Text>
+            <Text style={styles.cardTitle}>
+              {isV1LanMode() ? 'Synchronisation avec le PC' : 'Synchronisation cloud (Supabase puis API inventaire)'}
+            </Text>
         </View>
         {syncing ? (
           <ActivityIndicator color={Colors.green} />
@@ -181,9 +151,9 @@ export function NetworkCloudSync() {
         )}
         <View style={styles.syncMetaBox}>
           <Text style={styles.syncMetaTitle}>Dernières synchronisations</Text>
-          <Text style={styles.syncMetaLine}>API ↑ {formatStamp(telemetry.api.push)}</Text>
-          <Text style={styles.syncMetaLine}>API ↓ {formatStamp(telemetry.api.pull)}</Text>
-          {doubleBackendEnabled ? (
+          <Text style={styles.syncMetaLine}>PC ↑ {formatStamp(telemetry.api.push)}</Text>
+          <Text style={styles.syncMetaLine}>PC ↓ {formatStamp(telemetry.api.pull)}</Text>
+          {!isV1LanMode() ? (
             <>
               <Text style={styles.syncMetaLine}>Supabase ↑ {formatStamp(telemetry.supabase.push)}</Text>
               <Text style={styles.syncMetaLine}>Supabase ↓ {formatStamp(telemetry.supabase.pull)}</Text>

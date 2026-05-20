@@ -12,3 +12,17 @@ export function isConsumerApp(): boolean {
   return extra?.consumerApp === true;
 }
 
+/**
+ * V1 client LAN : une seule cible sync (PC local), pas de Supabase/cloud au login.
+ * Activé par défaut en mode consumer ; désactivable via EXPO_PUBLIC_V1_LAN=0.
+ */
+export function isV1LanMode(): boolean {
+  const v = process.env.EXPO_PUBLIC_V1_LAN?.trim().toLowerCase();
+  if (v === '0' || v === 'false' || v === 'no') return false;
+  if (v === '1' || v === 'true' || v === 'yes') return true;
+  const extra = Constants.expoConfig?.extra as { v1Lan?: boolean } | undefined;
+  if (extra?.v1Lan === true) return true;
+  if (extra?.v1Lan === false) return false;
+  return isConsumerApp();
+}
+

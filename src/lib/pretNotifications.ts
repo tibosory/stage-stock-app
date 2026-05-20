@@ -74,7 +74,7 @@ export async function reschedulePretReturnReminders(prets: Pret[]): Promise<void
       await Notifications.scheduleNotificationAsync({
         content: {
           ...trayScheduledNotificationContentExtras(),
-          title: 'Rappel prêt — Stage Stock',
+          title: 'Rappel prêt — CATRACK Pro',
           body,
           data: { kind: 'pret_retour', pretId: pret.id, suffix },
         },

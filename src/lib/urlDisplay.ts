@@ -15,7 +15,7 @@ export function isLocalOrIpHost(hostname: string): boolean {
  */
 export function connectionSurfaceLabel(resolvedBaseUrl: string): string {
   const t = resolvedBaseUrl.trim();
-  if (!t) return 'Service Stage Stock';
+  if (!t) return 'Service CATRACK Pro';
   try {
     const u = new URL(t);
     if (isLocalOrIpHost(u.hostname)) {
@@ -23,6 +23,6 @@ export function connectionSurfaceLabel(resolvedBaseUrl: string): string {
     }
     return 'Service en ligne';
   } catch {
-    return 'Service Stage Stock';
+    return 'Service CATRACK Pro';
   }
 }

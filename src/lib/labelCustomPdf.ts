@@ -14,7 +14,7 @@ import type { BulkLayoutMode, BulkPaperSize } from './pdfEtiquetteBulk';
 export { type UserLabelFormat } from './labelUserFormatsStorage';
 
 export const LABEL_FONT_CHOICES: { id: string; label: string; css: string }[] = [
-  { id: 'inter', label: 'Inter / System', css: '"Inter", "Segoe UI", system-ui, sans-serif' },
+  { id: 'inter', label: 'Arial (administratif)', css: 'Arial, "Times New Roman", serif' },
   { id: 'arial', label: 'Arial', css: 'Arial, Helvetica, sans-serif' },
   { id: 'georgia', label: 'Georgia', css: 'Georgia, "Times New Roman", serif' },
   { id: 'times', label: 'Times New Roman', css: '"Times New Roman", Times, serif' },
@@ -319,7 +319,7 @@ function buildCustomBulkQrHtmlFlex(
     html, body {
       margin: 0;
       padding: 0;
-      font-family: "Inter", "Segoe UI", Arial, sans-serif;
+      font-family: "Times New Roman", Times, Arial, sans-serif;
       color: #111;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
@@ -398,7 +398,7 @@ function buildCustomBulkQrHtmlGridStrict(
     html, body {
       margin: 0;
       padding: 0;
-      font-family: "Inter", "Segoe UI", Arial, sans-serif;
+      font-family: "Times New Roman", Times, Arial, sans-serif;
       color: #111;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
@@ -610,7 +610,7 @@ export function buildCustomShelfLabelsHtml(
     @page { size: A4 portrait; margin: 6mm; }
     * { box-sizing: border-box; }
     body {
-      font-family: "Inter", "Segoe UI", Arial, sans-serif;
+      font-family: "Times New Roman", Times, Arial, sans-serif;
       color: #111827;
       margin: 0;
       -webkit-print-color-adjust: exact;

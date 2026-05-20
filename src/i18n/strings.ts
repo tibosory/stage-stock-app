@@ -625,6 +625,9 @@ const fr: Dict = {
   'onboarding.invalidUrlExpectedBody': 'Exemple attendu: 192.168.1.77:8090 ou http://192.168.1.77:8090',
   'onboarding.connectionOkBody': "L'app joint l'API CATRACK Pro. Passez à l'étape suivante.",
   'onboarding.connectionFailedTitle': 'Connexion impossible',
+  'onboarding.serverRequiredTitle': 'Serveur PC requis',
+  'onboarding.serverRequiredBody':
+    'Installez le serveur sur le PC, scannez le QR de jumelage (même Wi‑Fi), puis appuyez sur « Vérifier la connexion » avant de continuer.',
   'onboarding.skipAll': 'Tout ignorer',
   'onboarding.placeTitle': 'Lieu (en-têtes, PDF, étiquettes)',
   'onboarding.placeName': 'Nom du lieu',
@@ -660,7 +663,7 @@ const fr: Dict = {
   'onboarding.progressWord': 'Étape',
   'onboarding.welcomeTitle': 'Bienvenue',
   'onboarding.welcomeLead':
-    'Quelques réglages utiles (lieu, connexion, vos coordonnées) en un fil guidé. Rien d’obligatoire : vous pouvez passer n’importe quelle étape, tout reste modifiable plus tard dans Paramètres, Réseau et Utilisateur.',
+    'Quelques réglages guidés : lieu, connexion au PC de la salle, vos coordonnées. La connexion au serveur est obligatoire ; les autres étapes peuvent être passées.',
   'onboarding.welcomeMutedOffline':
     'Le didacticiel configure l’essentiel, puis vous gardez une app offline-first : recherche locale immédiate, synchronisation selon disponibilité réseau, IA optionnelle en arrière-plan.',
   'onboarding.welcomeMutedInstall':
@@ -671,7 +674,7 @@ const fr: Dict = {
   'onboarding.placeLead':
     'Nom de la salle ou de la structure, et l’adresse telle qu’elle doit apparaître sur les documents. Le logo se règle dans l’onglet Utilisateur.',
   'onboarding.serverLead':
-    'Étape optionnelle. Avec le serveur local, suivez les consignes et « Vérifier la connexion » quand cela vous arrange. Vous pouvez appuyer sur « Passer l’étape » pour ne rien enregistrer ici, ou « Tout ignorer » en haut à droite pour quitter l’assistant. Les réglages d’URL se font aussi dans l’onglet Réseau, plus tard.',
+    'Installez le serveur sur le PC (ci-dessous), scannez le QR de jumelage sur le même Wi‑Fi, puis appuyez sur « Vérifier la connexion ». Cette étape est obligatoire pour synchroniser vos données.',
   'onboarding.androidShareHint':
     'Le fichier s’enregistre sur le téléphone. Partagez-le (Bluetooth, câble, e-mail) vers le PC, puis lancez-le en administrateur sur Windows.',
   'onboarding.downloadOtherIntro':
@@ -749,6 +752,7 @@ const fr: Dict = {
   'login.title': 'CATRACK Pro',
   'login.subtitle':
     'Compte en ligne (optionnel) puis accès sur l’appareil avec le PIN',
+  'login.subtitleV1': 'Connectez-vous avec votre utilisateur et votre code PIN.',
   'login.alert.pinTitle': 'Connexion',
   'login.alert.pickUserPin': 'Choisissez un utilisateur et saisissez le code PIN.',
   'login.alert.badPin': 'PIN incorrect.',
@@ -812,10 +816,21 @@ const fr: Dict = {
   'login.accueilpro.err.unknown': 'Action impossible.',
   'login.device.section': 'Sur cet appareil',
   'login.device.pinHint': 'PIN à 4 chiffres (admin par défaut : 1234)',
+  'login.device.pinHintV1': 'Saisissez le code PIN de l’utilisateur.',
   'login.device.userLabel': 'Utilisateur',
   'login.device.pinLabel': 'Code PIN',
   'login.device.pinPlaceholder': '••••',
   'login.device.submit': 'Se connecter',
+  'pinChange.title': 'Changez le code PIN',
+  'pinChange.body':
+    'Le PIN par défaut (1234) n’est pas sécurisé. Choisissez un nouveau code pour {name}.',
+  'pinChange.newPin': 'Nouveau PIN',
+  'pinChange.confirmPin': 'Confirmer le PIN',
+  'pinChange.submit': 'Enregistrer',
+  'pinChange.err.minLength': 'Le PIN doit contenir au moins 4 chiffres.',
+  'pinChange.err.stillDefault': 'Le PIN 1234 est interdit : choisissez un autre code.',
+  'pinChange.err.mismatch': 'Les deux saisies ne correspondent pas.',
+  'pinChange.err.generic': 'Impossible de mettre à jour le PIN.',
   'auth.role.admin': 'admin',
   'auth.role.technicien': 'technicien',
   'auth.role.emprunteur': 'emprunteur',
@@ -1784,6 +1799,9 @@ const en: Dict = {
   'onboarding.invalidUrlExpectedBody': 'Expected example: 192.168.1.77:8090 or http://192.168.1.77:8090',
   'onboarding.connectionOkBody': "The app can reach the CATRACK Pro API. Go to the next step.",
   'onboarding.connectionFailedTitle': 'Connection failed',
+  'onboarding.serverRequiredTitle': 'PC server required',
+  'onboarding.serverRequiredBody':
+    'Install the server on your PC, scan the pairing QR code (same Wi‑Fi), then tap “Verify connection” before continuing.',
   'onboarding.skipAll': 'Skip all',
   'onboarding.placeTitle': 'Place (headers, PDF, labels)',
   'onboarding.placeName': 'Place name',
@@ -1818,7 +1836,7 @@ const en: Dict = {
   'onboarding.progressWord': 'Step',
   'onboarding.welcomeTitle': 'Welcome',
   'onboarding.welcomeLead':
-    'A short guided setup for place, connection, and your details. Nothing is mandatory: you can skip any step; everything stays editable later in Settings, Network, and User.',
+    'A short guided setup: venue, connection to your hall PC, and your details. Server connection is required; other steps can be skipped.',
   'onboarding.welcomeMutedOffline':
     'The tutorial covers the essentials, then you keep an offline-first app: instant local search, sync when the network is available, optional AI in the background.',
   'onboarding.welcomeMutedInstall':
@@ -1829,7 +1847,7 @@ const en: Dict = {
   'onboarding.placeLead':
     'Venue or organization name, and the address as it should appear on documents. The logo is set in the User tab.',
   'onboarding.serverLead':
-    'Optional step. With the local server, follow the instructions and tap “Verify connection” when ready. You can use “Skip step” to save nothing here, or “Skip all” at the top right to leave the wizard. URL settings are also available in the Network tab later.',
+    'Install the server on your PC (below), scan the pairing QR on the same Wi‑Fi, then tap “Verify connection”. This step is required to sync your data.',
   'onboarding.androidShareHint':
     'The file is saved on the phone. Share it (Bluetooth, cable, e-mail) to the PC, then run it as administrator on Windows.',
   'onboarding.downloadOtherIntro':
@@ -1901,6 +1919,7 @@ const en: Dict = {
 
   'login.title': 'CATRACK Pro',
   'login.subtitle': 'Optional online account, then sign in on this device with PIN',
+  'login.subtitleV1': 'Sign in with your user and PIN code.',
   'login.alert.pinTitle': 'Sign in',
   'login.alert.pickUserPin': 'Pick a user and enter the PIN.',
   'login.alert.badPin': 'Incorrect PIN.',
@@ -1962,10 +1981,21 @@ const en: Dict = {
   'login.accueilpro.err.unknown': 'Could not complete.',
   'login.device.section': 'On this device',
   'login.device.pinHint': '4-digit PIN (default admin: 1234)',
+  'login.device.pinHintV1': 'Enter the user PIN code.',
   'login.device.userLabel': 'User',
   'login.device.pinLabel': 'PIN code',
   'login.device.pinPlaceholder': '••••',
   'login.device.submit': 'Sign in',
+  'pinChange.title': 'Change your PIN',
+  'pinChange.body':
+    'The default PIN (1234) is not secure. Choose a new code for {name}.',
+  'pinChange.newPin': 'New PIN',
+  'pinChange.confirmPin': 'Confirm PIN',
+  'pinChange.submit': 'Save',
+  'pinChange.err.minLength': 'PIN must be at least 4 digits.',
+  'pinChange.err.stillDefault': 'PIN 1234 is not allowed — choose another code.',
+  'pinChange.err.mismatch': 'The two entries do not match.',
+  'pinChange.err.generic': 'Could not update PIN.',
   'auth.role.admin': 'admin',
   'auth.role.technicien': 'technician',
   'auth.role.emprunteur': 'borrower',

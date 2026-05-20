@@ -7,14 +7,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { format, parseISO, isValid } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { getResolvedApiBase, stageStockApiHeadersAsync, checkServerReachableQuick } from '../config/stageStockApi';
+import { getAlertesEmail } from '../db/metadataDb';
+import { getSessionAppUserRole } from '../db/userDb';
 import {
-  getAlertesEmail,
   getConsommablesAlerte,
   getMaterielsPourMaintenanceAlertes,
   getMaterielsPourVgpAlertes,
-  getPrets,
-  getSessionAppUserRole,
-} from '../db/database';
+} from '../db/inventoryDb';
+import { getPrets } from '../db/loanDb';
 import { loadMailRecipientAlerteIds, loadNotificationPrefs } from './notificationPrefs';
 import { isVgpEpi, isVgpEnRetard, vgpProchaineEcheanceIso } from './vgp';
 import type { Consommable, Materiel, Pret } from '../types';
@@ -77,7 +77,7 @@ function buildBody(params: {
   const lines: string[] = [
     'Bonjour,',
     '',
-    'Récapitulatif des alertes Stage Stock (généré automatiquement depuis l’application).',
+    'Récapitulatif des alertes CATRACK Pro (généré automatiquement depuis l’application).',
     '',
   ];
   if (params.pretsRetard.length) {
@@ -130,7 +130,7 @@ function buildBody(params: {
       lines.push('');
     }
   }
-  lines.push('—', 'Stage Stock');
+  lines.push('—', 'CATRACK Pro');
   return lines.join('\n');
 }
 
@@ -205,7 +205,7 @@ export async function maybeSendAutoAlertEmailsIfNeeded(): Promise<void> {
       return;
     }
 
-    const subject = `[Stage Stock] Alertes — ${format(new Date(), 'dd/MM/yyyy HH:mm', { locale: fr })}`;
+    const subject = `[CATRACK Pro] Alertes — ${format(new Date(), 'dd/MM/yyyy HH:mm', { locale: fr })}`;
     const text = buildBody({ pretsRetard, consoBas, maint, vgp });
 
     const url = joinBasePath(base, '/api/email/send-alert');

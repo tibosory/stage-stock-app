@@ -13,13 +13,15 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../theme/colors';
-import { getMateriel, getConsommables, getCategories, categoryPathById } from '../db/database';
+import { getCategories, categoryPathById } from '../db/catalogDb';
 import { Materiel, Consommable, Categorie } from '../types';
 import { TabScreenSafeArea } from '../components/UI';
+import { getInventorySnapshot } from '../db/materialRepository';
+import { useLanguage } from '../context/LanguageContext';
 
 const BROWSE_ALL = '__all__';
 
-function openConsommableFromStockNav(navigation: any, id: string) {
+function openConsommableFromStockNav(navigation: any, id: string, t: (key: string) => string) {
   const parents: { navigate: (n: string, p?: object) => void }[] = [];
   const p1 = navigation.getParent?.();
   const p2 = p1?.getParent?.();
@@ -36,15 +38,13 @@ function openConsommableFromStockNav(navigation: any, id: string) {
       }
     }
   }
-  Alert.alert(
-    'Consommable',
-    "Navigation directe indisponible. Ouvrez l'écran Consommables pour modifier cet article."
-  );
+  Alert.alert(t('browse.navWarnTitle'), t('browse.navWarnBody'));
 }
 
 export default function StockBrowseScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { t } = useLanguage();
   const bottomPad = Platform.OS === 'android' ? Math.max(insets.bottom, 52) : Math.max(insets.bottom, 12);
 
   const [materiels, setMateriels] = useState<Materiel[]>([]);
@@ -58,11 +58,18 @@ export default function StockBrowseScreen() {
   const [expandedTopCategoryIds, setExpandedTopCategoryIds] = useState<string[]>([]);
 
   const load = useCallback(async () => {
-    const [mats, consos, cats] = await Promise.all([getMateriel(), getConsommables(), getCategories()]);
-    setMateriels(mats);
-    setConsommables(consos);
-    setCategories(cats);
-    setHasLoaded(true);
+    try {
+      const [snapshot, cats] = await Promise.all([getInventorySnapshot(), getCategories()]);
+      const mats = snapshot.materiels;
+      const consos = snapshot.consommables;
+      setMateriels(mats);
+      setConsommables(consos);
+      setCategories(cats);
+    } catch {
+      /* évite écran « Chargement… » infini si snapshot / base échoue */
+    } finally {
+      setHasLoaded(true);
+    }
   }, []);
 
   useFocusEffect(
@@ -192,12 +199,12 @@ export default function StockBrowseScreen() {
   const listHeader = useMemo(
     () => (
       <View style={s.headerBlock}>
-        <Text style={s.browseTreeTitle}>Type d'articles</Text>
+        <Text style={s.browseTreeTitle}>{t('browse.typeArticles')}</Text>
         <View style={s.browseSegmentRow}>
           {[
-            { id: 'all', label: 'Tout' },
-            { id: 'materiel', label: 'Stock' },
-            { id: 'consommable', label: 'Consom.' },
+            { id: 'all', label: t('browse.all') },
+            { id: 'materiel', label: t('browse.stock') },
+            { id: 'consommable', label: t('browse.suppliesShort') },
           ].map(opt => {
             const active = browseSource === opt.id;
             return (
@@ -307,7 +314,7 @@ export default function StockBrowseScreen() {
       <TabScreenSafeArea style={s.container}>
         <View style={s.initialLoad}>
           <ActivityIndicator color={Colors.green} size="large" />
-          <Text style={s.initialLoadText}>Chargement…</Text>
+          <Text style={s.initialLoadText}>{t('browse.loading')}</Text>
         </View>
       </TabScreenSafeArea>
     );
@@ -317,10 +324,10 @@ export default function StockBrowseScreen() {
     <TabScreenSafeArea style={s.container} edges={['left', 'right']}>
       <View style={s.topBar}>
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <Text style={s.backText}>← Retour</Text>
+          <Text style={s.backText}>{t('browse.back')}</Text>
         </TouchableOpacity>
         <Text style={s.screenTitle} numberOfLines={1}>
-          Visualiser le stock
+          {t('browse.screenTitle')}
         </Text>
         <View style={{ width: 72 }} />
       </View>
@@ -329,6 +336,10 @@ export default function StockBrowseScreen() {
         keyExtractor={it => `${it.kind}-${it.id}`}
         ListHeaderComponent={listHeader}
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 + bottomPad, flexGrow: 1 }}
+        initialNumToRender={14}
+        maxToRenderPerBatch={18}
+        windowSize={8}
+        removeClippedSubviews={Platform.OS === 'android'}
         renderItem={({ item: it }) => (
           <TouchableOpacity
             style={s.browseRow}
@@ -336,7 +347,7 @@ export default function StockBrowseScreen() {
               if (it.kind === 'materiel') {
                 navigation.navigate('MaterielDetail', { materielId: it.id });
               } else {
-                openConsommableFromStockNav(navigation, it.id);
+                openConsommableFromStockNav(navigation, it.id, t);
               }
             }}
             activeOpacity={0.85}

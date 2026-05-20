@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  Image, TouchableOpacity, Alert, ActivityIndicator, Linking,
+  Image, TouchableOpacity, Alert, ActivityIndicator, Linking, Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -11,12 +11,15 @@ import { syncMaterielNoticeAttachments } from '../lib/materielAttachments';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Colors } from '../theme/colors';
 import {
+  setNfcTagMateriel,
+  getHistoriqueEmpruntsMateriel,
+} from '../db/inventoryOpsDb';
+import {
   getMaterielById,
   getMateriel,
-  setNfcTagMateriel,
   updateMateriel,
-  getHistoriqueEmpruntsMateriel,
-} from '../db/database';
+} from '../db/inventoryDb';
+import { getTourById } from '../db/trackingDb';
 import { countMaterielSameNameEnStock } from '../lib/materielSameName';
 import { getPdfBranding } from '../lib/theatreBranding';
 import {
@@ -31,18 +34,21 @@ import {
 import { exportMaterielFichesPdf } from '../lib/pdfMaterielFiche';
 import { MaterielEmpruntHistorique } from '../types';
 import { format, parseISO, isValid } from 'date-fns';
-import { fr } from 'date-fns/locale';
 import { uploadPhoto, pushMaterielNoticesToSupabaseAfterSave } from '../lib/supabase';
 import { useNfc } from '../hooks/useNfc';
 import { Materiel } from '../types';
 import { EtatBadge, StatutBadge, Card, BottomModal, TabScreenSafeArea, SelectPicker } from '../components/UI';
 import { useAppAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
+import { getVisibleFields } from '../lib/materialFieldVisibility';
+import { getDateFnsLocale } from '../i18n/dateLocales';
 import ShelfLabelsModal from '../components/ShelfLabelsModal';
 import LabelUserFormatsManagerModal from '../components/LabelUserFormatsManagerModal';
 import LabelHtmlPreviewModal from '../components/LabelHtmlPreviewModal';
 
 export default function MaterielDetailScreen() {
   const { can } = useAppAuth();
+  const { t, language } = useLanguage();
   const editOk = can('edit_inventory');
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -61,6 +67,7 @@ export default function MaterielDetailScreen() {
   const [shelfLabelModal, setShelfLabelModal] = useState(false);
   const [etiquetteSheet, setEtiquetteSheet] = useState(false);
   const [sameNameEnStockCount, setSameNameEnStockCount] = useState<number | null>(null);
+  const [currentTourName, setCurrentTourName] = useState<string>('');
 
   const reloadQrFormats = useCallback(async () => {
     const all = await loadUserLabelFormats();
@@ -92,7 +99,7 @@ export default function MaterielDetailScreen() {
 
   const runEtiquettePreview = async () => {
     if (!mat || !selectedQrFormat) {
-      Alert.alert('Format', 'Crée au moins un format QR (bouton Gérer les formats) puis sélectionne-le.');
+      Alert.alert(t('mat.format.title'), t('mat.format.needQrManaged'));
       return;
     }
     setEtiquetteSheet(false);
@@ -103,7 +110,7 @@ export default function MaterielDetailScreen() {
       const brand = await getPdfBranding();
       setPreviewHtml(buildCustomMaterielLabelHtml(mat, selectedQrFormat, brand));
     } catch (e: any) {
-      Alert.alert('Aperçu', e?.message ?? 'Erreur');
+      Alert.alert(t('mat.preview.failTitle'), e?.message ?? t('common.error'));
     } finally {
       setPreviewLoad(false);
     }
@@ -111,7 +118,7 @@ export default function MaterielDetailScreen() {
 
   const runEtiquetteExport = async () => {
     if (!mat || !selectedQrFormat) {
-      Alert.alert('Format', 'Crée au moins un format QR puis sélectionne-le.');
+      Alert.alert(t('mat.format.title'), t('mat.format.needQr'));
       return;
     }
     try {
@@ -120,7 +127,7 @@ export default function MaterielDetailScreen() {
       setPreviewOpen(false);
       setPreviewHtml(null);
     } catch (e: any) {
-      Alert.alert('PDF', e?.message ?? 'Erreur export');
+      Alert.alert(t('mat.pdf.exportFailTitle'), e?.message ?? t('mat.sheetPdfFail'));
     }
   };
 
@@ -148,15 +155,35 @@ export default function MaterielDetailScreen() {
     });
   }, [mat?.id, mat?.nom, mat?.statut]);
 
+  useEffect(() => {
+    if (!mat?.current_tour_id) {
+      setCurrentTourName('');
+      return;
+    }
+    let alive = true;
+    void getTourById(mat.current_tour_id)
+      .then(tour => {
+        if (!alive) return;
+        setCurrentTourName(tour?.name?.trim() || mat.current_tour_id || '');
+      })
+      .catch(() => {
+        if (!alive) return;
+        setCurrentTourName(mat.current_tour_id || '');
+      });
+    return () => {
+      alive = false;
+    };
+  }, [mat?.current_tour_id]);
+
   const fmt = (raw?: string) => {
-    if (!raw) return '—';
+    if (!raw) return t('common.dash');
     const d = raw.includes('T') ? parseISO(raw) : parseISO(`${raw}T12:00:00`);
-    return isValid(d) ? format(d, 'd MMM yyyy', { locale: fr }) : raw;
+    return isValid(d) ? format(d, 'd MMM yyyy', { locale: getDateFnsLocale(language) }) : raw;
   };
 
   const handlePhoto = async () => {
     if (!editOk) return;
-    Alert.alert('Photo du matériel', 'Choisissez une source', [
+    Alert.alert(t('mat.photo.pickTitle'), t('mat.photo.pickSource'), [
       {
         text: 'Prendre une photo',
         onPress: async () => {
@@ -200,31 +227,31 @@ export default function MaterielDetailScreen() {
           }
         }
       },
-      { text: 'Annuler', style: 'cancel' },
+      { text: t('common.cancel'), style: 'cancel' },
     ]);
   };
 
   const handleWriteNfc = async () => {
     if (!mat || !editOk) return;
     if (!nfcSupported || !nfcEnabled) {
-      Alert.alert('NFC indisponible');
+      Alert.alert(t('mat.nfc.only'));
       return;
     }
     Alert.alert(
       'Écrire sur puce NFC',
       `Approchez une puce NFC vierge pour y écrire l'ID: ${mat.id}`,
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Écrire',
+          text: t('mat.nfc.writeCta'),
           onPress: async () => {
             const ok = await writeNfcTag(mat.id);
             if (ok) {
-              Alert.alert('✓ Succès', 'ID écrit sur la puce NFC');
+              Alert.alert(t('mat.nfc.successTitle'), t('mat.nfc.successBody'));
               await setNfcTagMateriel(mat.id, mat.id);
               setMat(prev => prev ? { ...prev, nfc_tag_id: mat.id } : prev);
             } else {
-              Alert.alert('Erreur', 'Écriture NFC échouée');
+              Alert.alert(t('mat.nfc.writeFailTitle'), t('mat.nfc.writeFailBody'));
             }
           }
         },
@@ -245,7 +272,7 @@ export default function MaterielDetailScreen() {
       if (target.startsWith('http://') || target.startsWith('https://')) {
         const ok = await Linking.canOpenURL(target);
         if (!ok) {
-          Alert.alert('Notice PDF', 'Impossible d’ouvrir ce lien.');
+          Alert.alert(t('mat.pdf.dialogTitle'), t('mat.pdf.openFail'));
           return;
         }
         await Linking.openURL(target);
@@ -253,15 +280,15 @@ export default function MaterielDetailScreen() {
       }
       const shareOk = await Sharing.isAvailableAsync();
       if (!shareOk) {
-        Alert.alert('Notice PDF', 'Le partage de fichiers n’est pas disponible sur cet appareil.');
+        Alert.alert(t('mat.pdf.dialogTitle'), t('mat.shareUnavailable'));
         return;
       }
       await Sharing.shareAsync(target, {
         mimeType: 'application/pdf',
-        dialogTitle: 'Notice PDF',
+        dialogTitle: t('mat.pdf.dialogTitle'),
       });
     } catch (e: any) {
-      Alert.alert('PDF', e?.message ?? 'Impossible d’ouvrir le fichier');
+      Alert.alert(t('mat.pdf.exportFailTitle'), e?.message ?? t('mat.pdf.openFileFail'));
     }
   };
 
@@ -274,7 +301,7 @@ export default function MaterielDetailScreen() {
       if (Object.keys(urlPatch).length) await updateMateriel(mat.id, urlPatch);
       setMat(prev => (prev ? { ...prev, ...n, ...urlPatch } : prev));
     } catch (e: any) {
-      Alert.alert('Notice', e?.message ?? 'Enregistrement impossible');
+      Alert.alert(t('mat.notice.title'), e?.message ?? t('mat.notice.saveFail'));
     }
   };
 
@@ -289,15 +316,15 @@ export default function MaterielDetailScreen() {
       if (!uri) return;
       await applyNoticeSync(uri, undefined);
     } catch (e: any) {
-      Alert.alert('PDF', e?.message ?? 'Sélection impossible');
+      Alert.alert(t('mat.pdf.exportFailTitle'), e?.message ?? t('mat.pdf.selectFail'));
     }
   };
 
   const handleAttachNoticePhoto = async () => {
     if (!mat || !editOk) return;
-    Alert.alert('Photo de la notice', 'Source', [
+    Alert.alert(t('mat.noticePhoto.title'), t('mat.noticePhoto.source'), [
       {
-        text: 'Caméra',
+        text: t('mat.photo.camera'),
         onPress: async () => {
           const perm = await ImagePicker.requestCameraPermissionsAsync();
           if (!perm.granted) return;
@@ -308,7 +335,7 @@ export default function MaterielDetailScreen() {
         },
       },
       {
-        text: 'Galerie',
+        text: t('mat.photo.gallery'),
         onPress: async () => {
           const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
           if (!perm.granted) return;
@@ -318,22 +345,22 @@ export default function MaterielDetailScreen() {
           }
         },
       },
-      { text: 'Annuler', style: 'cancel' },
+      { text: t('common.cancel'), style: 'cancel' },
     ]);
   };
 
   const handleRemoveNoticePdf = () => {
     if (!mat?.notice_pdf_local && !mat?.notice_pdf_url) return;
-    Alert.alert('Retirer le PDF', 'Supprimer la notice PDF de cette fiche (appareil et nuage) ?', [
-      { text: 'Annuler', style: 'cancel' },
+    Alert.alert(t('mat.removePdfTitle'), t('mat.removePdfBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
       { text: 'Retirer', style: 'destructive', onPress: () => applyNoticeSync('', undefined) },
     ]);
   };
 
   const handleRemoveNoticePhoto = () => {
     if (!mat?.notice_photo_local && !mat?.notice_photo_url) return;
-    Alert.alert('Retirer la photo', 'Supprimer la photo de notice (appareil et nuage) ?', [
-      { text: 'Annuler', style: 'cancel' },
+    Alert.alert(t('mat.removePhotoTitle'), t('mat.removePhotoBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
       { text: 'Retirer', style: 'destructive', onPress: () => applyNoticeSync(undefined, '') },
     ]);
   };
@@ -344,7 +371,7 @@ export default function MaterielDetailScreen() {
     if (tagId) {
       await setNfcTagMateriel(mat.id, tagId);
       setMat(prev => prev ? { ...prev, nfc_tag_id: tagId } : prev);
-      Alert.alert('✓ Associé', `Tag NFC associé: ${tagId}`);
+      Alert.alert(t('mat.tagLinkedTitle'), t('mat.tagLinkedBody', { id: tagId }));
     }
   };
 
@@ -361,6 +388,26 @@ export default function MaterielDetailScreen() {
   }
 
   const photoUri = mat.photo_local ?? mat.photo_url;
+  const visibleFields = getVisibleFields(mat);
+  const hasValue = (value: unknown) => {
+    if (value == null) return false;
+    return String(value).trim().length > 0;
+  };
+  const hasIdentification =
+    visibleFields.identification.some(row => hasValue(row.value)) ||
+    hasValue(mat.numero_serie) ||
+    hasValue(mat.qr_code);
+  const hasStock = visibleFields.stock.some(row => hasValue(row.value));
+  const hasTechnical =
+    visibleFields.technical.some(row => hasValue(row.value)) ||
+    hasValue(mat.date_achat) ||
+    hasValue(mat.date_validite) ||
+    hasValue(mat.prochain_controle) ||
+    hasValue(mat.intervalle_controle_jours) ||
+    hasValue(mat.maintenance_todo) ||
+    hasValue(mat.maintenance_last_comment) ||
+    hasValue(mat.technicien);
+  const hasLocalisation = visibleFields.localisation.some(row => hasValue(row.value));
 
   return (
     <TabScreenSafeArea style={s.container}>
@@ -378,6 +425,12 @@ export default function MaterielDetailScreen() {
 
         <Text style={s.title}>{mat.nom}</Text>
         {mat.marque && <Text style={s.subtitle}>{mat.marque}{mat.type ? ' · ' + mat.type : ''}</Text>}
+        {(mat.statut === 'en tournée' || mat.tracking_state === 'in_tour') && (
+          <Text style={s.subtitle}>
+            {t('stock.on_tour_prefix')}{' '}
+            {currentTourName || mat.current_tour_id || t('stock.on_tour_fallback')}
+          </Text>
+        )}
 
         {sameNameEnStockCount != null && (
           <View style={s.sameNameInfo}>
@@ -414,23 +467,73 @@ export default function MaterielDetailScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
 
-        {/* Infos */}
-        <Card style={{ marginBottom: 12 }}>
-          <Text style={s.sectionTitle}>Informations</Text>
-          <InfoRow label="N° de série" value={mat.numero_serie} />
-          <InfoRow label="Poids" value={mat.poids_kg ? mat.poids_kg + ' kg' : undefined} />
-          <InfoRow label="Date achat" value={mat.date_achat} />
-          <InfoRow label="Date validité" value={mat.date_validite} />
-          <InfoRow label="Dernière maintenance" value={mat.prochain_controle} />
-          <InfoRow
-            label="Fréquence maintenance (j)"
-            value={mat.intervalle_controle_jours != null ? String(mat.intervalle_controle_jours) : undefined}
-          />
-          <InfoRow label="Maintenance à effectuer" value={mat.maintenance_todo} />
-          <InfoRow label="Commentaire dernière maintenance" value={mat.maintenance_last_comment} />
-          <InfoRow label="Technicien" value={mat.technicien} />
-          <InfoRow label="QR Code" value={mat.qr_code} />
-        </Card>
+        {mat.profile_id ? (
+          <Card
+            style={{
+              marginBottom: 12,
+              backgroundColor: 'rgba(52, 211, 153, 0.12)',
+              borderWidth: 1,
+              borderColor: 'rgba(52, 211, 153, 0.35)',
+            }}
+          >
+            <Text style={s.sectionTitle}>Profil dynamique</Text>
+            <Text style={{ color: Colors.textSecondary, fontSize: 13, lineHeight: 20 }}>
+              Cette fiche utilise un modèle de champs personnalisés (éditeur dans Paramètres). Version{' '}
+              {mat.profile_version != null ? String(mat.profile_version) : '—'} · id{' '}
+              <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 12 }}>
+                {mat.profile_id}
+              </Text>
+            </Text>
+          </Card>
+        ) : null}
+
+        {hasIdentification && (
+          <Card style={{ marginBottom: 12 }}>
+            <Text style={s.sectionTitle}>Identification</Text>
+            {visibleFields.identification.map(row => (
+              <InfoRow key={String(row.key)} label={row.label} value={row.value != null ? String(row.value) : undefined} />
+            ))}
+            <InfoRow label="N° de série" value={mat.numero_serie} />
+            <InfoRow label="QR Code" value={mat.qr_code} />
+          </Card>
+        )}
+
+        {hasStock && (
+          <Card style={{ marginBottom: 12 }}>
+            <Text style={s.sectionTitle}>Stock</Text>
+            {visibleFields.stock.map(row => (
+              <InfoRow key={row.key} label={row.label} value={row.value != null ? String(row.value) : undefined} />
+            ))}
+          </Card>
+        )}
+
+        {hasTechnical && (
+          <Card style={{ marginBottom: 12 }}>
+            <Text style={s.sectionTitle}>Technique</Text>
+            {visibleFields.technical.map(row => (
+              <InfoRow key={row.key} label={row.label} value={row.value != null ? String(row.value) : undefined} />
+            ))}
+            <InfoRow label="Date achat" value={mat.date_achat} />
+            <InfoRow label="Date validité" value={mat.date_validite} />
+            <InfoRow label="Dernière maintenance" value={mat.prochain_controle} />
+            <InfoRow
+              label="Fréquence maintenance (j)"
+              value={mat.intervalle_controle_jours != null ? String(mat.intervalle_controle_jours) : undefined}
+            />
+            <InfoRow label="Maintenance à effectuer" value={mat.maintenance_todo} />
+            <InfoRow label="Commentaire dernière maintenance" value={mat.maintenance_last_comment} />
+            <InfoRow label="Technicien" value={mat.technicien} />
+          </Card>
+        )}
+
+        {hasLocalisation && (
+          <Card style={{ marginBottom: 12 }}>
+            <Text style={s.sectionTitle}>Localisation</Text>
+            {visibleFields.localisation.map(row => (
+              <InfoRow key={row.key} label={row.label} value={row.value != null ? String(row.value) : undefined} />
+            ))}
+          </Card>
+        )}
 
         {/* NFC */}
         <Card style={{ marginBottom: 12 }}>
@@ -553,7 +656,7 @@ export default function MaterielDetailScreen() {
             try {
               await exportMaterielFichesPdf([mat]);
             } catch (e: any) {
-              Alert.alert('PDF fiche', e?.message ?? 'Erreur export');
+              Alert.alert(t('mat.pdf.exportFailTitle'), e?.message ?? t('mat.sheetPdfFail'));
             }
           }}
         >
@@ -670,7 +773,7 @@ export default function MaterielDetailScreen() {
             onPress={async () => {
               await updateMateriel(mat.id, { qr_code: mat.id });
               setMat(prev => (prev ? { ...prev, qr_code: mat.id } : prev));
-              Alert.alert('QR', 'Code QR défini sur l’ID matériel (scannable).');
+              Alert.alert(t('mat.format.title'), t('mat.qrDefaultInfo'));
             }}
           >
             <Text style={{ color: Colors.green, fontWeight: '700', fontSize: 15 }}>Définir QR = ID interne</Text>
@@ -690,12 +793,22 @@ export default function MaterielDetailScreen() {
   );
 }
 
-const InfoRow = ({ label, value }: { label: string; value?: string | null }) => {
-  if (!value) return null;
+const InfoRow = ({
+  label,
+  value,
+  showEmpty = false,
+}: {
+  label: string;
+  value?: string | null;
+  showEmpty?: boolean;
+}) => {
+  if (!value && !showEmpty) return null;
+  const display = value && String(value).trim() ? value : '—';
+  const empty = display === '—';
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: Colors.border }}>
       <Text style={{ color: Colors.textSecondary, fontSize: 13 }}>{label}</Text>
-      <Text style={{ color: Colors.white, fontSize: 13, flex: 1, textAlign: 'right' }}>{value}</Text>
+      <Text style={{ color: empty ? Colors.textMuted : Colors.white, fontSize: 13, flex: 1, textAlign: 'right' }}>{display}</Text>
     </View>
   );
 };

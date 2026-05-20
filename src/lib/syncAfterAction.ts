@@ -1,25 +1,21 @@
 /**
- * Option Paramètres : après une action locale (sauvegarde prêt, matériel, etc.), envoyer puis recevoir
- * depuis l’API pour se rapprocher du temps réel. Désactivé par défaut (économie réseau / batterie).
+ * Option Paramètres : après une action locale (sauvegarde prêt, matériel, etc.), envoi puis réception
+ * depuis **Supabase** (si configuré + en ligne) puis depuis l’**API inventaire** si joignable.
+ * Désactivé par défaut (économie réseau / batterie).
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { checkServerReachableQuick } from '../config/stageStockApi';
-import { getConsommablesAlerte, getMateriel, getPrets } from '../db/database';
+import { getPrets } from '../db/loanDb';
+import { getMateriel, getConsommablesAlerte } from '../db/inventoryDb';
 import { reschedulePretReturnReminders } from './pretNotifications';
 import { rescheduleVgpDueReminders } from './vgpNotifications';
 import { rescheduleSeuilBasReminders } from './seuilNotifications';
 import { syncFromInventoryApi, syncToInventoryApi } from './inventoryApiSync';
 import { runRefreshSessionAfterInventoryPullIfRegistered } from './foregroundInventorySync';
 import { maybeSendAutoAlertEmailsIfNeeded } from './autoAlertEmails';
-import { isSupabaseConfigured, syncFromSupabase, syncToSupabase } from './supabase';
 import { recordSyncTelemetry } from './syncTelemetry';
 import { canCallApiSync } from './syncGuards';
-import {
-  loadDoubleBackendRuntimeFromStorage,
-  persistDoubleBackendRuntime,
-  getDoubleBackendRuntime,
-} from './doubleBackendRuntime';
-import { getIsOnlineRuntime } from './networkRuntime';
+import { runSupabaseSyncCycleIfEnabled } from './supabaseSyncCycle';
 
 const STORAGE_KEY = 'stagestock_sync_after_each_action';
 
@@ -30,14 +26,6 @@ export async function getSyncAfterEachActionEnabled(): Promise<boolean> {
 
 export async function setSyncAfterEachActionEnabled(enabled: boolean): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEY, enabled ? '1' : '0');
-}
-
-export async function getDualBackendSyncEnabled(): Promise<boolean> {
-  return loadDoubleBackendRuntimeFromStorage();
-}
-
-export async function setDualBackendSyncEnabled(enabled: boolean): Promise<void> {
-  await persistDoubleBackendRuntime(enabled);
 }
 
 let lastTriggerAt = 0;
@@ -51,9 +39,12 @@ export async function triggerSyncAfterActionIfEnabled(): Promise<void> {
   lastTriggerAt = now;
 
   try {
-    const dualBackend = getDoubleBackendRuntime();
     let gotFreshData = false;
     const apiGuard = await canCallApiSync('triggerSyncAfterActionIfEnabled');
+
+    if (await runSupabaseSyncCycleIfEnabled()) {
+      gotFreshData = true;
+    }
 
     if (apiGuard.ok && (await checkServerReachableQuick())) {
       const pushApi = await syncToInventoryApi();
@@ -67,22 +58,6 @@ export async function triggerSyncAfterActionIfEnabled(): Promise<void> {
     } else {
       await recordSyncTelemetry('api', 'push', 'skipped', 'Serveur API injoignable');
       await recordSyncTelemetry('api', 'pull', 'skipped', 'Serveur API injoignable');
-    }
-
-    if (isSupabaseConfigured() && getIsOnlineRuntime()) {
-      const pushSb = await syncToSupabase();
-      await recordSyncTelemetry('supabase', 'push', pushSb.ok ? 'ok' : 'error', pushSb.error);
-      if (pushSb.ok) {
-        const pullSb = await syncFromSupabase();
-        await recordSyncTelemetry('supabase', 'pull', pullSb.ok ? 'ok' : 'error', pullSb.error);
-        if (pullSb.ok) gotFreshData = true;
-      }
-    } else if (!getIsOnlineRuntime()) {
-      await recordSyncTelemetry('supabase', 'push', 'skipped', 'OFFLINE');
-      await recordSyncTelemetry('supabase', 'pull', 'skipped', 'OFFLINE');
-    } else if (!isSupabaseConfigured()) {
-      await recordSyncTelemetry('supabase', 'push', 'skipped', 'Supabase non configuré');
-      await recordSyncTelemetry('supabase', 'pull', 'skipped', 'Supabase non configuré');
     }
 
     if (gotFreshData) {

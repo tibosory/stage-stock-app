@@ -153,7 +153,7 @@ function wrapHtmlDocument(body: string): string {
     html { color-scheme: only light; }
     * { box-sizing: border-box; }
     body {
-      font-family: "Inter", "Segoe UI", Arial, sans-serif;
+      font-family: "Times New Roman", Times, Arial, sans-serif;
       color: #0f172a;
       font-size: 11.5px;
       line-height: 1.35;

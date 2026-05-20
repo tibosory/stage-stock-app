@@ -1,5 +1,5 @@
 /**
- * Copie d’inventaire d’un serveur Stage Stock vers un autre (sans passer par la base SQLite locale),
+ * Copie d’inventaire d’un serveur CATRACK Pro vers un autre (sans passer par la base SQLite locale),
  * via GET /api/sync/snapshot puis POST /api/sync/bulk.
  */
 import { inventoryApiFetch, type InventorySyncEndpoint } from './inventoryApiSync';

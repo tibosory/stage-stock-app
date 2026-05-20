@@ -4,6 +4,8 @@ import {
   getApiKeyOverride,
   getHealthPathOverride,
   getAccessToken,
+  normalizeHttpBaseUrl,
+  stripStageStockServerRootSuffix,
 } from '../lib/apiEndpointStorage';
 import { fetchWithTimeout } from '../lib/fetchWithTimeout';
 import {
@@ -28,7 +30,9 @@ const trimSlash = (u: string) => u.replace(/\/+$/, '');
  */
 export function getBundledDefaultApiBase(): string {
   const u = process.env.EXPO_PUBLIC_API_URL?.trim();
-  return u ? trimSlash(u) : '';
+  if (!u) return '';
+  const raw = normalizeHttpBaseUrl(u) ?? trimSlash(u);
+  return stripStageStockServerRootSuffix(raw);
 }
 
 /** Alias figé au chargement du bundle (même valeur que getBundledDefaultApiBase()). */
@@ -37,8 +41,10 @@ export const STAGE_STOCK_API_BASE = getBundledDefaultApiBase();
 /** URL effective : priorité au réglage « Réseau » sur l’appareil, sinon valeur du build. */
 export async function getResolvedApiBase(): Promise<string> {
   const o = await getApiBaseOverride();
-  if (o && /^https?:\/\//i.test(o) && o.length > 10) {
-    return trimSlash(o);
+  if (o) {
+    const normalized = normalizeHttpBaseUrl(o);
+    if (normalized) return stripStageStockServerRootSuffix(trimSlash(normalized));
+    return stripStageStockServerRootSuffix(trimSlash(o));
   }
   return getBundledDefaultApiBase();
 }
@@ -116,6 +122,7 @@ async function buildPingUrlList(base: string): Promise<string[]> {
  */
 const QUICK_PING_PER_URL_MS = 3_800;
 const QUICK_PING_MAX_URLS = 4;
+const REACHABLE_HTTP_STATUSES = new Set([401, 403, 404]);
 
 /** Test rapide sans message technique (mode grand public). */
 export async function checkServerReachableQuick(): Promise<boolean> {
@@ -137,7 +144,7 @@ export async function checkServerReachableQuick(): Promise<boolean> {
         { method: 'GET', headers },
         QUICK_PING_PER_URL_MS
       );
-      if (res.ok) {
+      if (res.ok || REACHABLE_HTTP_STATUSES.has(res.status)) {
         setCachedQuickReachable(true);
         return true;
       }
@@ -175,6 +182,15 @@ export async function pingStageStockApi(): Promise<{ ok: boolean; message: strin
         return {
           ok: true,
           message: `HTTP ${res.status} — ${url}\n\n${preview}`,
+        };
+      }
+      if (REACHABLE_HTTP_STATUSES.has(res.status)) {
+        return {
+          ok: true,
+          message:
+            `Serveur joignable (HTTP ${res.status}) — ${url}\n\n` +
+            `La connectivité est OK. Cette réponse indique surtout qu'une authentification est requise ` +
+            `(clé API ou session), pas que le serveur est hors ligne.`,
         };
       }
       failures.push(`${url} → HTTP ${res.status}`);

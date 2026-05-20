@@ -1,8 +1,9 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Colors } from '../theme/colors';
+import { useLanguage } from '../context/LanguageContext';
 
-const SECTIONS: { title: string; body: string }[] = [
+const SECTIONS_FR: { title: string; body: string }[] = [
   {
     title: '0. Installation facile (comme une recette)',
     body:
@@ -17,7 +18,7 @@ const SECTIONS: { title: string; body: string }[] = [
   {
     title: '1. Principe',
     body:
-      'Sur le Wi‑Fi du théâtre (ou tout réseau local), un PC ou un mini‑serveur peut héberger l’API Stage Stock. ' +
+      'Sur le Wi‑Fi du théâtre (ou tout réseau local), un PC ou un mini‑serveur peut héberger l’API CATRACK Pro. ' +
       'Les téléphones sur le même Wi‑Fi utilisent alors l’adresse locale (ex. http://192.168.1.20:3000). ' +
       'Les données inventaire restent surtout dans l’app (SQLite) ; l’API sert aux synchronisations ' +
       'ou services que vous branchez côté serveur.',
@@ -38,7 +39,7 @@ const SECTIONS: { title: string; body: string }[] = [
       'const app = express();\n' +
       "app.use(cors({ origin: true, credentials: true }));\n" +
       "app.get('/health', (_, res) => res.json({ ok: true }));\n" +
-      "app.get('/', (_, res) => res.send('Stage Stock API'));\n" +
+      "app.get('/', (_, res) => res.send('CATRACK Pro API'));\n" +
       'const PORT = process.env.PORT || 3000;\n' +
       "app.listen(PORT, '0.0.0.0', () => console.log('http://0.0.0.0:' + PORT));\n\n" +
       'Lancez : node server.js. Testez depuis le navigateur du téléphone : http://IP:3000/health',
@@ -63,7 +64,7 @@ const SECTIONS: { title: string; body: string }[] = [
       'Si ces quatre étapes passent, l’accès backend et la mise à jour de base sont opérationnels sur le Wi‑Fi local.',
   },
   {
-    title: '7. Configuration dans Stage Stock',
+    title: '7. Configuration dans CATRACK Pro',
     body:
       'Onglet « Réseau » : saisissez l’URL de base (ex. http://192.168.1.20:3000 sans slash final). Optionnel : clé API ' +
       'si votre serveur vérifie X-API-Key / Bearer, et chemin de santé si ce n’est pas /health. Enregistrez, puis ' +
@@ -107,10 +108,55 @@ const SECTIONS: { title: string; body: string }[] = [
   },
 ];
 
+const SECTIONS_EN: { title: string; body: string }[] = [
+  {
+    title: '0. Easy setup (recipe style)',
+    body:
+      'Goal: install the local server with no advanced IT skills.\n\n' +
+      'Step A: on phone, tap "Install server on PC".\n' +
+      'Step B: on PC, open the downloaded file and click "Next", "Install", "Finish".\n' +
+      'Step C: launch "StageStock" from the PC desktop.\n' +
+      'Step D: on phone, scan the QR shown by the PC.\n' +
+      'Step E: tap "Test connection".\n\n' +
+      'If unsure, remember this: 1) install EXE, 2) open StageStock, 3) scan QR.',
+  },
+  {
+    title: '1. Principle',
+    body:
+      'On theater Wi-Fi (or any LAN), a PC or mini-server can host the CATRACK Pro API. ' +
+      'Phones on the same Wi-Fi then use the local address (e.g. http://192.168.1.20:3000). ' +
+      'Inventory data mainly stays in the app (SQLite); the API is used for synchronization ' +
+      'or services connected server-side.',
+  },
+  {
+    title: '2. Network requirements',
+    body:
+      '• Phone and server PC must be on the same Wi-Fi (disable AP isolation if possible).\n' +
+      '• Note the PC IPv4 address on Windows: command prompt -> ipconfig -> Wi-Fi "IPv4 Address".\n' +
+      '• HTTP server must listen on 0.0.0.0 (all interfaces), not just localhost.',
+  },
+  {
+    title: '3. Minimal example (Node + Express)',
+    body:
+      'Create a folder, npm init, then: npm install express cors. server.js:\n\n' +
+      "const express = require('express');\n" +
+      "const cors = require('cors');\n" +
+      'const app = express();\n' +
+      "app.use(cors({ origin: true, credentials: true }));\n" +
+      "app.get('/health', (_, res) => res.json({ ok: true }));\n" +
+      "app.get('/', (_, res) => res.send('CATRACK Pro API'));\n" +
+      'const PORT = process.env.PORT || 3000;\n' +
+      "app.listen(PORT, '0.0.0.0', () => console.log('http://0.0.0.0:' + PORT));\n\n" +
+      'Run: node server.js. Test from phone browser: http://IP:3000/health',
+  },
+];
+
 export function GuideReseauLocalContent() {
+  const { language } = useLanguage();
+  const sections = language === 'en' ? SECTIONS_EN : SECTIONS_FR;
   return (
     <View style={g.wrap}>
-      {SECTIONS.map((sec, i) => (
+      {sections.map((sec, i) => (
         <View key={i} style={g.block}>
           <Text style={g.title}>{sec.title}</Text>
           <Text style={g.body}>{sec.body}</Text>
@@ -122,38 +168,42 @@ export function GuideReseauLocalContent() {
 
 /** Mode d’emploi simplifié (aucune adresse IP ni port). */
 export function GuideReseauPublicContent() {
+  const { language } = useLanguage();
+  const isEn = language === 'en';
   return (
     <View style={g.wrap}>
       <View style={g.block}>
-        <Text style={g.title}>Installer le serveur local (tres simple)</Text>
+        <Text style={g.title}>
+          {isEn ? 'Install local server (very simple)' : 'Installer le serveur local (tres simple)'}
+        </Text>
         <Text style={g.body}>
-          1) Sur le telephone, ouvrez Connexion puis touchez "Installer le serveur sur PC".{'\n'}
-          2) Sur le PC, ouvrez le fichier telecharge et cliquez "Suivant", "Installer", "Terminer".{'\n'}
-          3) Sur le PC, ouvrez StageStock Local depuis le bureau.{'\n'}
-          4) Sur le telephone, scannez le QR affiche par le PC.{'\n'}
-          5) Touchez "Tester la connexion". C est fini.
+          {isEn
+            ? '1) On phone, open Connection then tap "Install server on PC".\n2) On PC, open the downloaded file and click "Next", "Install", "Finish".\n3) On PC, open StageStock from the desktop.\n4) On phone, scan the QR shown by PC.\n5) Tap "Test connection". Done.'
+            : '1) Sur le telephone, ouvrez Connexion puis touchez "Installer le serveur sur PC".\n2) Sur le PC, ouvrez le fichier telecharge et cliquez "Suivant", "Installer", "Terminer".\n3) Sur le PC, ouvrez StageStock depuis le bureau.\n4) Sur le telephone, scannez le QR affiche par le PC.\n5) Touchez "Tester la connexion". C est fini.'}
         </Text>
       </View>
       <View style={g.block}>
-        <Text style={g.title}>Connexion automatique</Text>
+        <Text style={g.title}>{isEn ? 'Automatic connection' : 'Connexion automatique'}</Text>
         <Text style={g.body}>
-          L’application se connecte seule au service Stage Stock. Vous n’avez pas besoin de saisir d’adresse : tout se
-          fait en arrière-plan lorsque le téléphone a accès à Internet ou au même réseau Wi‑Fi que votre installation.
+          {isEn
+            ? 'The app can connect automatically to CATRACK Pro service. You do not need to type an address: everything runs in background when the phone has Internet access or is on the same Wi-Fi as your installation.'
+            : 'L’application se connecte seule au service CATRACK Pro. Vous n’avez pas besoin de saisir d’adresse : tout se fait en arrière-plan lorsque le téléphone a accès à Internet ou au même réseau Wi-Fi que votre installation.'}
         </Text>
       </View>
       <View style={g.block}>
-        <Text style={g.title}>Si rien ne se synchronise</Text>
+        <Text style={g.title}>{isEn ? 'If nothing syncs' : 'Si rien ne se synchronise'}</Text>
         <Text style={g.body}>
-          Vérifiez que le Wi‑Fi est actif, que le serveur de l’organisation est démarré, et que le pare-feu de votre
-          réseau n’empêche pas les connexions. Fermez puis rouvrez l’app, ou utilisez « Réessayer » dans l’onglet
-          Connexion.
+          {isEn
+            ? 'Check Wi-Fi is enabled, the organization server is running, and firewall rules are not blocking connections. Close and reopen the app, or tap "Retry" in the Connection tab.'
+            : 'Verifiez que le Wi-Fi est actif, que le serveur de l’organisation est demarre, et que le pare-feu de votre reseau n’empeche pas les connexions. Fermez puis rouvrez l’app, ou utilisez "Reessayer" dans l’onglet Connexion.'}
         </Text>
       </View>
       <View style={g.block}>
-        <Text style={g.title}>Données sur le téléphone</Text>
+        <Text style={g.title}>{isEn ? 'Data on phone' : 'Donnees sur le telephone'}</Text>
         <Text style={g.body}>
-          Votre inventaire reste disponible hors connexion sur l’appareil. La connexion sert à la synchronisation et aux
-          services en ligne lorsque c’est possible.
+          {isEn
+            ? 'Your inventory remains available offline on the device. Connection is used for synchronization and online services when available.'
+            : 'Votre inventaire reste disponible hors connexion sur l’appareil. La connexion sert a la synchronisation et aux services en ligne lorsque c’est possible.'}
         </Text>
       </View>
     </View>

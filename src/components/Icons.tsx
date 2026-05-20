@@ -35,6 +35,6 @@ export const NetworkIcon = icon('wifi-outline');
 export const UserIcon = icon('person-outline');
 export const InboxIcon = icon('mail-open-outline');
 export const BookIcon = icon('book-outline');
-export const SparklesIcon = icon('sparkles-outline');
+export const SparklesIcon = icon('star-outline');
 /** Hub « Menu » (liste des rubriques) */
 export const MenuIcon = icon('menu-outline');

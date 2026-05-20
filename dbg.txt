@@ -1,0 +1,69 @@
+﻿node.exe : npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm 
+help npmrc` for supported config options.
+Au caractère Ligne:1 : 1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm warn Unknow...config options.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+sqlite-sync-storage.spec ÔÇö S2.2
+  Ô£ô upsert + list : 2 lignes persist├®es
+  Ô£ô list FIFO par created_at (ASC)
+  Ô£ô list filtr├® status="pending" ÔåÆ 2 lignes
+  Ô£ô list filtr├® status=[pending,failed] ÔåÆ 2 lignes
+  Ô£ô list filtr├® dueAtOrBefore ÔåÆ null OR <=now
+  Ô£ô list limit=3 ÔåÆ 3 plus anciens
+  Ô£ô upsert idempotent : m├¬me id ÔåÆ update en place
+  Ô£ô payload s├®rialis├® puis d├®s├®rialis├® fid├¿lement
+  Ô£ô remove([a,c]) ÔåÆ ne reste que b
+  Ô£ô remove([]) no-op : pas de SQL inutile
+  Ô£ô upsert([]) no-op : pas de SQL inutile
+  Ô£ô count : total + filtr├®
+  Ô£ô base_version persiste (conflit optimiste OK)
+  Ô£ô cursor.get sur entit├® inconnue ÔåÆ null
+  Ô£ô cursor.set puis get ÔåÆ fid├¿le
+  Ô£ô cursor.set deuxi├¿me fois ÔåÆ upsert en place
+  Ô£ô log : par d├®faut, seuls warn+error en DB
+  Ô£ô log : persistLevels custom respect├®
+  Ô£ô log : detail s├®rialis├® en JSON fid├¿le
+DEBUG SQL calls: [
+  'INSERT INTO sync_log (ts, level, event, entity, entity_id, d',
+  'SELECT COUNT(*) AS n FROM sync_log',
+  'INSERT INTO sync_log (ts, level, event, entity, entity_id, d',
+  'SELECT COUNT(*) AS n FROM sync_log',
+  'INSERT INTO sync_log (ts, level, event, entity, entity_id, d',
+  'SELECT COUNT(*) AS n FROM sync_log',
+  'INSERT INTO sync_log (ts, level, event, entity, entity_id, d',
+  'SELECT COUNT(*) AS n FROM sync_log',
+  'INSERT INTO sync_log (ts, level, event, entity, entity_id, d',
+  'SELECT COUNT(*) AS n FROM sync_log',
+  'INSERT INTO sync_log (ts, level, event, entity, entity_id, d',
+  'SELECT COUNT(*) AS n FROM sync_log',
+  'INSERT INTO sync_log (ts, level, event, entity, entity_id, d',
+  'SELECT COUNT(*) AS n FROM sync_log',
+  'INSERT INTO sync_log (ts, level, event, entity, entity_id, d',
+  'SELECT COUNT(*) AS n FROM sync_log',
+  'INSERT INTO sync_log (ts, level, event, entity, entity_id, d',
+  'SELECT COUNT(*) AS n FROM sync_log',
+  'INSERT INTO sync_log (ts, level, event, entity, entity_id, d',
+  'SELECT COUNT(*) AS n FROM sync_log',
+  'INSERT INTO sync_log (ts, level, event, entity, entity_id, d',
+  'SELECT COUNT(*) AS n FROM sync_log',
+  'INSERT INTO sync_log (ts, level, event, entity, entity_id, d',
+  'SELECT COUNT(*) AS n FROM sync_log'
+]
+sqlite-sync-storage.spec: FAIL AssertionError [ERR_ASSERTION]: trim doit borner ├á maxRows (actuel=12)
+
+12 !== 5
+
+    at case_log_trimExcessOldest (C:\Users\dell\Desktop\ENSATT\Documents et Textes\inventaire\consommable 
+Vellein\-old-StageStock\StageStock\src\sync\sqliteSyncStorage.spec.ts:439:10)
+    at async run (C:\Users\dell\Desktop\ENSATT\Documents et Textes\inventaire\consommable 
+Vellein\-old-StageStock\StageStock\src\sync\sqliteSyncStorage.spec.ts:505:3) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 12,
+  expected: 5,
+  operator: 'strictEqual',
+  diff: 'simple'
+}

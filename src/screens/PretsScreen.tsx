@@ -8,11 +8,18 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import { format, parseISO, isValid } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Colors } from '../theme/colors';
+import { getMateriel } from '../db/inventoryDb';
+import { getBeneficiaires, insertBeneficiaire, updateBeneficiaire } from '../db/metadataDb';
 import {
-  getPrets, updatePret, deletePret, getMateriel, getPretMateriel, insertPret, insertPretDemande,
-  replacePretDemandeMateriels, listAppUsersForLogin,
-  getBeneficiaires, insertBeneficiaire, updateBeneficiaire,
-} from '../db/database';
+  getPrets,
+  getPretMateriel,
+  updatePret,
+  deletePret,
+  insertPret,
+  insertPretDemande,
+  replacePretDemandeMateriels,
+} from '../db/loanDb';
+import { listAppUsersForLogin } from '../db/userDb';
 import {
   Pret, Materiel, StatutPret, PretMateriel, EtatMateriel, AppUserRole, AppUser, Beneficiaire,
 } from '../types';
@@ -29,14 +36,9 @@ import { reschedulePretReturnReminders } from '../lib/pretNotifications';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 import { exportPretsIcs } from '../lib/csvExportImport';
 import SignaturePad from '../components/SignaturePad';
+import { useLanguage } from '../context/LanguageContext';
 
-const STATUTS_PRET = [
-  { label: 'En demande', value: 'en demande' },
-  { label: 'En cours', value: 'en cours' },
-  { label: 'Retourné', value: 'retourné' },
-  { label: 'En retard', value: 'en retard' },
-  { label: 'Annulé', value: 'annulé' },
-];
+const STATUTS_PRET_VALUES: StatutPret[] = ['en demande', 'en cours', 'retourné', 'en retard', 'annulé'];
 
 function formatDateCourt(raw: string | undefined): string {
   if (!raw) return '';
@@ -46,20 +48,15 @@ function formatDateCourt(raw: string | undefined): string {
 }
 
 const FILTRE_PRETS: { key: 'tous' | StatutPret; label: string }[] = [
-  { key: 'tous', label: 'Tous' },
-  { key: 'en demande', label: 'Demandes' },
-  { key: 'en cours', label: 'En cours' },
-  { key: 'en retard', label: 'Retard' },
-  { key: 'retourné', label: 'Retournés' },
-  { key: 'annulé', label: 'Annulés' },
+  { key: 'tous', label: 't.loans.filter.all' },
+  { key: 'en demande', label: 't.loans.filter.requests' },
+  { key: 'en cours', label: 't.loans.filter.active' },
+  { key: 'en retard', label: 't.loans.filter.late' },
+  { key: 'retourné', label: 't.loans.filter.returned' },
+  { key: 'annulé', label: 't.loans.filter.cancelled' },
 ];
 
-const ETATS_RET: { label: string; value: EtatMateriel }[] = [
-  { label: 'Bon', value: 'bon' },
-  { label: 'Moyen', value: 'moyen' },
-  { label: 'Usé', value: 'usé' },
-  { label: 'Hors service', value: 'hors service' },
-];
+const ETATS_RET_VALUES: EtatMateriel[] = ['bon', 'moyen', 'usé', 'hors service'];
 
 /** Même intitulé (hors casse / espaces) : on regroupe, sans tenir compte du n° de série, QR ou catégorie. */
 function normPretMaterielName(n: string): string {
@@ -108,6 +105,7 @@ function expandPretNameQtyToIds(
 }
 
 export default function PretsScreen() {
+  const { t } = useLanguage();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { user, can } = useAppAuth();
@@ -180,10 +178,10 @@ export default function PretsScreen() {
 
   const handleDelete = (item: Pret) => {
     if (!can('delete_pret')) return;
-    Alert.alert('Supprimer', `Supprimer le prêt "${item.emprunteur}" ?`, [
-      { text: 'Annuler', style: 'cancel' },
+    Alert.alert(t('loans.deleteTitle'), t('loans.deleteConfirm', { borrower: item.emprunteur }), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Supprimer', style: 'destructive',
+        text: t('loans.deleteTitle'), style: 'destructive',
         onPress: async () => {
           try {
             await deletePret(item.id);
@@ -191,7 +189,7 @@ export default function PretsScreen() {
             void triggerSyncAfterActionIfEnabled();
           } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e);
-            Alert.alert('Suppression impossible', msg);
+            Alert.alert(t('loans.deleteError'), msg);
           }
         }
       },
@@ -203,7 +201,7 @@ export default function PretsScreen() {
       const lignes = await getPretMateriel(p.id);
       await exportFichePretPdf(p, lignes);
     } catch (e: any) {
-      Alert.alert('PDF', e?.message ?? 'Export impossible');
+      Alert.alert(t('loans.pdf'), e?.message ?? t('loans.exportImpossible'));
     }
   };
 
@@ -213,7 +211,7 @@ export default function PretsScreen() {
     try {
       await exportPretsIcs();
     } catch (e: any) {
-      Alert.alert('Export .ics', e?.message ?? 'Export impossible');
+      Alert.alert(t('loans.icsExport'), e?.message ?? t('loans.exportImpossible'));
     } finally {
       setExportingIcs(false);
     }
@@ -226,8 +224,10 @@ export default function PretsScreen() {
           <Text style={s.name}>{item.emprunteur}</Text>
           {item.organisation && <Text style={s.sub}>{item.organisation}</Text>}
           <Text style={s.sub}>
-            Départ {formatDateCourt(item.date_depart)}
-            {item.retour_prevu ? ` → retour ${formatDateCourt(item.retour_prevu)}` : ''}
+            {t('loans.row.period', {
+              start: formatDateCourt(item.date_depart),
+              end: item.retour_prevu ? ` -> ${formatDateCourt(item.retour_prevu)}` : '',
+            })}
           </Text>
         </View>
         <PretStatutBadge statut={item.statut} />
@@ -253,8 +253,8 @@ export default function PretsScreen() {
       <View style={{ padding: 20, paddingBottom: 0 }}>
         <ScreenHeader
           icon={<Text style={{ fontSize: 22, color: Colors.green }}>📋</Text>}
-          title="Prêts"
-          rightLabel={isBorrower ? 'Nouvelle demande' : 'Nouveau'}
+          title={t('loans.title')}
+          rightLabel={isBorrower ? t('loans.newRequest') : t('loans.new')}
           onRightPress={() => {
             if (!user) return;
             setEditItem(null);
@@ -276,7 +276,9 @@ export default function PretsScreen() {
                 style={[s.chip, active && s.chipActive]}
                 onPress={() => setFiltreStatut(key)}
               >
-                <Text style={[s.chipText, active && s.chipTextActive]}>{label}</Text>
+                <Text style={[s.chipText, active && s.chipTextActive]}>
+                  {label.startsWith('t.') ? t(label.slice(2)) : label}
+                </Text>
               </TouchableOpacity>
             );
           })}
@@ -288,16 +290,16 @@ export default function PretsScreen() {
               onPress={() => void handleExportIcs()}
               disabled={exportingIcs}
               accessibilityRole="button"
-              accessibilityLabel="Exporter les dates de prêt au format calendrier ICS"
+              accessibilityLabel={t('loans.a11y.exportIcs')}
             >
               {exportingIcs ? (
                 <ActivityIndicator color={Colors.white} size="small" />
               ) : (
-                <Text style={s.icsBtnText}>Exporter .ics (calendrier)</Text>
+                <Text style={s.icsBtnText}>{t('loans.exportIcs')}</Text>
               )}
             </TouchableOpacity>
             <Text style={s.icsHint}>
-              Départ → retour prévu, hors prêts annulés. Partage vers Outlook, Google Agenda, etc.
+              {t('loans.exportIcsHint')}
             </Text>
           </View>
         )}
@@ -313,7 +315,7 @@ export default function PretsScreen() {
           <View style={s.empty}>
             <Text style={{ fontSize: 40 }}>📋</Text>
             <Text style={{ color: Colors.textMuted, marginTop: 12 }}>
-              {filtreStatut === 'tous' ? 'Aucun prêt enregistré' : 'Aucun prêt dans ce filtre'}
+              {filtreStatut === 'tous' ? t('loans.empty') : t('loans.emptyFilter')}
             </Text>
           </View>
         }
@@ -340,6 +342,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
   /** Emprunteur : création d’une demande (statut « en demande », sans sortir le stock). */
   borrowerNewDemand?: boolean;
 }) {
+  const { t } = useLanguage();
   const borrowerCreatingDemande = !!borrowerNewDemand && !item;
   const [numeroFeuille, setNumeroFeuille] = useState('');
   const [statut, setStatut] = useState('en cours');
@@ -372,6 +375,38 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
     () => buildPretMaterielNameGroups(allMateriels),
     [allMateriels]
   );
+  const statutOptions = useMemo(
+    () =>
+      STATUTS_PRET_VALUES.map(value => ({
+        value,
+        label:
+          value === 'en demande'
+            ? t('status.loan.pending')
+            : value === 'en cours'
+              ? t('status.loan.active')
+              : value === 'retourné'
+                ? t('status.loan.returned')
+                : value === 'en retard'
+                  ? t('status.loan.late')
+                  : t('status.loan.cancelled'),
+      })),
+    [t]
+  );
+  const etatsRetourOptions = useMemo(
+    () =>
+      ETATS_RET_VALUES.map(value => ({
+        value,
+        label:
+          value === 'bon'
+            ? t('status.condition.good')
+            : value === 'moyen'
+              ? t('status.condition.medium')
+              : value === 'usé'
+                ? t('status.condition.worn')
+                : t('status.condition.out_of_service'),
+      })),
+    [t]
+  );
 
   const resolvedMaterielIds = useMemo(
     () => expandPretNameQtyToIds(nameGroups, qtyByNameKey),
@@ -380,13 +415,13 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
 
   const benOptions = useMemo(
     () => [
-      { label: '— Saisie libre —', value: '' },
+      { label: t('common.manualEntry'), value: '' },
       ...beneficiaires.map(b => ({
         label: b.organisation?.trim() ? `${b.nom} — ${b.organisation.trim()}` : b.nom,
         value: b.id,
       })),
     ],
-    [beneficiaires]
+    [beneficiaires, t]
   );
 
   useEffect(() => {
@@ -544,7 +579,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
 
   const saveBeneficiaireToRepertoire = async () => {
     if (!emprunteur.trim()) {
-      Alert.alert('Nom requis', 'Renseignez au moins le nom pour enregistrer une fiche bénéficiaire.');
+      Alert.alert(t('loans.recipient.nameRequiredTitle'), t('loans.recipient.nameRequiredBody'));
       return;
     }
     try {
@@ -557,23 +592,20 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       const list = await getBeneficiaires();
       setBeneficiaires(list);
       setBeneficiaireRepId(id);
-      Alert.alert('✓', 'Bénéficiaire ajouté au répertoire.');
+      Alert.alert('✓', t('loans.recipient.created'));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      Alert.alert('Erreur', msg);
+      Alert.alert(t('loans.error'), msg);
     }
   };
 
   const updateBeneficiaireRepertoire = async () => {
     if (!beneficiaireRepId) {
-      Alert.alert(
-        'Répertoire',
-        'Choisissez une fiche dans la liste « Fiche bénéficiaire », ou enregistrez d’abord une nouvelle fiche avec « + Répertoire ».'
-      );
+      Alert.alert(t('loans.recipient.directoryTitle'), t('loans.recipient.directoryBody'));
       return;
     }
     if (!emprunteur.trim()) {
-      Alert.alert('Nom requis');
+      Alert.alert(t('loans.recipient.nameRequiredTitle'));
       return;
     }
     try {
@@ -584,10 +616,10 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
         email: email.trim() || null,
       });
       setBeneficiaires(await getBeneficiaires());
-      Alert.alert('✓', 'Fiche du répertoire mise à jour.');
+      Alert.alert('✓', t('loans.recipient.updated'));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      Alert.alert('Erreur', msg);
+      Alert.alert(t('loans.error'), msg);
     }
   };
 
@@ -596,7 +628,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
     setNotifyLoading(true);
     try {
       const r = await notifyStaffAboutBorrowerReturn(item, horairePrecision);
-      Alert.alert(r.ok ? 'Notification' : 'Attention', r.message);
+      Alert.alert(r.ok ? t('loans.notification') : t('loans.warning'), r.message);
     } finally {
       setNotifyLoading(false);
     }
@@ -604,17 +636,17 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
 
   const handleSave = async () => {
     if (readOnly && !borrowerCreatingDemande) return;
-    if (!emprunteur.trim()) { Alert.alert('Champ requis', 'L\'emprunteur est obligatoire'); return; }
-    if (!dateDepart) { Alert.alert('Champ requis', 'La date de départ est obligatoire'); return; }
+    if (!emprunteur.trim()) { Alert.alert(t('loans.field.required'), t('loans.field.borrowerRequired')); return; }
+    if (!dateDepart) { Alert.alert(t('loans.field.required'), t('loans.field.startDateRequired')); return; }
     if (
       resolvedMaterielIds.length === 0 &&
       (borrowerCreatingDemande || (!item && statut === 'en demande'))
     ) {
-      Alert.alert('Matériel', 'Sélectionnez au moins un matériel pour une demande de prêt.');
+      Alert.alert(t('loans.material'), t('loans.material.selectAtLeastOneForRequest'));
       return;
     }
     if (item?.statut === 'en demande' && statut === 'en cours' && resolvedMaterielIds.length === 0) {
-      Alert.alert('Matériel', 'Ajoutez au moins un matériel à la demande avant validation.');
+      Alert.alert(t('loans.material'), t('loans.material.addBeforeValidation'));
       return;
     }
     const rappelTrim = rappelJoursAvant.trim();
@@ -624,10 +656,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
     } else {
       const n = parseInt(rappelTrim, 10);
       if (!Number.isFinite(n) || n < 1) {
-        Alert.alert(
-          'Rappel',
-          'Nombre de jours avant retour : entier ≥ 1, ou laissez vide pour le défaut (1 jour = J-1).'
-        );
+        Alert.alert(t('loans.reminder.title'), t('loans.reminder.invalidBody'));
         return;
       }
       rappel_jours_avant = Math.min(365, n);
@@ -694,7 +723,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
         const created = list.find(x => x.id === newId);
         if (created) {
           const n = await notifyAdminsNewPretDemande(created);
-          if (!n.ok) Alert.alert('Attention', n.message);
+          if (!n.ok) Alert.alert(t('loans.warning'), n.message);
         }
       } else {
         const demande = statut === 'en demande';
@@ -718,7 +747,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
           const created = list.find(x => x.id === newId);
           if (created) {
             const n = await notifyAdminsNewPretDemande(created);
-            if (!n.ok) Alert.alert('Attention', n.message);
+            if (!n.ok) Alert.alert(t('loans.warning'), n.message);
           }
         }
       }
@@ -726,19 +755,19 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       void triggerSyncAfterActionIfEnabled();
       onClose();
     } catch (e: any) {
-      Alert.alert('Erreur', e.message);
+      Alert.alert(t('loans.error'), e.message);
     } finally {
       setSaving(false);
     }
   };
 
   const modalTitle = borrowerCreatingDemande
-    ? 'Nouvelle demande de prêt'
+    ? t('loans.modal.newRequest')
     : readOnly && item
-      ? 'Votre prêt'
+      ? t('loans.modal.yourLoan')
       : item
-        ? 'Modifier le prêt'
-        : 'Nouvelle feuille de prêt';
+        ? t('loans.modal.edit')
+        : t('loans.modal.new');
   const formLocked = !!readOnly && !borrowerCreatingDemande;
 
   return (
@@ -749,14 +778,13 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
     >
       {borrowerCreatingDemande ? (
         <Text style={{ color: Colors.textMuted, fontSize: 13, marginBottom: 14, lineHeight: 20 }}>
-          Votre demande sera envoyée aux administrateurs. Vous recevrez une notification lorsqu’elle sera acceptée
-          (le prêt passera alors en « en cours » et le matériel sera sorti du stock).
+          {t('loans.requestInfo')}
         </Text>
       ) : (
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <View style={{ flex: 1 }}>
             <Input
-              label="N° feuille"
+              label={t('loans.field.sheetNumber')}
               value={numeroFeuille}
               onChangeText={setNumeroFeuille}
               editable={!formLocked}
@@ -764,9 +792,9 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
           </View>
           <View style={{ flex: 1 }}>
             <SelectPicker
-              label="Statut"
+              label={t('loans.field.status')}
               value={statut}
-              options={STATUTS_PRET}
+              options={statutOptions}
               onChange={setStatut}
               disabled={formLocked}
             />
@@ -777,7 +805,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       {!borrowerCreatingDemande && (
         <>
           <SelectPicker
-            label="Fiche bénéficiaire"
+            label={t('loans.field.recipientFile')}
             value={beneficiaireRepId}
             options={benOptions}
             onChange={onBeneficiaireSelect}
@@ -785,27 +813,27 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
           />
           {!formLocked && (
             <Text style={{ color: Colors.textMuted, fontSize: 11, marginBottom: 10 }}>
-              Choisissez une fiche enregistrée (Paramètres) ou saisissez librement ci-dessous.
+              {t('loans.field.recipientHint')}
             </Text>
           )}
         </>
       )}
 
       <Input
-        label="Emprunteur"
+        label={t('loans.field.borrower')}
         value={emprunteur}
         onChangeText={setEmprunteur}
-        placeholder="Nom complet"
+        placeholder={t('loans.field.fullName')}
         required
         editable={!formLocked && !borrowerCreatingDemande}
       />
 
       {authUser && authUser.role !== 'emprunteur' && (
         <SelectPicker
-          label="Compte emprunteur (optionnel)"
+          label={t('loans.field.borrowerAccountOptional')}
           value={emprunteurUserId}
           options={[
-            { label: '— Aucun —', value: '' },
+            { label: t('common.noneLongDash'), value: '' },
             ...borrowerAccounts.map(u => ({ label: u.nom, value: u.id })),
           ]}
           onChange={setEmprunteurUserId}
@@ -816,7 +844,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
           <Input
-            label="Organisation"
+            label={t('loans.field.organization')}
             value={organisation}
             onChangeText={setOrganisation}
             editable={!formLocked}
@@ -824,7 +852,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
         </View>
         <View style={{ flex: 1 }}>
           <Input
-            label="Téléphone"
+            label={t('loans.field.phone')}
             value={telephone}
             onChangeText={setTelephone}
             keyboardType="phone-pad"
@@ -834,7 +862,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       </View>
 
       <Input
-        label="Email"
+        label={t('loans.field.email')}
         value={email}
         onChangeText={setEmail}
         keyboardType="email-address"
@@ -844,10 +872,10 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       {!formLocked && (
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
           <TouchableOpacity style={ms.repBtn} onPress={saveBeneficiaireToRepertoire}>
-            <Text style={ms.repBtnText}>+ Enregistrer au répertoire</Text>
+            <Text style={ms.repBtnText}>{t('loans.recipient.saveToDirectory')}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={ms.repBtnOutline} onPress={updateBeneficiaireRepertoire}>
-            <Text style={ms.repBtnTextOut}>Mettre à jour la fiche</Text>
+            <Text style={ms.repBtnTextOut}>{t('loans.recipient.updateFile')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -855,7 +883,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
         <View style={{ flex: 1 }}>
           <DateField
-            label="Date départ"
+            label={t('loans.field.startDate')}
             value={dateDepart}
             onChange={setDateDepart}
             required
@@ -864,7 +892,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
         </View>
         <View style={{ flex: 1 }}>
           <DateField
-            label="Retour prévu"
+            label={t('loans.field.expectedReturn')}
             value={retourPrevu}
             onChange={setRetourPrevu}
             allowClear
@@ -876,16 +904,16 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       {!borrowerCreatingDemande && (
         <>
           <Input
-            label="Rappel (jours avant retour prévu)"
+            label={t('loans.field.reminderDays')}
             value={rappelJoursAvant}
             onChangeText={setRappelJoursAvant}
             keyboardType="number-pad"
-            placeholder="Vide = 1 jour (J-1), à 9 h"
+            placeholder={t('loans.field.reminderPlaceholder')}
             editable={!formLocked}
           />
           {!formLocked && (
             <Text style={{ color: Colors.textMuted, fontSize: 11, marginTop: -4, marginBottom: 8 }}>
-              Ex. 7 pour un rappel une semaine avant. Laissez vide pour le comportement par défaut (veille du retour).
+              {t('loans.field.reminderHint')}
             </Text>
           )}
         </>
@@ -895,7 +923,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
         <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
           <View style={{ flex: 1 }}>
             <DateField
-              label="Retour réel"
+              label={t('loans.field.actualReturn')}
               value={retourReel}
               onChange={setRetourReel}
               allowClear
@@ -904,7 +932,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
           </View>
           <View style={{ flex: 1 }}>
             <Input
-              label="Valeur estimée (€)"
+              label={t('loans.field.estimatedValue')}
               value={valeurEstimee}
               onChangeText={setValeurEstimee}
               keyboardType="decimal-pad"
@@ -915,7 +943,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       )}
 
       <Input
-        label="Commentaire"
+        label={t('loans.field.comment')}
         value={commentaire}
         onChangeText={setCommentaire}
         multiline
@@ -929,36 +957,36 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
             onClear={() => setSignatureB64(null)}
           />
           {signatureB64 && (
-            <Text style={{ color: Colors.green, fontSize: 12, marginBottom: 8 }}>Signature capturée</Text>
+            <Text style={{ color: Colors.green, fontSize: 12, marginBottom: 8 }}>{t('loans.signature.captured')}</Text>
           )}
         </>
       ) : !borrowerCreatingDemande ? (
         <Text style={{ color: Colors.textMuted, fontSize: 13, marginBottom: 12 }}>
-          {signatureB64 ? 'Signature enregistrée sur la feuille.' : 'Pas de signature sur cette feuille.'}
+          {signatureB64 ? t('loans.signature.saved') : t('loans.signature.none')}
         </Text>
       ) : null}
 
       {item && lignesPret.length > 0 && !(item.statut === 'en demande' && !formLocked) && (
         <>
-          <Text style={ms.sectionLabel}>Matériels sur cette feuille</Text>
+          <Text style={ms.sectionLabel}>{t('loans.materials.onSheet')}</Text>
           <View style={ms.matBox}>
             {lignesPret.map(l => (
               <View key={l.id} style={[ms.matRowCol, { opacity: l.retourne ? 0.55 : 1 }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                   <Text style={{ color: Colors.white, flex: 1 }}>{l.materiel_nom ?? l.materiel_id}</Text>
                   {l.retourne ? (
-                    <Text style={{ color: Colors.green, fontSize: 12 }}>Rendu</Text>
+                    <Text style={{ color: Colors.green, fontSize: 12 }}>{t('loans.material.returned')}</Text>
                   ) : (
                     <Text style={{ color: Colors.textMuted, fontSize: 12 }}>
-                      {item.statut === 'en demande' ? 'Sur la demande' : 'Sorti'}
+                      {item.statut === 'en demande' ? t('loans.material.onRequest') : t('loans.material.out')}
                     </Text>
                   )}
                 </View>
                 {statut === 'retourné' && !formLocked && (
                   <SelectPicker
-                    label="État au retour"
+                    label={t('loans.field.returnCondition')}
                     value={etatsRetour[l.materiel_id] ?? 'bon'}
-                    options={ETATS_RET}
+                    options={etatsRetourOptions}
                     onChange={v =>
                       setEtatsRetour(prev => ({ ...prev, [l.materiel_id]: v as EtatMateriel }))
                     }
@@ -966,8 +994,8 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
                 )}
                 {statut === 'retourné' && formLocked && (
                   <Text style={{ color: Colors.textSecondary, fontSize: 13, marginTop: 4 }}>
-                    État au retour :{' '}
-                    {ETATS_RET.find(e => e.value === (etatsRetour[l.materiel_id] ?? 'bon'))?.label ?? '—'}
+                    {t('loans.field.returnConditionValue')}{' '}
+                    {etatsRetourOptions.find(e => e.value === (etatsRetour[l.materiel_id] ?? 'bon'))?.label ?? '—'}
                   </Text>
                 )}
               </View>
@@ -980,17 +1008,15 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       {!formLocked && (!item || item.statut === 'en demande') && (
         <>
           <Text style={ms.sectionLabel}>
-            {borrowerCreatingDemande || item?.statut === 'en demande' ? 'Matériels demandés' : 'Matériels prêtés'}
+            {borrowerCreatingDemande || item?.statut === 'en demande' ? t('loans.materials.requested') : t('loans.materials.loaned')}
           </Text>
           <Text style={{ color: Colors.textMuted, fontSize: 12, marginBottom: 8, lineHeight: 18 }}>
-            Par nom d’article (insensible à la casse) : indiquez combien d’exemplaires emprunter, sans dépasser le
-            nombre d’unités « en stock » partageant le même libellé (chaque fiche a son S/N / QR, non affichés ici).
+            {t('loans.materials.selectionHint')}
           </Text>
           <View style={ms.matBox}>
             {allMateriels.length === 0 ? (
               <Text style={{ color: Colors.textMuted, fontSize: 13, paddingVertical: 8 }}>
-                Aucun matériel « en stock » disponible pour la sélection. Les fiches déjà en prêt ou en réparation
-                n’apparaissent pas ici — vérifiez le stock ou contactez un technicien.
+                {t('loans.materials.noneAvailable')}
               </Text>
             ) : (
               nameGroups.map(g => {
@@ -1002,9 +1028,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
                         {g.displayName}
                       </Text>
                       <Text style={{ color: Colors.textMuted, fontSize: 11, marginTop: 2 }}>
-                        {g.ids.length} exemplaire{g.ids.length > 1 ? 's' : ''} disponible{g.ids.length > 1 ? 's' : ''}
-                        {' · '}
-                        {q > 0 ? `${q} choisi(s)` : '—'}
+                        {t('loans.materials.availableChosen', { available: g.ids.length, chosen: q })}
                       </Text>
                     </View>
                     <View style={ms.qtyStepper}>
@@ -1013,7 +1037,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
                         onPress={() => bumpNameQty(g.key, -1)}
                         disabled={q <= 0}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        accessibilityLabel="Diminuer la quantité"
+                        accessibilityLabel={t('loans.a11y.decreaseQty')}
                       >
                         <Text style={ms.qtyStepTxt}>−</Text>
                       </TouchableOpacity>
@@ -1023,7 +1047,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
                         onPress={() => bumpNameQty(g.key, 1)}
                         disabled={q >= g.ids.length}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        accessibilityLabel="Augmenter la quantité"
+                        accessibilityLabel={t('loans.a11y.increaseQty')}
                       >
                         <Text style={ms.qtyStepTxt}>+</Text>
                       </TouchableOpacity>
@@ -1041,19 +1065,19 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       {readOnly && item && item.statut !== 'en demande' && (
         <>
           <Input
-            label="Précision pour l’équipe (horaire, lieu de dépôt…)"
+            label={t('loans.field.teamPrecision')}
             value={horairePrecision}
             onChangeText={setHorairePrecision}
             multiline
-            placeholder="Ex. retour demain à 17 h, dépôt au magasin…"
+            placeholder={t('loans.field.teamPrecisionPlaceholder')}
           />
           <View style={{ flexDirection: 'row', marginTop: 16, marginBottom: 8, gap: 12 }}>
             <View style={{ flex: 1 }}>
-              <BtnSecondary label="Fermer" onPress={onClose} />
+              <BtnSecondary label={t('common.close')} onPress={onClose} />
             </View>
             <View style={{ flex: 1 }}>
               <BtnPrimary
-                label="Notifier l’équipe"
+                label={t('loans.notifyTeam')}
                 onPress={() => void handleNotify()}
                 loading={notifyLoading}
               />

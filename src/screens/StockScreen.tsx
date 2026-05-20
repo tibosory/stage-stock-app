@@ -1,5 +1,5 @@
 // src/screens/StockScreen.tsx
-import React, { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Fragment, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,18 +12,15 @@ import {
   RefreshControl,
   ScrollView,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../theme/colors';
-import {
-  getMateriel,
-  deleteMateriel,
-  getCategories,
-  getLocalisations,
-  getMaterielById,
-  getStats,
-} from '../db/database';
+import { deleteMateriel } from '../db/inventoryOpsDb';
+import { getCategories, getLocalisations } from '../db/catalogDb';
+import { getMaterielById } from '../db/inventoryDb';
+import { getStats } from '../db/metadataDb';
 import { Materiel, Categorie, Localisation, StatutMateriel } from '../types';
 import {
   EtatBadge,
@@ -40,16 +37,19 @@ import ShelfLabelsModal from '../components/ShelfLabelsModal';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 import { countMaterielSameNameEnStock } from '../lib/materielSameName';
 import { exportMaterielFichesPdf } from '../lib/pdfMaterielFiche';
-import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { getMaterielsCached, invalidateInventorySnapshotCache } from '../db/materialRepository';
+import { useStockListViewModel } from '../ui/hooks/useStockListViewModel';
+import { listTours } from '../db/trackingDb';
+import { useLanguage } from '../context/LanguageContext';
+
+const STOCK_LIST_PAGE_SIZE = 80;
 
 export default function StockScreen({ navigation, route }: any) {
+  const { t } = useLanguage();
   const { can } = useAppAuth();
   const insets = useSafeAreaInsets();
   const editOk = can('edit_inventory');
   const [materiels, setMateriels] = useState<Materiel[]>([]);
-  const [filtered, setFiltered] = useState<Materiel[]>([]);
-  const [search, setSearch] = useState('');
-  const debouncedSearch = useDebouncedValue(search, 220);
   const [refreshing, setRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showSerieModal, setShowSerieModal] = useState(false);
@@ -58,39 +58,71 @@ export default function StockScreen({ navigation, route }: any) {
   const [editItem, setEditItem] = useState<Materiel | null>(null);
   const [categories, setCategories] = useState<Categorie[]>([]);
   const [localisations, setLocalisations] = useState<Localisation[]>([]);
-  const [statutFilter, setStatutFilter] = useState<'tous' | StatutMateriel>('tous');
   const [stats, setStats] = useState({
     totalMateriels: 0,
     enPret: 0,
     pretsEnCours: 0,
     alertesConsommables: 0,
   });
+  const [tourNamesById, setTourNamesById] = useState<Record<string, string>>({});
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const loadGenerationRef = useRef(0);
   /** Dernière fiche « sélectionnée » (tap sur la ligne) : affichage du décompte par libellé. */
   const [infoFocusItem, setInfoFocusItem] = useState<Materiel | null>(null);
   /** Sélection (appui long) pour export PDF fiches matériel (photo + infos). */
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const { height: screenHeight } = useWindowDimensions();
   const bottomDockPad =
     Platform.OS === 'android' ? Math.max(insets.bottom, 52) : Math.max(insets.bottom, 12);
   const listBottomPadding = 60 + bottomDockPad + 28;
+  const listMinHeight = Math.max(Math.floor(screenHeight * 0.4), 280);
+  const topPanelMaxHeight = Math.floor(screenHeight * 0.56);
+  const {
+    search,
+    setSearch,
+    statusFilter: statutFilter,
+    setStatusFilter: setStatutFilter,
+    filtered,
+    visible: visibleFiltered,
+    showMore,
+  } = useStockListViewModel(materiels, { pageSize: STOCK_LIST_PAGE_SIZE });
 
   const load = useCallback(async () => {
+    const gen = ++loadGenerationRef.current;
     try {
-      const [mats, cats, locs, st] = await Promise.all([
-        getMateriel(),
+      const [mats, cats, locs, st, tours] = await Promise.all([
+        getMaterielsCached(),
         getCategories(),
         getLocalisations(),
         getStats(),
+        listTours(),
       ]);
+      if (gen !== loadGenerationRef.current) return;
       setMateriels(mats);
-      setFiltered(mats);
       setCategories(cats);
       setLocalisations(locs);
       setStats(st);
+      setTourNamesById(
+        tours.reduce<Record<string, string>>((acc, t) => {
+          acc[t.id] = t.name;
+          return acc;
+        }, {})
+      );
+    } catch {
+      /* ne pas bloquer l’UI : liste vide / stats par défaut si lecture échoue */
+      if (gen === loadGenerationRef.current) {
+        setMateriels([]);
+        setCategories([]);
+        setLocalisations([]);
+        setStats({ totalMateriels: 0, enPret: 0, pretsEnCours: 0, alertesConsommables: 0 });
+        setTourNamesById({});
+      }
     } finally {
-      setHasLoadedOnce(true);
+      if (gen === loadGenerationRef.current) {
+        setHasLoadedOnce(true);
+      }
     }
   }, []);
 
@@ -105,26 +137,6 @@ export default function StockScreen({ navigation, route }: any) {
       navigation.setParams({ applyStatutFilter: undefined } as never);
     }, [route.params?.applyStatutFilter, navigation])
   );
-
-  const applyFilters = useCallback((list: Materiel[], q: string, statut: typeof statutFilter) => {
-    let next = list;
-    if (statut !== 'tous') {
-      next = next.filter(m => m.statut === statut);
-    }
-    if (!q) return next;
-    const low = q.toLowerCase();
-    return next.filter(m =>
-      m.nom.toLowerCase().includes(low) ||
-      m.qr_code?.toLowerCase().includes(low) ||
-      m.numero_serie?.toLowerCase().includes(low) ||
-      m.marque?.toLowerCase().includes(low) ||
-      (m as any).categorie_nom?.toLowerCase().includes(low)
-    );
-  }, []);
-
-  useEffect(() => {
-    setFiltered(applyFilters(materiels, debouncedSearch, statutFilter));
-  }, [materiels, debouncedSearch, statutFilter, applyFilters]);
 
   const infoFocusSameNameCount = useMemo(() => {
     if (!infoFocusItem) return null;
@@ -186,7 +198,7 @@ export default function StockScreen({ navigation, route }: any) {
 
   const handleExportFichesPdf = useCallback(async () => {
     if (selectedIds.length === 0) {
-      Alert.alert('Aucune fiche', 'Sélectionnez au moins un matériel (touchez les lignes en mode sélection).');
+      Alert.alert(t('stock.export.none_title'), t('stock.export.none_body'));
       return;
     }
     setPdfBusy(true);
@@ -196,7 +208,7 @@ export default function StockScreen({ navigation, route }: any) {
       exitSelectMode();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      Alert.alert('Export PDF', msg || 'Génération impossible.');
+      Alert.alert(t('stock.export.title'), msg || 'Génération impossible.');
     } finally {
       setPdfBusy(false);
     }
@@ -243,15 +255,17 @@ export default function StockScreen({ navigation, route }: any) {
   }, [navigation]);
 
   const FILTER_CHIPS: { key: typeof statutFilter; label: string }[] = [
-    { key: 'tous', label: 'Tous' },
-    { key: 'en stock', label: 'En stock' },
-    { key: 'en prêt', label: 'En prêt' },
-    { key: 'en réparation', label: 'Réparation' },
-    { key: 'perdu', label: 'Perdu' },
+    { key: 'tous', label: t('stock.filter.all') },
+    { key: 'en stock', label: t('stock.filter.in_stock') },
+    { key: 'en prêt', label: t('stock.filter.on_loan') },
+    { key: 'en tournée', label: t('stock.filter.on_tour') },
+    { key: 'en réparation', label: t('stock.filter.in_repair') },
+    { key: 'perdu', label: t('stock.filter.lost') },
   ];
 
   const onRefresh = async () => {
     setRefreshing(true);
+    invalidateInventorySnapshotCache();
     await load();
     setRefreshing(false);
   };
@@ -259,20 +273,21 @@ export default function StockScreen({ navigation, route }: any) {
   const handleDelete = (item: Materiel) => {
     if (!editOk) return;
     Alert.alert(
-      'Supprimer',
-      `Supprimer "${item.nom}" définitivement ?`,
+      t('stock.delete.title'),
+      `${t('stock.delete.confirm_prefix')} "${item.nom}" ${t('stock.delete.confirm_suffix')}`,
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Supprimer', style: 'destructive',
+          text: t('stock.delete.title'), style: 'destructive',
           onPress: async () => {
             try {
               await deleteMateriel(item.id);
+              invalidateInventorySnapshotCache();
               load();
               void triggerSyncAfterActionIfEnabled();
             } catch (e: unknown) {
               const msg = e instanceof Error ? e.message : String(e);
-              Alert.alert('Suppression impossible', msg);
+              Alert.alert(t('stock.delete.error'), msg);
             }
           },
         },
@@ -285,7 +300,7 @@ export default function StockScreen({ navigation, route }: any) {
       <TabScreenSafeArea style={s.container}>
         <View style={s.initialLoad}>
           <ActivityIndicator color={Colors.green} size="large" />
-          <Text style={s.initialLoadText}>Chargement du stock…</Text>
+          <Text style={s.initialLoadText}>{t('stock.loading')}</Text>
         </View>
       </TabScreenSafeArea>
     );
@@ -311,7 +326,7 @@ export default function StockScreen({ navigation, route }: any) {
         accessibilityRole="button"
         accessibilityLabel={
           selectMode
-            ? `${isSelected ? 'Désélectionner' : 'Sélectionner'} ${item.nom} pour l’export PDF`
+            ? `${isSelected ? t('stock.a11y.unselect') : t('stock.a11y.select')} ${item.nom} pour l’export PDF`
             : `Sélectionner ${item.nom} pour afficher le décompte par libellé — appui long : mode PDF`
         }
       >
@@ -330,6 +345,11 @@ export default function StockScreen({ navigation, route }: any) {
             </Text>
             {(item as any).localisation_nom && (
               <Text style={s.sub}>{(item as any).localisation_nom}</Text>
+            )}
+            {item.statut === 'en tournée' && (
+              <Text style={s.sub}>
+                {t('stock.on_tour_prefix')} {tourNamesById[item.current_tour_id ?? ''] ?? item.current_tour_id ?? t('stock.on_tour_fallback')}
+              </Text>
             )}
             </View>
           </View>
@@ -373,16 +393,22 @@ export default function StockScreen({ navigation, route }: any) {
 
   return (
     <TabScreenSafeArea style={s.container}>
-      <View style={{ padding: 20, paddingBottom: 0 }}>
+      <ScrollView
+        style={{ maxHeight: topPanelMaxHeight }}
+        contentContainerStyle={{ padding: 20, paddingBottom: 0 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <ScreenHeader
           icon={<Text style={{ fontSize: 22, color: Colors.green }}>📦</Text>}
-          title="Stock"
-          rightLabel={editOk ? 'Ajouter' : undefined}
+          title={t('stock.title')}
+          subtitle={t('stock.subtitle')}
+          rightLabel={editOk ? t('common.add') : undefined}
           onRightPress={editOk ? () => { setEditItem(null); setShowModal(true); } : undefined}
         />
         <View style={s.statsRow}>
           <StatCard
-            label="Matériels"
+            label={t('stock.stats.materials')}
             value={stats.totalMateriels}
             onPress={() => {
               setStatutFilter('tous');
@@ -390,7 +416,7 @@ export default function StockScreen({ navigation, route }: any) {
             }}
           />
           <StatCard
-            label="En prêt"
+            label={t('stock.stats.on_loan')}
             value={stats.enPret}
             color={Colors.yellow}
             onPress={() => {
@@ -399,13 +425,13 @@ export default function StockScreen({ navigation, route }: any) {
             }}
           />
           <StatCard
-            label="Prêts actifs"
+            label={t('stock.stats.active_loans')}
             value={stats.pretsEnCours}
             color={Colors.blue}
             onPress={() => navigation.navigate('Prêts', { applyFiltreStatut: 'en cours' })}
           />
           <StatCard
-            label="Alertes"
+            label={t('stock.stats.alerts')}
             value={stats.alertesConsommables}
             color={Colors.red}
             onPress={() => navigation.navigate('Consom.', { filterLowStock: true })}
@@ -419,7 +445,7 @@ export default function StockScreen({ navigation, route }: any) {
               activeOpacity={0.85}
             >
               <Text style={s.stockActionIcon}>📝</Text>
-              <Text style={s.stockActionTitleOutline}>Saisie série</Text>
+              <Text style={s.stockActionTitleOutline}>{t('stock.action.series')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[s.stockActionBtn, s.stockActionBtnPrimary]}
@@ -427,7 +453,7 @@ export default function StockScreen({ navigation, route }: any) {
               activeOpacity={0.85}
             >
               <Text style={s.stockActionIcon}>🖨</Text>
-              <Text style={s.stockActionTitlePrimary}>Impression QR</Text>
+              <Text style={s.stockActionTitlePrimary}>{t('stock.action.print_qr')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[s.stockActionBtn, s.stockActionBtnOutline]}
@@ -435,20 +461,20 @@ export default function StockScreen({ navigation, route }: any) {
               activeOpacity={0.85}
             >
               <Text style={s.stockActionIcon}>🏷</Text>
-              <Text style={s.stockActionTitleOutline}>Étiquettes</Text>
+              <Text style={s.stockActionTitleOutline}>{t('stock.action.labels')}</Text>
             </TouchableOpacity>
           </View>
         )}
         <TouchableOpacity style={s.browseBtn} onPress={handleBrowseOpen} activeOpacity={0.85}>
           <Text style={s.browseBtnIcon}>🧭</Text>
-          <Text style={s.browseBtnText}>Visualiser le stock (catégories / sous-catégories)</Text>
+          <Text style={s.browseBtnText}>{t('stock.action.browse')}</Text>
         </TouchableOpacity>
 
         <View style={s.searchRow}>
           <Text style={{ position: 'absolute', left: 14, zIndex: 1, color: Colors.textMuted }}>🔍</Text>
           <TextInput
             style={s.searchInput}
-            placeholder="Rechercher..."
+            placeholder={t('stock.searchPlaceholder')}
             placeholderTextColor={Colors.textMuted}
             value={search}
             onChangeText={handleSearch}
@@ -478,104 +504,108 @@ export default function StockScreen({ navigation, route }: any) {
           style={s.ficheHelpRow}
           onPress={() =>
             Alert.alert(
-              'Fiches matériel (PDF)',
-              'Appui long sur un article de la liste : le mode sélection s’ouvre. Touchez d’autres lignes pour les ajouter ou les retirer, puis « PDF fiches ». Chaque page A4 contient l’en-tête du lieu, la photo, le détail de la fiche et un QR code (même contenu qu’au scanner).'
+              t('stock.help.pdf_title'),
+              t('stock.help.pdf_body')
             )
           }
           activeOpacity={0.8}
         >
           <Text style={s.ficheHelpText}>
-            📄 Fiches matériel (A4) — appui long pour choisir, puis générer un PDF
+            {t('stock.help.pdf_short')}
           </Text>
         </TouchableOpacity>
-      </View>
+      </ScrollView>
 
-      <FlatList
-        data={filtered}
-        renderItem={renderItem}
-        keyExtractor={(item: Materiel) => item.id}
-        extraData={{ selectMode, nSel: selectedIds.length, ifId: infoFocusItem?.id }}
-        contentContainerStyle={{ padding: 20, paddingTop: 10, paddingBottom: listBottomPadding }}
-        initialNumToRender={12}
-        maxToRenderPerBatch={16}
-        windowSize={7}
-        removeClippedSubviews={Platform.OS === 'android'}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.green} />}
-        ListHeaderComponent={
-          <Fragment>
-            {selectMode && (
-              <View style={s.selectBanner}>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={s.selectBannerTitle}>
-                    {selectedIds.length} sélection{selectedIds.length > 1 ? 's' : ''} (liste filtrée)
-                  </Text>
-                  <Text style={s.selectBannerHint}>
-                    Touchez une ligne pour l’ajouter ou la retirer — ou appui long. PDF : photo, infos, QR.
-                  </Text>
+      <View style={{ flex: 1, minHeight: listMinHeight }}>
+        <FlatList
+          data={visibleFiltered}
+          renderItem={renderItem}
+          keyExtractor={(item: Materiel) => item.id}
+          extraData={{ selectMode, nSel: selectedIds.length, ifId: infoFocusItem?.id }}
+          contentContainerStyle={{ padding: 20, paddingTop: 10, paddingBottom: listBottomPadding }}
+          initialNumToRender={12}
+          maxToRenderPerBatch={16}
+          windowSize={7}
+          removeClippedSubviews={Platform.OS === 'android'}
+          onEndReachedThreshold={0.45}
+          onEndReached={showMore}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.green} />}
+          ListHeaderComponent={
+            <Fragment>
+              {selectMode && (
+                <View style={s.selectBanner}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={s.selectBannerTitle}>
+                      {selectedIds.length} {t('stock.select.count_suffix')}
+                      {selectedIds.length > 1 ? 's' : ''} {t('stock.select.filtered')}
+                    </Text>
+                    <Text style={s.selectBannerHint}>
+                      Touchez une ligne pour l’ajouter ou la retirer — ou appui long. PDF : photo, infos, QR.
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={exitSelectMode} style={s.selectPill} disabled={pdfBusy}>
+                    <Text style={s.selectPillText}>{t('stock.select.cancel')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={toggleSelectAllFiltered}
+                    style={s.selectPill}
+                    disabled={pdfBusy || filteredIds.length === 0}
+                  >
+                    <Text style={s.selectPillText}>
+                      {allFilteredSelected ? t('stock.select.none') : t('stock.select.all')}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => void handleExportFichesPdf()}
+                    style={[
+                      s.selectPill,
+                      s.selectPillGo,
+                      (pdfBusy || selectedIds.length === 0) && { opacity: 0.45 },
+                    ]}
+                    disabled={pdfBusy || selectedIds.length === 0}
+                  >
+                    {pdfBusy ? (
+                      <ActivityIndicator size="small" color={Colors.white} />
+                    ) : (
+                      <Text style={s.selectPillTextGo}>{t('stock.select.pdf')}</Text>
+                    )}
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity onPress={exitSelectMode} style={s.selectPill} disabled={pdfBusy}>
-                  <Text style={s.selectPillText}>Annuler</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={toggleSelectAllFiltered}
-                  style={s.selectPill}
-                  disabled={pdfBusy || filteredIds.length === 0}
-                >
-                  <Text style={s.selectPillText}>
-                    {allFilteredSelected ? 'Tout retirer' : 'Tout sélectionner'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => void handleExportFichesPdf()}
-                  style={[
-                    s.selectPill,
-                    s.selectPillGo,
-                    (pdfBusy || selectedIds.length === 0) && { opacity: 0.45 },
-                  ]}
-                  disabled={pdfBusy || selectedIds.length === 0}
-                >
-                  {pdfBusy ? (
-                    <ActivityIndicator size="small" color={Colors.white} />
-                  ) : (
-                    <Text style={s.selectPillTextGo}>PDF fiches</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            )}
-            {infoFocusItem && !selectMode && infoFocusSameNameCount != null ? (
-              <View style={s.sameNameBanner}>
-                <View style={{ flex: 1, paddingRight: 8 }}>
-                  <Text style={s.sameNameBannerTitle}>
-                    {infoFocusSameNameCount === 0
-                      ? 'Aucune fiche « en stock »'
-                      : infoFocusSameNameCount === 1
-                        ? '1 fiche « en stock »'
-                        : `${infoFocusSameNameCount} fiches « en stock »`}{' '}
-                    pour le libellé « {infoFocusItem.nom.trim() || '—'} »
-                  </Text>
-                  <Text style={s.sameNameBannerHint}>
-                    Comptage par nom affiché (casse / espaces ignorés en tête-bas). S/N, QR code et catégorie ne
-                    comptent pas.
-                  </Text>
+              )}
+              {infoFocusItem && !selectMode && infoFocusSameNameCount != null ? (
+                <View style={s.sameNameBanner}>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text style={s.sameNameBannerTitle}>
+                      {infoFocusSameNameCount === 0
+                        ? t('stock.info.none_in_stock')
+                        : infoFocusSameNameCount === 1
+                          ? t('stock.info.one_in_stock')
+                          : `${infoFocusSameNameCount} ${t('stock.info.many_in_stock_suffix')}`}{' '}
+                      {t('stock.info.for_label_prefix')} « {infoFocusItem.nom.trim() || '—'} »
+                    </Text>
+                    <Text style={s.sameNameBannerHint}>
+                      {t('stock.info.count_hint')}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setInfoFocusItem(null)}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    accessibilityLabel={t('stock.info.close')}
+                  >
+                    <Text style={s.sameNameBannerClose}>✕</Text>
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity
-                  onPress={() => setInfoFocusItem(null)}
-                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                  accessibilityLabel="Fermer l’info"
-                >
-                  <Text style={s.sameNameBannerClose}>✕</Text>
-                </TouchableOpacity>
-              </View>
-            ) : null}
-          </Fragment>
-        }
-        ListEmptyComponent={
-          <View style={s.empty}>
-            <Text style={{ fontSize: 40 }}>📦</Text>
-            <Text style={{ color: Colors.textMuted, marginTop: 12 }}>Aucun matériel</Text>
-          </View>
-        }
-      />
+              ) : null}
+            </Fragment>
+          }
+          ListEmptyComponent={
+            <View style={s.empty}>
+              <Text style={{ fontSize: 40 }}>📦</Text>
+              <Text style={{ color: Colors.textMuted, marginTop: 12 }}>{t('stock.none')}</Text>
+            </View>
+          }
+        />
+      </View>
 
       <MaterielModal
         visible={showModal}
@@ -584,7 +614,10 @@ export default function StockScreen({ navigation, route }: any) {
           setEditItem(null);
           navigation.setParams({ newQr: undefined, newNfc: undefined } as never);
         }}
-        onSaved={load}
+        onSaved={() => {
+          invalidateInventorySnapshotCache();
+          void load();
+        }}
         onMetaRefresh={load}
         item={editItem}
         categories={categories}
@@ -594,12 +627,20 @@ export default function StockScreen({ navigation, route }: any) {
         sameNameEnStockCount={
           editItem != null ? countMaterielSameNameEnStock(materiels, editItem) : undefined
         }
+        onOpenProfileEditor={() => {
+          setShowModal(false);
+          setEditItem(null);
+          navigation.navigate('ProfileEditor');
+        }}
       />
 
       <MaterielSerieModal
         visible={showSerieModal}
         onClose={() => setShowSerieModal(false)}
-        onSaved={load}
+        onSaved={() => {
+          invalidateInventorySnapshotCache();
+          void load();
+        }}
         onMetaRefresh={load}
         categories={categories}
         localisations={localisations}
@@ -614,7 +655,7 @@ export default function StockScreen({ navigation, route }: any) {
       <ShelfLabelsModal
         visible={showShelfModal}
         onClose={() => setShowShelfModal(false)}
-        title="Étiquettes rayonnage (stock)"
+        title={t('stock.action.labels')}
         items={filtered.map(m => ({
           id: m.id,
           title: m.nom,
@@ -693,10 +734,10 @@ const s = StyleSheet.create({
   },
   stockActionBtn: {
     flex: 1,
-    minHeight: 66,
-    borderRadius: 14,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    minHeight: 56,
+    borderRadius: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -710,17 +751,17 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.green,
   },
-  stockActionIcon: { fontSize: 20, marginBottom: 4 },
+  stockActionIcon: { fontSize: 17, marginBottom: 3 },
   stockActionTitleOutline: {
     color: Colors.green,
     fontWeight: '800',
-    fontSize: 13,
+    fontSize: 12,
     textAlign: 'center',
   },
   stockActionTitlePrimary: {
     color: Colors.white,
     fontWeight: '800',
-    fontSize: 13,
+    fontSize: 12,
     textAlign: 'center',
   },
   stockActionSub: {
@@ -739,40 +780,40 @@ const s = StyleSheet.create({
   },
   browseBtn: {
     marginBottom: 10,
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: 'rgba(52, 211, 153, 0.45)',
     backgroundColor: 'rgba(52, 211, 153, 0.12)',
-    paddingVertical: 9,
-    paddingHorizontal: 12,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  browseBtnIcon: { fontSize: 16 },
+  browseBtnIcon: { fontSize: 14 },
   browseBtnText: {
     color: Colors.textPrimary,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     flex: 1,
   },
   chipsRow: { flexDirection: 'row', gap: 8, paddingVertical: 4 },
   chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 20,
     backgroundColor: Colors.bgCard,
     borderWidth: 1,
     borderColor: Colors.border,
   },
   chipActive: { backgroundColor: Colors.greenBg, borderColor: Colors.green },
-  chipText: { color: Colors.textSecondary, fontSize: 13, fontWeight: '600' },
+  chipText: { color: Colors.textSecondary, fontSize: 12, fontWeight: '600' },
   chipTextActive: { color: Colors.green },
   searchRow: { position: 'relative', marginBottom: 4 },
   searchInput: {
     backgroundColor: Colors.bgCard,
-    borderRadius: 12, paddingLeft: 40, paddingRight: 14, paddingVertical: 11,
-    color: Colors.white, fontSize: 14, borderWidth: 1, borderColor: Colors.border,
+    borderRadius: 10, paddingLeft: 38, paddingRight: 12, paddingVertical: 9,
+    color: Colors.white, fontSize: 13, borderWidth: 1, borderColor: Colors.border,
   },
   name: { color: Colors.white, fontSize: 16, fontWeight: '600' },
   sub: { color: Colors.textSecondary, fontSize: 12, marginTop: 2 },

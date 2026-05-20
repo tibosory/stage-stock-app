@@ -1,22 +1,30 @@
 // src/screens/ParamsScreen.tsx
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, Alert, Switch, ActivityIndicator,
+  TextInput, Alert, Switch, ActivityIndicator, Platform,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Colors } from '../theme/colors';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import {
+  getAlertesEmail, insertAlerteEmail, deleteAlerteEmail,
+  getStats,
+  getBeneficiaires, insertBeneficiaire, deleteBeneficiaire,
+} from '../db/metadataDb';
 import {
   getCategories, insertCategorie, deleteCategorie, categoryPathById,
   getLocalisations, insertLocalisation, deleteLocalisation,
-  getAlertesEmail, insertAlerteEmail, deleteAlerteEmail,
-  getStats, insertAppUser, listAppUsersAll, getMateriel, getPrets,
-  getBeneficiaires, insertBeneficiaire, deleteBeneficiaire,
-  getConsommablesAlerte,
-} from '../db/database';
+} from '../db/catalogDb';
+import { getMateriel, getConsommablesAlerte } from '../db/inventoryDb';
+import { getPrets } from '../db/loanDb';
+import { insertAppUser, listAppUsersAll } from '../db/userDb';
 import { Categorie, Localisation, AlerteEmail, AppUser, AppUserRole, Beneficiaire } from '../types';
-import { Card, Input, SelectPicker, TabScreenSafeArea } from '../components/UI';
+import { Card, Input, ScreenHeader, SelectPicker, TabScreenSafeArea } from '../components/UI';
+import { SyncStatusBadge } from '../components/SyncStatusBadge';
 import { LegalLinksParamsCard } from '../components/LegalLinks';
 import { useAppAuth } from '../context/AuthContext';
 import { requestNotificationPermission, reschedulePretReturnReminders } from '../lib/pretNotifications';
@@ -35,13 +43,28 @@ import {
   clampVgpAdvanceDays,
 } from '../lib/vgpPrefs';
 import { resetWorkspaceOnboardingCompleted } from '../lib/workspaceOnboardingStorage';
-import { useSpecialty } from '../context/SpecialtyContext';
-import { SPECIALTIES, type SpecialtyId } from '../config/specialties';
+import { loadComfortPrefs, saveComfortPrefs, type ComfortPrefs } from '../lib/appComfortPrefs';
 import {
   scheduleTestLocalNotification,
   sendTestExpoPushToStaff,
   sendTestSmtpAlertEmail,
 } from '../lib/notificationTest';
+import {
+  getSyncQueueStats,
+  purgeSyncQueueSafely,
+  type SyncQueueStats,
+} from '../saas/services/offlineSync';
+import { useFeatureFlags } from '../saas/hooks/useFeatureFlags';
+import {
+  appendSyncAdminAuditEntry,
+  getSyncAdminAuditEntries,
+  type SyncAdminAuditEntry,
+} from '../application/sync/SyncAdminAuditStore';
+import { useSyncState } from '../ui/hooks/useSyncState';
+import { computeSyncHealth } from '../application/sync/SyncHealth';
+import { SyncService } from '../application/services/SyncService';
+import { useLanguage } from '../context/LanguageContext';
+import { LANGUAGE_OPTIONS, type AppLanguage } from '../i18n/strings';
 
 const ROLE_OPTIONS: { label: string; value: AppUserRole }[] = [
   { label: 'Administrateur', value: 'admin' },
@@ -74,8 +97,9 @@ function NotifRow({
 export default function ParamsScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { can, refreshSession } = useAppAuth();
-  const { specialtyId, setSpecialtyId } = useSpecialty();
+  const bottomSafePad =
+    Platform.OS === 'android' ? Math.max(insets.bottom, 64) : Math.max(insets.bottom, 16);
+  const { can, refreshSession, user } = useAppAuth();
   const [categories, setCategories] = useState<Categorie[]>([]);
   const [localisations, setLocalisations] = useState<Localisation[]>([]);
   const [alertes, setAlertes] = useState<AlerteEmail[]>([]);
@@ -109,11 +133,32 @@ export default function ParamsScreen() {
   const [newBenTel, setNewBenTel] = useState('');
   const [newBenEmail, setNewBenEmail] = useState('');
 
-  const [testMsgTitle, setTestMsgTitle] = useState('Stage Stock — test');
+  const [testMsgTitle, setTestMsgTitle] = useState('CATRACK Pro — test');
   const [testMsgBody, setTestMsgBody] = useState(
     'Vérifiez la réception des alertes et notifications.'
   );
   const [testBusy, setTestBusy] = useState<null | 'local' | 'push' | 'mail'>(null);
+  const [syncQueueStats, setSyncQueueStats] = useState<SyncQueueStats | null>(null);
+  const [purgeBusy, setPurgeBusy] = useState(false);
+  const [syncAuditEntries, setSyncAuditEntries] = useState<SyncAdminAuditEntry[]>([]);
+  const syncState = useSyncState();
+  const { flags: saasFlags } = useFeatureFlags();
+  const [comfortPrefs, setComfortPrefs] = useState<ComfortPrefs>({ hapticOnScanMatch: true });
+  const { language, setLanguage, t } = useLanguage();
+
+  const fmt = (iso?: string): string => (iso ? new Date(iso).toLocaleString('fr-FR') : '—');
+  const fmtMs = (ms?: number): string => (ms == null ? '—' : `${Math.round(ms / 1000)} s`);
+  const sinceLastSuccess =
+    syncState.lastSuccessAt != null
+      ? Math.max(0, Math.floor((Date.now() - Date.parse(syncState.lastSuccessAt)) / 1000))
+      : null;
+  const syncHealth = computeSyncHealth(syncState, syncQueueStats);
+  const healthColor =
+    syncHealth.level === 'healthy'
+      ? Colors.green
+      : syncHealth.level === 'warning'
+        ? Colors.yellow
+        : Colors.red;
 
   const persistNotif = useCallback(async (partial: Partial<NotificationPrefs>) => {
     const next = await saveNotificationPrefs(partial);
@@ -129,7 +174,7 @@ export default function ParamsScreen() {
   }, []);
 
   const load = useCallback(async () => {
-    const [cats, locs, als, st, users, vgpAdv, bens, prefs, mids] = await Promise.all([
+    const [cats, locs, als, st, users, vgpAdv, bens, prefs, mids, comfort] = await Promise.all([
       getCategories(),
       getLocalisations(),
       getAlertesEmail(),
@@ -139,6 +184,7 @@ export default function ParamsScreen() {
       getBeneficiaires(),
       loadNotificationPrefs(),
       loadMailRecipientAlerteIds(),
+      loadComfortPrefs(),
     ]);
     setCategories(cats);
     setLocalisations(locs);
@@ -149,6 +195,9 @@ export default function ParamsScreen() {
     setVgpAdvanceDaysState(String(vgpAdv));
     setNotifPrefs(prefs);
     setMailRecipientIds(mids);
+    setComfortPrefs(comfort);
+    setSyncQueueStats(await getSyncQueueStats());
+    setSyncAuditEntries(await getSyncAdminAuditEntries());
   }, []);
 
   useFocusEffect(
@@ -157,6 +206,108 @@ export default function ParamsScreen() {
       void load();
     }, [load, refreshSession])
   );
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      void getSyncQueueStats().then(setSyncQueueStats).catch(() => undefined);
+      void getSyncAdminAuditEntries().then(setSyncAuditEntries).catch(() => undefined);
+    }, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  const exportSyncDiagnostics = useCallback(async () => {
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      queue: await getSyncQueueStats(),
+      audit: await getSyncAdminAuditEntries(),
+    };
+    const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+    if (!dir) throw new Error('Aucun répertoire local disponible pour export');
+    const path = `${dir}stagestock-sync-diagnostics-${Date.now()}.json`;
+    await FileSystem.writeAsStringAsync(path, JSON.stringify(payload, null, 2), {
+      encoding: FileSystem.EncodingType.UTF8,
+    });
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(path, { mimeType: 'application/json', dialogTitle: 'Export diagnostics sync' });
+    }
+    await appendSyncAdminAuditEntry({
+      action: 'export_diagnostics',
+      userId: user?.id,
+      summary: `Diagnostics exported to ${path}`,
+    });
+    setSyncAuditEntries(await getSyncAdminAuditEntries());
+  }, [user?.id]);
+
+  const copySyncSupportSummary = useCallback(async () => {
+    const queue = await getSyncQueueStats();
+    const audit = await getSyncAdminAuditEntries();
+    const health = computeSyncHealth(syncState, queue);
+    const lines = [
+      'StageStock Sync Support Summary',
+      `generated_at=${new Date().toISOString()}`,
+      `health_score=${health.score}`,
+      `health_level=${health.level}`,
+      `queue_size=${queue.size}`,
+      `retrying=${queue.retryingCount}`,
+      `max_retries=${queue.maxRetries}`,
+      `scheduler_active=${syncState.schedulerActive ? 'yes' : 'no'}`,
+      `next_scheduled_at=${syncState.nextScheduledAt ?? '-'}`,
+      `next_backoff_ms=${syncState.nextBackoffMs ?? '-'}`,
+      `last_run_at=${syncState.lastRunAt ?? '-'}`,
+      `last_success_at=${syncState.lastSuccessAt ?? '-'}`,
+      `last_error_at=${syncState.lastErrorAt ?? '-'}`,
+      `last_error_category=${syncState.lastErrorCategory ?? '-'}`,
+      `last_error_code=${syncState.lastErrorCode ?? '-'}`,
+      `last_error_message=${syncState.lastErrorMessage ?? '-'}`,
+      `audit_recent=${audit
+        .slice(0, 5)
+        .map(a => `${a.at}:${a.action}`)
+        .join('|') || '-'}`,
+      `queue_by_table=${Object.entries(queue.byTable)
+        .map(([k, v]) => `${k}:${v}`)
+        .join('|') || '-'}`,
+      `health_reasons=${health.reasons.join(' | ')}`,
+    ];
+    const summaryText = lines.join('\n');
+    await Clipboard.setStringAsync(summaryText);
+    const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+    if (dir) {
+      const txtPath = `${dir}stagestock-sync-support-${Date.now()}.txt`;
+      await FileSystem.writeAsStringAsync(txtPath, summaryText, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(txtPath, { mimeType: 'text/plain', dialogTitle: 'Résumé support sync (.txt)' });
+      }
+    }
+    await appendSyncAdminAuditEntry({
+      action: 'export_diagnostics',
+      userId: user?.id,
+      summary: 'Support summary copied + txt exported',
+    });
+    setSyncAuditEntries(await getSyncAdminAuditEntries());
+    Alert.alert('Résumé copié', 'Le résumé support sync est dans le presse-papier.');
+  }, [syncState, user?.id]);
+
+  const copyCompactIncidentSummary = useCallback(async () => {
+    const queue = await getSyncQueueStats();
+    const health = computeSyncHealth(syncState, queue);
+    const compact = [
+      `SYNC score=${health.score} level=${health.level}`,
+      `phase=${syncState.phase} fails=${syncState.consecutiveFailures}`,
+      `queue=${queue.size} retrying=${queue.retryingCount} maxRetry=${queue.maxRetries}`,
+      `lastSuccess=${syncState.lastSuccessAt ?? '-'}`,
+      `lastErr=${syncState.lastErrorCategory ?? '-'}:${syncState.lastErrorCode ?? '-'}:${syncState.lastErrorMessage ?? '-'}`,
+    ].join(' | ');
+    await Clipboard.setStringAsync(compact);
+    await appendSyncAdminAuditEntry({
+      action: 'export_diagnostics',
+      userId: user?.id,
+      summary: 'Compact incident summary copied',
+    });
+    setSyncAuditEntries(await getSyncAdminAuditEntries());
+    Alert.alert('Résumé compact copié', 'Le résumé incident compact est dans le presse-papier.');
+  }, [syncState, user?.id]);
 
   const addCategorie = async () => {
     if (!newCat.trim()) return;
@@ -215,13 +366,227 @@ export default function ParamsScreen() {
   return (
     <TabScreenSafeArea style={s.container}>
       <ScrollView
-        contentContainerStyle={{ padding: 20, paddingBottom: 28 + Math.max(insets.bottom, 12) }}
+        contentContainerStyle={{ padding: 20, paddingBottom: 28 + bottomSafePad }}
       >
-        {/* Header */}
-        <View style={s.headerRow}>
-          <Text style={{ fontSize: 22, color: Colors.green }}>⚙️</Text>
-          <Text style={s.title}>Paramètres</Text>
-        </View>
+        <ScreenHeader
+          icon={<Text style={{ fontSize: 22, color: Colors.green }}>⚙️</Text>}
+          title="Paramètres"
+          subtitle="Comptes, catalogue, notifications, confort scanner, synchro et options avancées."
+        />
+        <SyncStatusBadge />
+
+        <Card style={{ marginBottom: 16 }}>
+          <Text style={s.sectionTitle}>{t('language.title')}</Text>
+          <Text style={{ color: Colors.textMuted, fontSize: 12, marginBottom: 10, lineHeight: 18 }}>
+            {t('language.subtitle')}
+          </Text>
+          <SelectPicker
+            label={t('language.current')}
+            value={language}
+            options={LANGUAGE_OPTIONS}
+            onChange={v => {
+              void setLanguage(v as AppLanguage);
+            }}
+          />
+        </Card>
+
+        <Card style={{ marginBottom: 16 }}>
+          <Text style={s.sectionTitle}>Confort (scanner)</Text>
+          <Text style={{ color: Colors.textMuted, fontSize: 12, marginBottom: 12, lineHeight: 18 }}>
+            Le vibreur court reste actif à chaque lecture ; vous pouvez ajouter un retour haptique lorsque le code
+            correspond à une fiche matériel ou consommable (utile en intérieur ou avec gants).
+          </Text>
+          <NotifRow
+            label="Haptique quand une fiche est reconnue"
+            value={comfortPrefs.hapticOnScanMatch}
+            onValueChange={v => {
+              void saveComfortPrefs({ hapticOnScanMatch: v }).then(setComfortPrefs);
+            }}
+          />
+        </Card>
+
+        {saasFlags['saas.offlineSync'] && (
+          <Card style={{ marginBottom: 16 }}>
+            <Text style={s.sectionTitle}>Diagnostic de synchronisation</Text>
+            <Text style={{ color: Colors.textMuted, fontSize: 12, marginBottom: 8 }}>
+              Queue locale offline-first (synchronisation différée).
+            </Text>
+            <Text style={{ color: healthColor, fontSize: 13, fontWeight: '700', marginBottom: 6 }}>
+              Santé sync: {syncHealth.score}/100 ({syncHealth.level})
+            </Text>
+            <Text style={{ color: Colors.textMuted, fontSize: 11, marginBottom: 8 }}>
+              {syncHealth.reasons.join(' • ')}
+            </Text>
+            <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>
+              Taille queue: {syncQueueStats?.size ?? 0}
+            </Text>
+            <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>
+              Tâches en retry: {syncQueueStats?.retryingCount ?? 0}
+            </Text>
+            <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>
+              Max retries: {syncQueueStats?.maxRetries ?? 0}
+            </Text>
+            <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>
+              Plus ancien: {syncQueueStats?.oldestUpdatedAt ?? '—'}
+            </Text>
+            <Text style={{ color: Colors.textSecondary, fontSize: 12, marginBottom: 8 }}>
+              Plus récent: {syncQueueStats?.newestUpdatedAt ?? '—'}
+            </Text>
+            <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>
+              Scheduler actif: {syncState.schedulerActive ? 'oui' : 'non'}
+            </Text>
+            <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>
+              Prochain sync estimé: {fmt(syncState.nextScheduledAt)}
+            </Text>
+            <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>
+              Délai backoff estimé: {fmtMs(syncState.nextBackoffMs)}
+            </Text>
+            <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>
+              Dernier run: {fmt(syncState.lastRunAt)}
+            </Text>
+            <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>
+              Dernier succès: {fmt(syncState.lastSuccessAt)}
+            </Text>
+            <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>
+              Temps depuis dernier succès: {sinceLastSuccess == null ? '—' : `${sinceLastSuccess} s`}
+            </Text>
+            <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>
+              Dernière erreur: {syncState.lastErrorCategory ?? '—'} {syncState.lastErrorCode ? `(${syncState.lastErrorCode})` : ''}
+            </Text>
+            <Text style={{ color: Colors.textMuted, fontSize: 11, marginBottom: 8 }}>
+              {syncState.lastErrorMessage ?? 'Aucune erreur récente'}
+            </Text>
+            <Text style={{ color: Colors.textMuted, fontSize: 11 }}>
+              {syncQueueStats
+                ? Object.entries(syncQueueStats.byTable)
+                    .map(([table, n]) => `${table}: ${n}`)
+                    .join(' | ') || 'Aucune table en attente'
+                : 'Aucune table en attente'}
+            </Text>
+            {can('manage_users') && (
+              <TouchableOpacity
+                style={[s.syncBtn, { marginTop: 10, opacity: purgeBusy ? 0.7 : 1 }]}
+                disabled={purgeBusy}
+                onPress={() => {
+                  Alert.alert(
+                    'Purge queue (sécurisée)',
+                    'Supprimer uniquement les tâches non critiques en attente ? Les événements tracking critiques sont conservés.',
+                    [
+                      { text: 'Annuler', style: 'cancel' },
+                      {
+                        text: 'Purger',
+                        style: 'destructive',
+                        onPress: async () => {
+                          setPurgeBusy(true);
+                          try {
+                            const r = await purgeSyncQueueSafely({ allowCritical: false, maxRetriesToKeep: 1 });
+                            await appendSyncAdminAuditEntry({
+                              action: 'purge_queue',
+                              userId: user?.id,
+                              summary: `removed=${r.removedCount}, kept=${r.keptCount}`,
+                            });
+                            setSyncQueueStats(await getSyncQueueStats());
+                            setSyncAuditEntries(await getSyncAdminAuditEntries());
+                            Alert.alert(
+                              'Purge effectuée',
+                              `Supprimées: ${r.removedCount}\nConservées: ${r.keptCount}`
+                            );
+                          } catch (e) {
+                            Alert.alert('Erreur purge', e instanceof Error ? e.message : String(e));
+                          } finally {
+                            setPurgeBusy(false);
+                          }
+                        },
+                      },
+                    ]
+                  );
+                }}
+              >
+                {purgeBusy ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <Text style={s.syncBtnText}>Purger queue non critique (admin)</Text>
+                )}
+              </TouchableOpacity>
+            )}
+            {can('manage_users') && (
+              <TouchableOpacity
+                style={[s.syncBtn, { marginTop: 8 }]}
+                onPress={() =>
+                  void exportSyncDiagnostics().catch(e =>
+                    Alert.alert('Export diagnostics', e instanceof Error ? e.message : String(e))
+                  )
+                }
+              >
+                <Text style={s.syncBtnText}>Exporter diagnostics sync (JSON)</Text>
+              </TouchableOpacity>
+            )}
+            {can('manage_users') && (
+              <TouchableOpacity
+                style={[s.syncBtn, { marginTop: 8 }]}
+                onPress={() =>
+                  void copySyncSupportSummary().catch(e =>
+                    Alert.alert('Copie résumé', e instanceof Error ? e.message : String(e))
+                  )
+                }
+              >
+                <Text style={s.syncBtnText}>Copier résumé support sync</Text>
+              </TouchableOpacity>
+            )}
+            {can('manage_users') && (
+              <TouchableOpacity
+                style={[s.syncBtn, { marginTop: 8 }]}
+                onPress={() =>
+                  void copyCompactIncidentSummary().catch(e =>
+                    Alert.alert('Copie résumé compact', e instanceof Error ? e.message : String(e))
+                  )
+                }
+              >
+                <Text style={s.syncBtnText}>Copier résumé incident compact</Text>
+              </TouchableOpacity>
+            )}
+            {can('manage_users') && (
+              <TouchableOpacity
+                style={[s.syncBtn, { marginTop: 8 }]}
+                onPress={() => {
+                  Alert.alert(
+                    'Réinitialiser erreurs sync',
+                    'Effacer les compteurs d’échecs et la dernière erreur sync ?',
+                    [
+                      { text: 'Annuler', style: 'cancel' },
+                      {
+                        text: 'Réinitialiser',
+                        style: 'destructive',
+                        onPress: async () => {
+                          SyncService.resetSyncFailureCounters();
+                          await appendSyncAdminAuditEntry({
+                            action: 'force_sync',
+                            userId: user?.id,
+                            summary: 'Sync failure counters reset by admin',
+                          });
+                          setSyncAuditEntries(await getSyncAdminAuditEntries());
+                          Alert.alert('Sync', 'Compteurs d’échecs réinitialisés.');
+                        },
+                      },
+                    ]
+                  );
+                }}
+              >
+                <Text style={s.syncBtnText}>Réinitialiser erreurs sync (admin)</Text>
+              </TouchableOpacity>
+            )}
+            {!!syncAuditEntries.length && (
+              <View style={{ marginTop: 10 }}>
+                <Text style={{ color: Colors.textMuted, fontSize: 11, marginBottom: 4 }}>Audit admin récent</Text>
+                {syncAuditEntries.slice(0, 5).map(entry => (
+                  <Text key={entry.id} style={{ color: Colors.textSecondary, fontSize: 11, marginBottom: 2 }}>
+                    {entry.at} · {entry.action} · {entry.summary ?? '—'}
+                  </Text>
+                ))}
+              </View>
+            )}
+          </Card>
+        )}
 
         {/* Stats rapides — tap : ouvre l’écran / le filtre correspondant */}
         <View style={s.statsRow}>
@@ -260,26 +625,19 @@ export default function ParamsScreen() {
           />
         </View>
 
-        <Card style={{ marginBottom: 16 }}>
-          <Text style={s.sectionTitle}>Spécialité métier</Text>
-          <Text style={{ color: Colors.textMuted, fontSize: 12, marginBottom: 10, lineHeight: 18 }}>
-            Indépendamment du compte (admin / technicien / emprunteur), choisissez votre métier pour des rappels
-            contextuels sur l’accueil et dans les fiches matériel. Les données restent les mêmes pour toute
-            l’équipe.
-          </Text>
-          <SelectPicker
-            label="Profil d’usage"
-            value={specialtyId}
-            options={SPECIALTIES.map(sp => ({
-              value: sp.id,
-              label: sp.label,
-            }))}
-            onChange={v => void setSpecialtyId(v as SpecialtyId)}
-          />
-          <Text style={{ color: Colors.textSecondary, fontSize: 12, marginTop: 4, lineHeight: 17 }}>
-            {SPECIALTIES.find(sp => sp.id === specialtyId)?.shortDescription ?? ''}
-          </Text>
-        </Card>
+        {saasFlags['saas.materialProfileEditor'] && (
+          <Card style={{ marginBottom: 16 }}>
+            <Text style={s.sectionTitle}>Profils dynamiques (fiches matériel)</Text>
+            <Text style={{ color: Colors.textMuted, fontSize: 12, marginBottom: 10, lineHeight: 18 }}>
+              Définissez ici les modèles de champs (texte, nombre, liste, case à cocher…), puis assignez un modèle à
+              chaque matériel dans l’édition de la fiche. La fiche détail affiche toujours les informations classiques et
+              vos champs personnalisés — il n’y a plus de réglage « métier » séparé.
+            </Text>
+            <TouchableOpacity style={s.syncBtn} onPress={() => navigation.navigate('ProfileEditor')}>
+              <Text style={s.syncBtnText}>Ouvrir l’éditeur de profils dynamiques</Text>
+            </TouchableOpacity>
+          </Card>
+        )}
 
         <Card style={{ marginBottom: 16 }}>
           <Text style={s.sectionTitle}>Didacticiel de configuration</Text>
@@ -297,12 +655,30 @@ export default function ParamsScreen() {
           </TouchableOpacity>
         </Card>
 
+        {saasFlags['saas.tourMode'] && (
+          <Card style={{ marginBottom: 16 }}>
+            <Text style={s.sectionTitle}>Tour Mode & Tracking</Text>
+            <Text style={{ color: Colors.textMuted, fontSize: 12, marginBottom: 10, lineHeight: 18 }}>
+              Gérez les tournées, affectations de matériel, suivi des positions et historique d’activité.
+            </Text>
+            <TouchableOpacity style={s.syncBtn} onPress={() => navigation.navigate('TourList')}>
+              <Text style={s.syncBtnText}>Ouvrir la liste des tournées</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.syncBtn, { marginTop: 8 }]} onPress={() => navigation.navigate('Tracking')}>
+              <Text style={s.syncBtnText}>Ouvrir l’écran de suivi</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.syncBtn, { marginTop: 8 }]} onPress={() => navigation.navigate('ActivityLog')}>
+              <Text style={s.syncBtnText}>Ouvrir le journal d’activité</Text>
+            </TouchableOpacity>
+          </Card>
+        )}
+
         <Card style={{ marginBottom: 16 }}>
           <Text style={s.sectionTitle}>Notifications & e-mails</Text>
           <Text style={{ color: Colors.textMuted, fontSize: 12, marginBottom: 12 }}>
             Activez ou désactivez les rappels sur cet appareil et l’ouverture des brouillons d’e-mail. Les destinataires
             par défaut sont choisis parmi les adresses enregistrées ci-dessous (liste « Destinataires alertes email »).
-            L’envoi automatique du récapitulatif d’alertes nécessite un serveur Stage Stock avec SMTP configuré
+            L’envoi automatique du récapitulatif d’alertes nécessite un serveur CATRACK Pro avec SMTP configuré
             (variables SMTP sur le backend).
           </Text>
           <NotifRow
@@ -745,8 +1121,6 @@ const st = StyleSheet.create({
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
-  title: { color: Colors.white, fontSize: 22, fontWeight: '800' },
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   sectionTitle: { color: Colors.white, fontSize: 15, fontWeight: '700' },
   addRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },

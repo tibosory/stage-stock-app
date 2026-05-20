@@ -18,7 +18,7 @@ export const USER_GUIDE_META = {
   subtitle: 'Guide complet avec exemples',
   /** Repère de fraîcheur du texte (à ajuster quand le manuel est réaligné sur l’app). */
   versionLabel:
-    '12 mai 2026 (AccueilPro : invitations portail + rôle organisateur en RLS ; bucket documents ; sync inchangée)',
+    '20 mai 2026 (V1 LAN : jumelage serveur obligatoire, connexion PIN seule, changement PIN 1234, menu simplifié)',
 };
 
 export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
@@ -49,7 +49,8 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
     icon: '🚀',
     title: 'Premier lancement et comptes',
     paragraphs: [
-      'Après connexion (PIN utilisateur appareil ou compte cloud selon votre déploiement), le didacticiel se lance automatiquement à chaque nouvelle installation de l’app (APK), pour proposer la langue, le lieu, le serveur et le profil ; chaque étape est skippable.',
+      'Après installation (APK), un didacticiel guide la langue, le lieu, le jumelage avec le PC serveur et le profil. L’étape serveur est obligatoire : l’app ne fonctionne pas tant que le PC de la salle ne répond pas au test de connexion.',
+      'Connexion sur l’appareil : choisissez un utilisateur et saisissez son code PIN (pas de compte cloud ni Supabase en déploiement V1 LAN). Si le PIN par défaut 1234 est encore actif, l’app demande immédiatement un nouveau code.',
       'Le choix de langue se fait dès le didacticiel (Français ou English) et s’applique immédiatement à toute l’interface prise en charge.',
       'Les parcours Connexion/Réseau et installation serveur PC suivent aussi la langue choisie (messages, boutons, alertes, guide).',
       'Le bouton « Connexion automatique (recommandé) » tente une configuration plug-and-play : détection LAN, bascule URL locale, puis vérification de liaison.',
@@ -65,7 +66,7 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
     icon: '🏠',
     title: 'Menu principal (grosses tuiles) et navigation',
     paragraphs: [
-      'Le menu principal regroupe Stock, Consommables, Prêt, Contrôle (VGP), Paramètres, Alertes, Import/Export, Impression selon votre rôle.',
+      'En déploiement V1 LAN, le menu secondaire (onglet Menu) ne propose que Alertes, Notice, Connexion/Réseau, Utilisateur et Paramètres — pas d’assistant IA, VGP, import ni tournées depuis ce menu.',
       'Les boutons du menu principal sont en style arrondi à contour coloré pour mieux distinguer chaque espace d’activité.',
       'Sur Android, un espace bas renforcé est appliqué pour éviter tout chevauchement avec les boutons de navigation système.',
       'Le bouton « Tout » ouvre l’application avec la barre d’onglets complète (Scanner, Stock, etc.).',
@@ -198,14 +199,15 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
     paragraphs: [
       'Serveur local (Wi-Fi), HTTPS distant, ou tunnel : saisie d’URL, test ping et test synchro snapshot.',
       'Installations serveur officiellement supportées sans aide d’un informaticien : PC Windows 10/11 via l’installateur One-Click, ou Docker (Linux/macOS/Windows WSL2). Autres cas (NAS, ARM, Linux sans Docker) : nécessitent un accompagnement, demandez au support avant de promettre une mise en service rapide.',
-      'Découverte automatique possible sur le LAN. Si Supabase est configuré sur l’appareil, la synchronisation cloud (push/pull inventaire) s’exécute dès que l’Internet est disponible ; lorsque le serveur CATRACK Pro (PC) est joignable sur le réseau, une seconde synchro API aligne aussi le PC (pas d’interrupteur supplémentaire). Sans Supabase, seule la sync API CATRACK Pro s’applique ; les photos/notices vers Storage restent optionnelles selon votre câblage.',
+      'En déploiement V1 LAN (APK client par défaut), la synchronisation ne cible que le PC serveur : boutons « Envoyer au PC » / « Recevoir du PC » dans Connexion/Réseau. Supabase et comptes cloud sont masqués. Un échec de sync affiche une alerte explicite.',
+      'Découverte automatique possible sur le LAN. Si Supabase est configuré sur l’appareil (déploiement avancé), la synchronisation cloud s’exécute en plus du PC lorsque Internet est disponible.',
       'Si Supabase est configuré, une tâche quotidienne en arrière-plan tente une synchronisation automatique (push/pull) pour maintenir l’activité du projet, y compris quand l’application n’est pas au premier plan.',
       'Dans l’assistant d’installation serveur (Android), l’app récupère l’installateur Windows `.exe` depuis la release configurée : le nom du fichier peut varier selon la version.',
       'Aide QR de jumelage : ouvrez `/pair` (ou `/pair.html`) sur le serveur, scannez le QR puis validez l’ouverture dans l’app ; l’URL réseau est enregistrée automatiquement.',
       'Sur installation Windows récente, le port serveur par défaut est 8091 (recommandé) pour simplifier la connexion mobile ; l’ancien 8095 reste encore souvent utilisé après migration.',
       'Sur les installations locales, la page de jumelage détecte le bon port API (sonde `/health` de type Stage Stock) et, si `PAIRING_PUBLIC_BASE` mentionne l’IP LAN avec un port obsolète du `.env`, le serveur force le port réellement écouté pour le QR et le texte affiché.',
       'Sur le PC Windows, les raccourcis bureau « Tableau serveur » et « Jumelage téléphone (QR) » ouvrent le navigateur via un petit script : il teste `/health` (réponse JSON `status: ok`) sur le port du `.env` puis une plage habituelle, pour éviter de viser un autre service qui répondrait simplement en HTTP 200.',
-      'Au retour au premier plan, l’app tente d’abord Supabase (si projet renseigné + en ligne), puis l’API inventaire sur le PC si l’URL répond (silencieux si échec).',
+      'Au retour au premier plan, l’app synchronise avec le PC si l’URL répond ; en V1 LAN, Supabase est ignoré. Les modifications locales non encore envoyées ne sont pas écrasées lors d’une réception snapshot.',
       'Le serveur Windows ajoute un raccourci bureau de désinstallation (.lnk vers un script CMD, pas une page navigateur). Windows demande normalement une élévation administrateur : acceptez-la pour retirer la tâche planifiée et les règles pare-feu. La fenêtre se met en pause à la fin pour laisser le temps de lire le résumé (ou en cas d’erreur).',
     ],
   },

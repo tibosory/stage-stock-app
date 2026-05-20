@@ -5,7 +5,7 @@ import {
   getAdminExpoPushTokens,
   getAdminNotificationEmails,
   getExpoPushTokenForUserId,
-} from '../db/database';
+} from '../db/userDb';
 import type { Pret } from '../types';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -59,7 +59,7 @@ export async function notifyAdminsNewPretDemande(pret: Pret): Promise<{ ok: bool
   ]
     .filter(Boolean)
     .join(' ');
-  const title = 'Stage Stock — demande de prêt';
+  const title = 'CATRACK Pro — demande de prêt';
 
   const okPush = await sendExpoPush(await getAdminExpoPushTokens(), title, body, {
     kind: 'pret_demande_nouvelle',
@@ -78,7 +78,7 @@ export async function notifyAdminsNewPretDemande(pret: Pret): Promise<{ ok: bool
     };
   }
   const subject = encodeURIComponent(title);
-  const mailBody = encodeURIComponent(`${body}\n\n— Stage Stock`);
+  const mailBody = encodeURIComponent(`${body}\n\n— CATRACK Pro`);
   const mailto = `mailto:${emails.join(',')}?subject=${subject}&body=${mailBody}`;
   try {
     if (await Linking.canOpenURL(mailto)) {
@@ -93,7 +93,7 @@ export async function notifyAdminsNewPretDemande(pret: Pret): Promise<{ ok: bool
 
 /** Demande validée : notifie l’emprunteur (push ou e-mail de la fiche). */
 export async function notifyBorrowerDemandeAcceptee(pret: Pret): Promise<void> {
-  const title = 'Stage Stock — prêt accepté';
+  const title = 'CATRACK Pro — prêt accepté';
   const body = `Votre demande de prêt a été validée. Le prêt est maintenant « en cours » (départ ${formatDateLong(pret.date_depart)}).`;
 
   const token = await getExpoPushTokenForUserId(pret.emprunteur_user_id);
@@ -105,7 +105,7 @@ export async function notifyBorrowerDemandeAcceptee(pret: Pret): Promise<void> {
   const email = pret.email?.trim();
   if (!email || !email.includes('@')) return;
   const subject = encodeURIComponent(title);
-  const mailBody = encodeURIComponent(`${body}\n\n— Stage Stock`);
+  const mailBody = encodeURIComponent(`${body}\n\n— CATRACK Pro`);
   const mailto = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${mailBody}`;
   try {
     if (await Linking.canOpenURL(mailto)) await Linking.openURL(mailto);

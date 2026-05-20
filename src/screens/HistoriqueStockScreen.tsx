@@ -6,9 +6,10 @@ import {
 import { format, parseISO, isValid, subDays, startOfDay, endOfDay } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Colors } from '../theme/colors';
-import { getMouvementsStockHistorique, type MouvementsStockHistoriqueOptions } from '../db/database';
+import { getMouvementsStockHistorique, type MouvementsStockHistoriqueOptions } from '../db/inventoryOpsDb';
 import type { MouvementStockDetail } from '../types';
 import { Card, ScreenHeader, Input, TabScreenSafeArea } from '../components/UI';
+import { useLanguage } from '../context/LanguageContext';
 
 function formatQuand(raw: string): string {
   const d = parseISO(raw);
@@ -48,6 +49,7 @@ const FILTRES_PERIODE: { key: FiltrePeriode; label: string }[] = [
 ];
 
 export default function HistoriqueStockScreen() {
+  const { t } = useLanguage();
   const [rows, setRows] = useState<MouvementStockDetail[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [filtreType, setFiltreType] = useState<FiltreType>('tous');
@@ -123,20 +125,18 @@ export default function HistoriqueStockScreen() {
       <View style={{ padding: 20, paddingBottom: 0 }}>
         <ScreenHeader
           icon={<Text style={{ fontSize: 22 }}>📒</Text>}
-          title="Historique stock"
+          title={t('hist.title')}
         />
-        <Text style={s.intro}>
-          Filtrez par type, période ou recherche (nom du consommable, note).
-        </Text>
+        <Text style={s.intro}>{t('hist.intro')}</Text>
 
-        <Text style={s.filterLabel}>Type</Text>
+        <Text style={s.filterLabel}>{t('hist.type')}</Text>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={s.chipsRow}
           style={{ marginBottom: 8 }}
         >
-          {FILTRES_TYPE.map(({ key, label }) => {
+          {FILTRES_TYPE.map(({ key }) => {
             const active = filtreType === key;
             return (
               <TouchableOpacity
@@ -144,20 +144,20 @@ export default function HistoriqueStockScreen() {
                 style={[s.chip, active && s.chipActive]}
                 onPress={() => setFiltreType(key)}
               >
-                <Text style={[s.chipText, active && s.chipTextActive]}>{label}</Text>
+                <Text style={[s.chipText, active && s.chipTextActive]}>{t(`hist.filter.type.${key === 'tous' ? 'all' : key === 'entrée' ? 'in' : key === 'sortie' ? 'out' : 'adj'}`)}</Text>
               </TouchableOpacity>
             );
           })}
         </ScrollView>
 
-        <Text style={s.filterLabel}>Période</Text>
+        <Text style={s.filterLabel}>{t('hist.period')}</Text>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={s.chipsRow}
           style={{ marginBottom: 10 }}
         >
-          {FILTRES_PERIODE.map(({ key, label }) => {
+          {FILTRES_PERIODE.map(({ key }) => {
             const active = filtrePeriode === key;
             return (
               <TouchableOpacity
@@ -165,23 +165,23 @@ export default function HistoriqueStockScreen() {
                 style={[s.chip, active && s.chipActive]}
                 onPress={() => setFiltrePeriode(key)}
               >
-                <Text style={[s.chipText, active && s.chipTextActive]}>{label}</Text>
+                <Text style={[s.chipText, active && s.chipTextActive]}>{t(`hist.filter.period.${key}`)}</Text>
               </TouchableOpacity>
             );
           })}
         </ScrollView>
 
         <Input
-          label="Recherche"
+          label={t('hist.searchLabel')}
           value={searchDraft}
           onChangeText={setSearchDraft}
-          placeholder="Nom, note…"
+          placeholder={t('hist.searchPh')}
           autoCapitalize="none"
         />
 
         {filtresActifs && (
           <TouchableOpacity style={s.resetBtn} onPress={resetFiltres} hitSlop={{ top: 8, bottom: 8 }}>
-            <Text style={s.resetBtnText}>Réinitialiser les filtres</Text>
+            <Text style={s.resetBtnText}>{t('hist.resetFilters')}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -197,8 +197,8 @@ export default function HistoriqueStockScreen() {
             <Text style={{ fontSize: 40 }}>📒</Text>
             <Text style={{ color: Colors.textMuted, marginTop: 12, textAlign: 'center' }}>
               {filtresActifs
-                ? 'Aucun mouvement ne correspond à ces filtres.'
-                : 'Aucun mouvement enregistré pour l’instant.'}
+                ? t('hist.emptyFiltered')
+                : t('hist.emptyNone')}
             </Text>
           </View>
         }

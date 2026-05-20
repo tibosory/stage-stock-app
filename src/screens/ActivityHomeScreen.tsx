@@ -14,36 +14,93 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { TabScreenSafeArea } from '../components/UI';
-import { Colors } from '../theme/colors';
+import { Colors, Shadow } from '../theme/colors';
+import { HitSlop, Spacing } from '../theme/spacing';
 import { Typography } from '../theme/typography';
 import { useAppAuth } from '../context/AuthContext';
 import { useConnection } from '../context/ConnectionContext';
 import { isConsumerApp } from '../config/appMode';
-import { useSpecialty } from '../context/SpecialtyContext';
-import { getSpecialtyDef } from '../config/specialties';
+import { useLanguage } from '../context/LanguageContext';
 
-/** Couleurs type drapeau arc-en-ciel / inclusive (accessibles sur texte blanc ou texte foncé) */
-const PRIDE_TILES_STAFF: { key: string; label: string; route: string; bg: string; textOn: 'light' | 'dark' }[] = [
-  { key: 'stock', label: 'Stock', route: 'WorkspaceStock', bg: '#E40303', textOn: 'light' },
-  { key: 'conso', label: 'Consommables', route: 'WorkspaceConsommable', bg: '#FF8C00', textOn: 'light' },
-  { key: 'pret', label: 'Prêt', route: 'WorkspacePret', bg: '#FFD000', textOn: 'dark' },
-  { key: 'ctrl', label: 'Contrôle', route: 'WorkspaceControle', bg: '#008026', textOn: 'light' },
-  { key: 'param', label: 'Paramètres', route: 'WorkspaceParams', bg: '#004DFF', textOn: 'light' },
-  { key: 'alerte', label: 'Alertes', route: 'WorkspaceAlertes', bg: '#750787', textOn: 'light' },
-  { key: 'io', label: 'Import / Export', route: 'WorkspaceImportExport', bg: '#FF6B9D', textOn: 'light' },
-  { key: 'print', label: 'Impression', route: 'WorkspaceImpression', bg: '#62C5EA', textOn: 'dark' },
+type MainTile = {
+  key: string;
+  label: string;
+  route: string;
+  accent: string;
+  tint: string;
+};
+
+type TileTemplate = Omit<MainTile, 'label'> & { labelKey: string };
+
+const PRIDE_TILE_DEFS_STAFF: TileTemplate[] = [
+  { key: 'stock', labelKey: 'stock.title', route: 'WorkspaceStock', accent: '#EF4444', tint: 'rgba(239,68,68,0.12)' },
+  {
+    key: 'conso',
+    labelKey: 'consumables.title',
+    route: 'WorkspaceConsommable',
+    accent: '#F59E0B',
+    tint: 'rgba(245,158,11,0.12)',
+  },
+  { key: 'pret', labelKey: 'home.tile.loanHub', route: 'WorkspacePret', accent: '#EAB308', tint: 'rgba(234,179,8,0.12)' },
+  {
+    key: 'ctrl',
+    labelKey: 'home.tile.inspectionHub',
+    route: 'WorkspaceControle',
+    accent: '#10B981',
+    tint: 'rgba(16,185,129,0.12)',
+  },
+  { key: 'param', labelKey: 'tab.settings', route: 'WorkspaceParams', accent: '#3B82F6', tint: 'rgba(59,130,246,0.12)' },
+  { key: 'alerte', labelKey: 'tab.alerts', route: 'WorkspaceAlertes', accent: '#8B5CF6', tint: 'rgba(139,92,246,0.12)' },
+  {
+    key: 'io',
+    labelKey: 'tab.importExport',
+    route: 'WorkspaceImportExport',
+    accent: '#EC4899',
+    tint: 'rgba(236,72,153,0.12)',
+  },
+  {
+    key: 'print',
+    labelKey: 'home.tile.print',
+    route: 'WorkspaceImpression',
+    accent: '#06B6D4',
+    tint: 'rgba(6,182,212,0.12)',
+  },
 ];
 
 const PRIDE_ALL_GRADIENT = ['#E40303', '#FF8C00', '#FFD000', '#008026', '#004DFF', '#750787', '#FF6B9D'] as const;
 
-const PRIDE_TILES_EMPRUNTEUR: { key: string; label: string; route: string; bg: string; textOn: 'light' | 'dark' }[] = [
-  { key: 'pret', label: 'Prêt', route: 'WorkspacePret', bg: '#E40303', textOn: 'light' },
-  { key: 'compte', label: 'Compte', route: 'WorkspaceCompteEmprunteur', bg: '#FF8C00', textOn: 'light' },
-  { key: 'param', label: 'Paramètres', route: 'WorkspaceParams', bg: '#008026', textOn: 'light' },
-  { key: 'io', label: 'Import / Export', route: 'WorkspaceImportExport', bg: '#004DFF', textOn: 'light' },
-  { key: 'ia', label: 'Assistant (IA)', route: 'WorkspaceAssistant', bg: '#750787', textOn: 'light' },
-  { key: 'notice', label: 'Notice', route: 'WorkspaceNotice', bg: '#FF6B9D', textOn: 'light' },
-  { key: 'res', label: 'Lien / Réseau', route: 'WorkspaceReseau', bg: '#62C5EA', textOn: 'dark' },
+const PRIDE_TILE_DEFS_EMPRUNTEUR: TileTemplate[] = [
+  { key: 'pret', labelKey: 'home.tile.loanHub', route: 'WorkspacePret', accent: '#EF4444', tint: 'rgba(239,68,68,0.12)' },
+  {
+    key: 'compte',
+    labelKey: 'tab.account',
+    route: 'WorkspaceCompteEmprunteur',
+    accent: '#F59E0B',
+    tint: 'rgba(245,158,11,0.12)',
+  },
+  { key: 'param', labelKey: 'tab.settings', route: 'WorkspaceParams', accent: '#10B981', tint: 'rgba(16,185,129,0.12)' },
+  {
+    key: 'io',
+    labelKey: 'tab.importExport',
+    route: 'WorkspaceImportExport',
+    accent: '#3B82F6',
+    tint: 'rgba(59,130,246,0.12)',
+  },
+  { key: 'ia', labelKey: 'home.tile.aiFull', route: 'WorkspaceAssistant', accent: '#8B5CF6', tint: 'rgba(139,92,246,0.12)' },
+  {
+    key: 'notice',
+    labelKey: 'tab.notice',
+    route: 'WorkspaceNotice',
+    accent: '#EC4899',
+    tint: 'rgba(236,72,153,0.12)',
+  },
+  {
+    key: 'res',
+    labelKey: 'home.tile.network',
+    route: 'WorkspaceReseau',
+    accent: '#06B6D4',
+    tint: 'rgba(6,182,212,0.12)',
+  },
 ];
 
 export default function ActivityHomeScreen() {
@@ -51,13 +108,20 @@ export default function ActivityHomeScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAppAuth();
   const { status } = useConnection();
-  const { specialtyId, ready: specialtyReady } = useSpecialty();
   const { width } = useWindowDimensions();
   const [searchText, setSearchText] = useState('');
-  const specialty = getSpecialtyDef(specialtyId);
+  const { t } = useLanguage();
 
   const isEmp = user?.role === 'emprunteur';
-  const tiles = isEmp ? PRIDE_TILES_EMPRUNTEUR : PRIDE_TILES_STAFF;
+  const tourModeEnabled = !isEmp;
+  const tiles = useMemo(
+    (): MainTile[] =>
+      (isEmp ? PRIDE_TILE_DEFS_EMPRUNTEUR : PRIDE_TILE_DEFS_STAFF).map(d => ({
+        ...d,
+        label: t(d.labelKey),
+      })),
+    [isEmp, t]
+  );
   const gap = 10;
   const col = 2;
   const tileW = (width - 16 * 2 - gap) / col;
@@ -71,7 +135,7 @@ export default function ActivityHomeScreen() {
   const onSearchSubmit = useCallback(() => {
     const q = searchText.trim();
     if (!q) {
-      Alert.alert('Recherche', 'Saisissez un mot-clé pour lancer la recherche locale, ou la question pour l’IA.');
+      Alert.alert(t('home.search.emptyTitle'), t('home.search.emptyBody'));
       return;
     }
     if (iaReachable) {
@@ -82,22 +146,19 @@ export default function ActivityHomeScreen() {
     } else {
       navigation.navigate('QuickSearch' as never, { q } as never);
     }
-  }, [navigation, searchText, iaReachable]);
+  }, [navigation, searchText, iaReachable, t]);
 
   const searchPlaceholder = useMemo(
-    () =>
-      iaReachable
-        ? 'Question IA ou mot-clé (Entrée pour lancer)…'
-        : 'Recherche locale (sans serveur) — mot-clé…',
-    [iaReachable]
+    () => (iaReachable ? t('home.placeholderIa') : t('home.placeholderLocal')),
+    [iaReachable, t]
   );
 
   const confirmLogout = useCallback(() => {
-    Alert.alert('Déconnexion', 'Retour à l’écran de connexion ?', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Déconnecter', style: 'destructive', onPress: () => void logout() },
+    Alert.alert(t('home.logoutConfirmTitle'), t('home.logoutConfirmBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('home.logoutConfirmDestructive'), style: 'destructive', onPress: () => void logout() },
     ]);
-  }, [logout]);
+  }, [logout, t]);
 
   return (
     <TabScreenSafeArea style={s.safe}>
@@ -108,32 +169,18 @@ export default function ActivityHomeScreen() {
       >
         <View style={s.topRow}>
           <Text style={s.title} accessibilityRole="header">
-            {isEmp ? 'Espace prêts' : 'Choisir une activité'}
+            {isEmp ? t('home.title.borrower') : t('home.title.staff')}
           </Text>
           <TouchableOpacity onPress={confirmLogout} style={s.logoutPill} activeOpacity={0.85}>
-            <Text style={s.logoutPillText}>Déconnexion</Text>
+            <Text style={s.logoutPillText}>{t('home.logout')}</Text>
           </TouchableOpacity>
         </View>
-        <Text style={s.subtitle}>
-          Gros boutons : un domaine et le scan (onglet) à côté. « Tout » ouvre l’app avec la barre d’onglets complète.
-        </Text>
-
-        {specialtyReady && specialtyId !== 'neutre' && specialty.homeHint ? (
-          <TouchableOpacity
-            style={s.specialtyPill}
-            onPress={() => navigation.navigate('WorkspaceParams' as never)}
-            activeOpacity={0.88}
-            accessibilityRole="button"
-            accessibilityLabel="Ouvrir les paramètres pour changer la spécialité métier"
-          >
-            <Text style={s.specialtyPillTitle}>Profil : {specialty.label}</Text>
-            <Text style={s.specialtyPillHint}>{specialty.homeHint}</Text>
-            <Text style={s.specialtyPillLink}>Modifier dans Paramètres →</Text>
-          </TouchableOpacity>
-        ) : null}
+        <Text style={s.subtitle}>{t('home.subtitle')}</Text>
 
         <View style={s.searchBlock}>
-          <Text style={s.searchLabel}>{iaReachable ? 'Recherche assistant (réseau OK)' : 'Recherche locale'}</Text>
+          <Text style={s.searchLabel}>
+            {iaReachable ? t('home.search.labelIa') : t('home.search.labelLocal')}
+          </Text>
           <View style={s.searchRow}>
             <Text style={s.searchIcon}>{iaReachable ? '✦' : '🔍'}</Text>
             <TextInput
@@ -145,21 +192,52 @@ export default function ActivityHomeScreen() {
               returnKeyType="search"
               onSubmitEditing={onSearchSubmit}
             />
-            <TouchableOpacity onPress={onSearchSubmit} style={s.searchGo} accessibilityLabel="Lancer la recherche">
-              <Text style={s.searchGoText}>OK</Text>
+            <TouchableOpacity
+              onPress={onSearchSubmit}
+              style={s.searchGo}
+              hitSlop={HitSlop}
+              accessibilityRole="button"
+              accessibilityLabel={t('home.search.a11y')}
+            >
+              <Text style={s.searchGoText}>{t('common.ok')}</Text>
             </TouchableOpacity>
           </View>
         </View>
 
+        {tourModeEnabled ? (
+          <TouchableOpacity
+            style={[s.tourHero, { width: width - 32 }]}
+            onPress={() => navigation.navigate('TourList' as never)}
+            activeOpacity={0.88}
+            accessibilityRole="button"
+            accessibilityLabel={t('home.tourHero.a11y')}
+          >
+            <Text style={s.tourHeroEmoji}>🎪</Text>
+            <Text style={s.tourHeroTitle}>{t('home.tourHero.title')}</Text>
+            <Text style={s.tourHeroSub}>{t('home.tourHero.sub')}</Text>
+            <Text style={s.tourHeroCta}>{t('home.tourHero.cta')}</Text>
+          </TouchableOpacity>
+        ) : null}
+
         <View style={[s.grid, { width: width - 32 }]}>
-          {tiles.map(t => (
+          {tiles.map(tile => (
             <TouchableOpacity
-              key={t.key}
-              style={[s.tile, { width: tileW, backgroundColor: t.bg }]}
-              onPress={() => navigation.navigate(t.route as never)}
+              key={tile.key}
+              style={[
+                s.tile,
+                {
+                  width: tileW,
+                  backgroundColor: tile.tint,
+                  borderColor: tile.accent,
+                },
+              ]}
+              onPress={() => navigation.navigate(tile.route as never)}
               activeOpacity={0.88}
+              accessibilityRole="button"
+              accessibilityLabel={t('home.tile.openA11y').replace('{{label}}', tile.label)}
             >
-              <Text style={[s.tileText, t.textOn === 'dark' && s.tileTextDark]}>{t.label}</Text>
+              <View style={[s.tileAccentDot, { backgroundColor: tile.accent }]} />
+              <Text style={[s.tileText, { color: tile.accent }]}>{tile.label}</Text>
             </TouchableOpacity>
           ))}
 
@@ -169,16 +247,13 @@ export default function ActivityHomeScreen() {
             activeOpacity={0.9}
           >
             <LinearGradient colors={[...PRIDE_ALL_GRADIENT]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.tileAllGrad}>
-              <Text style={s.tileText}>ALL</Text>
-              <Text style={s.tileAllHint}>Onglets complets</Text>
+              <Text style={s.tileText}>{t('home.tileAll')}</Text>
+              <Text style={s.tileAllHint}>{t('home.tileAllHint')}</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
 
-        <Text style={s.footerNote}>
-          Retour ici : bouton rond « ⌂ » en haut à gauche dans chaque espace, ou entrer dans l’onglet « Menu » depuis
-          « Tout ».
-        </Text>
+        <Text style={s.footerNote}>{t('home.footerNote')}</Text>
       </ScrollView>
     </TabScreenSafeArea>
   );
@@ -194,29 +269,7 @@ const s = StyleSheet.create({
     marginBottom: 6,
   },
   title: { ...Typography.screenTitle, fontSize: 20, flex: 1, marginRight: 8 },
-  subtitle: { ...Typography.caption, color: Colors.textMuted, marginBottom: 12, lineHeight: 18 },
-  specialtyPill: {
-    marginBottom: 14,
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(52, 211, 153, 0.35)',
-    backgroundColor: 'rgba(52, 211, 153, 0.08)',
-  },
-  specialtyPillTitle: {
-    color: Colors.green,
-    fontWeight: '800',
-    fontSize: 13,
-    marginBottom: 4,
-  },
-  specialtyPillHint: { color: Colors.textSecondary, fontSize: 12, lineHeight: 17 },
-  specialtyPillLink: {
-    color: Colors.green,
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 8,
-    textDecorationLine: 'underline',
-  },
+  subtitle: { ...Typography.screenIntro, marginBottom: Spacing.md },
   logoutPill: {
     borderWidth: 1,
     borderColor: Colors.red,
@@ -232,9 +285,10 @@ const s = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.bgCard,
     borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 14,
+    borderColor: Colors.borderStrong,
+    borderRadius: 16,
     paddingLeft: 10,
+    minHeight: Spacing.touchMin,
   },
   searchIcon: { fontSize: 16, color: Colors.green, marginRight: 4 },
   searchInput: {
@@ -244,21 +298,62 @@ const s = StyleSheet.create({
     paddingVertical: 10,
     minHeight: 44,
   },
-  searchGo: { paddingHorizontal: 12, paddingVertical: 10 },
+  searchGo: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: Spacing.touchMin,
+    justifyContent: 'center',
+  },
   searchGoText: { color: Colors.green, fontWeight: '800' },
+  tourHero: {
+    alignSelf: 'center',
+    marginBottom: 16,
+    paddingVertical: 22,
+    paddingHorizontal: 18,
+    borderRadius: 20,
+    backgroundColor: '#0F766E',
+    borderWidth: 2,
+    borderColor: 'rgba(52, 211, 153, 0.55)',
+    alignItems: 'center',
+    minHeight: 132,
+    justifyContent: 'center',
+  },
+  tourHeroEmoji: { fontSize: 40, marginBottom: 6 },
+  tourHeroTitle: {
+    color: '#ECFDF5',
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  tourHeroSub: {
+    color: 'rgba(236, 253, 245, 0.92)',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 10,
+  },
+  tourHeroCta: { color: '#6EE7B7', fontSize: 16, fontWeight: '800' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'stretch' },
   tile: {
-    minHeight: 100,
-    borderRadius: 16,
-    padding: 12,
+    minHeight: 108,
+    borderRadius: 22,
+    padding: 14,
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
+    borderWidth: 2,
+    ...Shadow.card,
   },
   tileAll: { width: '100%', padding: 0, overflow: 'hidden', borderColor: 'rgba(255,255,255,0.2)' },
   tileAllGrad: { flex: 1, minHeight: 88, padding: 14, justifyContent: 'center', alignItems: 'center' },
-  tileText: { color: '#fff', fontSize: 17, fontWeight: '900', textAlign: 'center' },
-  tileTextDark: { color: '#111' },
+  tileAccentDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    alignSelf: 'center',
+    marginBottom: 8,
+  },
+  tileText: { fontSize: 17, fontWeight: '900', textAlign: 'center' },
   tileAllHint: { color: 'rgba(255,255,255,0.95)', fontSize: 12, marginTop: 4, fontWeight: '600' },
   footerNote: { ...Typography.caption, color: Colors.textMuted, marginTop: 16, lineHeight: 16 },
 });

@@ -1,5 +1,5 @@
 /**
- * Synchronisation inventaire via l’API HTTP Stage Stock (serveur local ou hébergé),
+ * Synchronisation inventaire via l’API HTTP CATRACK Pro (serveur local ou hébergé),
  * distincte de Supabase. Utilise GET /api/sync/snapshot et POST /api/sync/bulk.
  */
 import { Platform } from 'react-native';
@@ -10,11 +10,14 @@ import {
   getApiKeyOverride,
   looksLikeHttpUrl,
 } from './apiEndpointStorage';
-import { getDB, getSessionAppUserRole } from '../db/database';
+import { getDB } from '../db/coreDb';
+import { invalidateInventorySnapshotCache } from '../db/materialRepository';
+import { getSessionAppUserRole } from '../db/userDb';
 import { canCallApiSync } from './syncGuards';
+import { mergeMaterielLocalMedia, filterSnapshotRowsByUnsyncedIds, type MaterielLocalMedia } from './inventorySnapshotMerge';
 
 const MSG_NO_API =
-  'Aucune URL d’API Stage Stock configurée (onglet Réseau ou EXPO_PUBLIC_API_URL au build).';
+  'Aucune URL d’API CATRACK Pro configurée (onglet Réseau ou EXPO_PUBLIC_API_URL au build).';
 const MSG_API_DISABLED = 'Synchro API désactivée (DOUBLE_BACKEND off).';
 
 /** Cible explicite (autre URL / clé) pour sync depuis l’écran Import / export. */
@@ -135,6 +138,272 @@ function sqlVal(v: unknown): string | number | null {
   return String(v);
 }
 
+/** Limite conservative de variables liées par requête SQLite (souvent 999). */
+const SQLITE_BIND_CHUNK_BUDGET = 880;
+
+type SqliteDb = Awaited<ReturnType<typeof getDB>>;
+
+function materielSnapshotParams(m: Record<string, unknown>): (string | number | null)[] {
+  return [
+    sqlVal(m.id),
+    sqlVal(m.nom ?? null),
+    sqlVal(m.type ?? null),
+    sqlVal(m.marque ?? null),
+    sqlVal(m.numero_serie ?? null),
+    sqlVal(m.poids_kg ?? null),
+    sqlVal(m.categorie_id ?? null),
+    sqlVal(m.localisation_id ?? null),
+    sqlVal(m.etat ?? 'bon'),
+    sqlVal(m.statut ?? 'en stock'),
+    sqlVal(m.date_achat ?? null),
+    sqlVal(m.date_validite ?? null),
+    sqlVal(m.prochain_controle ?? null),
+    sqlVal(m.intervalle_controle_jours ?? null),
+    sqlVal((m as { maintenance_todo?: unknown }).maintenance_todo ?? null),
+    sqlVal((m as { maintenance_last_comment?: unknown }).maintenance_last_comment ?? null),
+    sqlVal(m.technicien ?? null),
+    sqlVal(m.qr_code ?? null),
+    sqlVal(m.nfc_tag_id ?? null),
+    sqlVal(m.photo_url ?? null),
+    sqlVal(m.photo_local ?? null),
+    sqlVal(m.notice_pdf_local ?? null),
+    sqlVal(m.notice_photo_local ?? null),
+    sqlVal(m.notice_pdf_url ?? null),
+    sqlVal(m.notice_photo_url ?? null),
+    m.vgp_actif != null ? num01(m.vgp_actif) : 0,
+    sqlVal(m.vgp_periodicite_jours ?? null),
+    sqlVal(m.vgp_derniere_visite ?? null),
+    sqlVal(m.vgp_libelle ?? null),
+    (m as { vgp_epi?: unknown }).vgp_epi != null ? num01((m as { vgp_epi?: unknown }).vgp_epi) : 0,
+    sqlVal((m as { gel_brand?: unknown }).gel_brand ?? null),
+    sqlVal((m as { gel_code?: unknown }).gel_code ?? null),
+    (m as { gel_instead_of_photo?: unknown }).gel_instead_of_photo != null
+      ? num01((m as { gel_instead_of_photo?: unknown }).gel_instead_of_photo)
+      : 0,
+    sqlVal(m.created_at ?? new Date().toISOString()),
+    sqlVal(m.updated_at ?? new Date().toISOString()),
+  ];
+}
+
+const MATERIEL_SNAPSHOT_INSERT_SQL = `INSERT OR REPLACE INTO materiels (
+            id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id,
+            etat, statut, date_achat, date_validite, prochain_controle, intervalle_controle_jours,
+            maintenance_todo, maintenance_last_comment,
+            technicien, qr_code, nfc_tag_id, photo_url, photo_local,
+            notice_pdf_local, notice_photo_local, notice_pdf_url, notice_photo_url,
+            vgp_actif, vgp_periodicite_jours, vgp_derniere_visite, vgp_libelle, vgp_epi,
+            gel_brand, gel_code, gel_instead_of_photo,
+            created_at, updated_at, synced
+          ) VALUES `;
+
+const MATERIEL_SNAPSHOT_VALUES_TUPLE = `(${Array(35).fill('?').join(',')},1)`;
+
+function consoSnapshotParams(c: Record<string, unknown>): (string | number | null)[] {
+  return [
+    sqlVal(c.id),
+    sqlVal(c.nom),
+    sqlVal(c.reference ?? null),
+    sqlVal(c.unite ?? 'pièce'),
+    Number(c.stock_actuel ?? 0),
+    Number(c.seuil_minimum ?? 5),
+    sqlVal(c.categorie_id ?? null),
+    sqlVal(c.localisation_id ?? null),
+    sqlVal(c.fournisseur ?? null),
+    sqlVal(c.prix_unitaire ?? null),
+    sqlVal(c.qr_code ?? null),
+    sqlVal(c.nfc_tag_id ?? null),
+    sqlVal(c.created_at ?? new Date().toISOString()),
+    sqlVal(c.updated_at ?? new Date().toISOString()),
+  ];
+}
+
+const CONSO_SNAPSHOT_VALUES_TUPLE = '(?,?,?,?,?,?,?,?,?,?,?,?,?,1)';
+
+function pretSnapshotParams(p: Record<string, unknown>): (string | number | null)[] {
+  const rappel =
+    p.rappel_jours_avant != null && Number.isFinite(Number(p.rappel_jours_avant))
+      ? Math.min(365, Math.max(1, Math.floor(Number(p.rappel_jours_avant))))
+      : null;
+  return [
+    sqlVal(p.id),
+    sqlVal(p.numero_feuille ?? null),
+    sqlVal(p.statut ?? 'en cours'),
+    sqlVal(p.emprunteur ?? ''),
+    sqlVal(p.organisation ?? null),
+    sqlVal(p.telephone ?? null),
+    sqlVal(p.email ?? null),
+    sqlVal(p.date_depart ?? new Date().toISOString()),
+    sqlVal(p.retour_prevu ?? null),
+    sqlVal(p.retour_reel ?? null),
+    sqlVal(p.valeur_estimee ?? null),
+    sqlVal(p.commentaire ?? null),
+    sqlVal(p.signature_emprunteur_data ?? null),
+    sqlVal(p.signed_at ?? null),
+    sqlVal(p.emprunteur_user_id ?? null),
+    rappel,
+    sqlVal(p.created_at ?? new Date().toISOString()),
+    sqlVal(p.updated_at ?? new Date().toISOString()),
+  ];
+}
+
+const PRET_SNAPSHOT_INSERT_SQL = `INSERT OR REPLACE INTO prets (
+            id, numero_feuille, statut, emprunteur, organisation, telephone, email,
+            date_depart, retour_prevu, retour_reel, valeur_estimee, commentaire,
+            signature_emprunteur_data, signed_at, emprunteur_user_id, rappel_jours_avant,
+            created_at, updated_at, synced
+          ) VALUES `;
+
+const PRET_SNAPSHOT_VALUES_TUPLE = '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)';
+
+async function loadLocalMaterielMediaMap(
+  database: SqliteDb,
+  ids: string[]
+): Promise<Map<string, MaterielLocalMedia>> {
+  const map = new Map<string, MaterielLocalMedia>();
+  if (ids.length === 0) return map;
+  const idChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / 1));
+  for (let i = 0; i < ids.length; i += idChunk) {
+    const chunk = ids.slice(i, i + idChunk);
+    const ph = chunk.map(() => '?').join(',');
+    const rows = await database.getAllAsync<{
+      id: string;
+      photo_local: string | null;
+      notice_pdf_local: string | null;
+      notice_photo_local: string | null;
+    }>(
+      `SELECT id, photo_local, notice_pdf_local, notice_photo_local FROM materiels WHERE id IN (${ph})`,
+      chunk
+    );
+    for (const row of rows) {
+      map.set(String(row.id), {
+        photo_local: row.photo_local,
+        notice_pdf_local: row.notice_pdf_local,
+        notice_photo_local: row.notice_photo_local,
+      });
+    }
+  }
+  return map;
+}
+
+async function loadUnsyncedLocalIds(database: SqliteDb, table: 'materiels' | 'consommables' | 'prets'): Promise<Set<string>> {
+  const rows = await database.getAllAsync<{ id: string }>(`SELECT id FROM ${table} WHERE synced = 0`);
+  return new Set(rows.map(r => String(r.id)));
+}
+
+async function applyInventorySnapshotRows(database: SqliteDb, snap: Snapshot): Promise<void> {
+  const cats = (snap.categories ?? []).filter((c): c is Record<string, unknown> => Boolean(c?.id && c?.nom));
+  const perCat = 3;
+  const catChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perCat));
+  for (let i = 0; i < cats.length; i += catChunk) {
+    const chunk = cats.slice(i, i + catChunk);
+    const tuples = chunk.map(() => '(?, ?, ?)').join(', ');
+    const flat = chunk.flatMap(c => [
+      String(c.id),
+      String(c.nom),
+      c.parent_id != null ? String(c.parent_id) : null,
+    ]);
+    await database.runAsync(`INSERT OR REPLACE INTO categories (id, nom, parent_id) VALUES ${tuples}`, flat);
+  }
+
+  const locs = (snap.localisations ?? []).filter((l): l is Record<string, unknown> => Boolean(l?.id && l?.nom));
+  const perLoc = 2;
+  const locChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perLoc));
+  for (let i = 0; i < locs.length; i += locChunk) {
+    const chunk = locs.slice(i, i + locChunk);
+    const tuples = chunk.map(() => '(?, ?)').join(', ');
+    const flat = chunk.flatMap(l => [String(l.id), String(l.nom)]);
+    await database.runAsync(`INSERT OR REPLACE INTO localisations (id, nom) VALUES ${tuples}`, flat);
+  }
+
+  const unsyncedMateriels = await loadUnsyncedLocalIds(database, 'materiels');
+  const unsyncedConsos = await loadUnsyncedLocalIds(database, 'consommables');
+  const unsyncedPrets = await loadUnsyncedLocalIds(database, 'prets');
+
+  const mats = filterSnapshotRowsByUnsyncedIds(
+    (snap.materiels ?? []).filter((m): m is Record<string, unknown> => Boolean(m?.id)),
+    unsyncedMateriels
+  );
+  const localMediaById = await loadLocalMaterielMediaMap(
+    database,
+    mats.map(m => String(m.id))
+  );
+  const matCols = 35;
+  const matChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / matCols));
+  const matRows = mats
+    .map(m => mergeMaterielLocalMedia(m, localMediaById.get(String(m.id))))
+    .map(materielSnapshotParams);
+  for (let i = 0; i < matRows.length; i += matChunk) {
+    const chunk = matRows.slice(i, i + matChunk);
+    const tuples = chunk.map(() => MATERIEL_SNAPSHOT_VALUES_TUPLE).join(', ');
+    await database.runAsync(MATERIEL_SNAPSHOT_INSERT_SQL + tuples, chunk.flat());
+  }
+
+  const consos = filterSnapshotRowsByUnsyncedIds(
+    (snap.consommables ?? []).filter((c): c is Record<string, unknown> => Boolean(c?.id)),
+    unsyncedConsos
+  );
+  const perCon = 14;
+  const conChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perCon));
+  const conRows = consos.map(consoSnapshotParams);
+  for (let i = 0; i < conRows.length; i += conChunk) {
+    const chunk = conRows.slice(i, i + conChunk);
+    const tuples = chunk.map(() => CONSO_SNAPSHOT_VALUES_TUPLE).join(', ');
+    await database.runAsync(`INSERT OR REPLACE INTO consommables VALUES ${tuples}`, chunk.flat());
+  }
+
+  const prets = filterSnapshotRowsByUnsyncedIds(
+    (snap.prets ?? []).filter((p): p is Record<string, unknown> => Boolean(p?.id)),
+    unsyncedPrets
+  );
+  const perPret = 18;
+  const pretChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perPret));
+  const pretRows = prets.map(pretSnapshotParams);
+  for (let i = 0; i < pretRows.length; i += pretChunk) {
+    const chunk = pretRows.slice(i, i + pretChunk);
+    const tuples = chunk.map(() => PRET_SNAPSHOT_VALUES_TUPLE).join(', ');
+    await database.runAsync(PRET_SNAPSHOT_INSERT_SQL + tuples, chunk.flat());
+  }
+
+  const pms = (snap.pret_materiels ?? []).filter(
+    (pm): pm is Record<string, unknown> => Boolean(pm?.id && pm?.pret_id && pm?.materiel_id)
+  );
+  const perPm = 6;
+  const pmChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perPm));
+  for (let i = 0; i < pms.length; i += pmChunk) {
+    const chunk = pms.slice(i, i + pmChunk);
+    const tuples = chunk.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+    const flat = chunk.flatMap(pm => [
+      String(pm.id),
+      String(pm.pret_id),
+      String(pm.materiel_id),
+      pm.quantite != null ? Number(pm.quantite) : 1,
+      num01(pm.retourne),
+      pm.etat_au_retour != null ? String(pm.etat_au_retour) : null,
+    ]);
+    await database.runAsync(
+      `INSERT OR REPLACE INTO pret_materiels (id, pret_id, materiel_id, quantite, retourne, etat_au_retour) VALUES ${tuples}`,
+      flat
+    );
+  }
+
+  const alertes = (snap.alertes_email ?? []).filter(
+    (a): a is Record<string, unknown> => Boolean(a?.id && a?.email)
+  );
+  const perAe = 4;
+  const aeChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perAe));
+  for (let i = 0; i < alertes.length; i += aeChunk) {
+    const chunk = alertes.slice(i, i + aeChunk);
+    const tuples = chunk.map(() => '(?, ?, ?, ?)').join(', ');
+    const flat = chunk.flatMap(a => [
+      String(a.id),
+      a.nom != null ? String(a.nom) : null,
+      String(a.email),
+      a.role != null ? String(a.role) : null,
+    ]);
+    await database.runAsync(`INSERT OR REPLACE INTO alertes_email (id, nom, email, role) VALUES ${tuples}`, flat);
+  }
+}
+
 export async function syncFromInventoryApi(
   endpoint?: InventorySyncEndpoint | null
 ): Promise<{ ok: boolean; error?: string }> {
@@ -162,159 +431,7 @@ export async function syncFromInventoryApi(
     const database = await getDB();
     await database.execAsync('BEGIN IMMEDIATE;');
     try {
-      for (const c of snap.categories ?? []) {
-        if (!c?.id || !c?.nom) continue;
-        await database.runAsync(
-          'INSERT OR REPLACE INTO categories (id, nom, parent_id) VALUES (?, ?, ?)',
-          [String(c.id), String(c.nom), c.parent_id != null ? String(c.parent_id) : null]
-        );
-      }
-      for (const l of snap.localisations ?? []) {
-        if (!l?.id || !l?.nom) continue;
-        await database.runAsync('INSERT OR REPLACE INTO localisations (id, nom) VALUES (?, ?)', [
-          String(l.id),
-          String(l.nom),
-        ]);
-      }
-      for (const m of snap.materiels ?? []) {
-        if (!m?.id) continue;
-        const matParams: (string | number | null)[] = [
-          sqlVal(m.id),
-          sqlVal(m.nom ?? null),
-          sqlVal(m.type ?? null),
-          sqlVal(m.marque ?? null),
-          sqlVal(m.numero_serie ?? null),
-          sqlVal(m.poids_kg ?? null),
-          sqlVal(m.categorie_id ?? null),
-          sqlVal(m.localisation_id ?? null),
-          sqlVal(m.etat ?? 'bon'),
-          sqlVal(m.statut ?? 'en stock'),
-          sqlVal(m.date_achat ?? null),
-          sqlVal(m.date_validite ?? null),
-          sqlVal(m.prochain_controle ?? null),
-          sqlVal(m.intervalle_controle_jours ?? null),
-          sqlVal((m as { maintenance_todo?: unknown }).maintenance_todo ?? null),
-          sqlVal((m as { maintenance_last_comment?: unknown }).maintenance_last_comment ?? null),
-          sqlVal(m.technicien ?? null),
-          sqlVal(m.qr_code ?? null),
-          sqlVal(m.nfc_tag_id ?? null),
-          sqlVal(m.photo_url ?? null),
-          null,
-          null,
-          null,
-          sqlVal(m.notice_pdf_url ?? null),
-          sqlVal(m.notice_photo_url ?? null),
-          m.vgp_actif != null ? num01(m.vgp_actif) : 0,
-          sqlVal(m.vgp_periodicite_jours ?? null),
-          sqlVal(m.vgp_derniere_visite ?? null),
-          sqlVal(m.vgp_libelle ?? null),
-          (m as { vgp_epi?: unknown }).vgp_epi != null ? num01((m as { vgp_epi?: unknown }).vgp_epi) : 0,
-          sqlVal((m as { gel_brand?: unknown }).gel_brand ?? null),
-          sqlVal((m as { gel_code?: unknown }).gel_code ?? null),
-          (m as { gel_instead_of_photo?: unknown }).gel_instead_of_photo != null
-            ? num01((m as { gel_instead_of_photo?: unknown }).gel_instead_of_photo)
-            : 0,
-          sqlVal(m.created_at ?? new Date().toISOString()),
-          sqlVal(m.updated_at ?? new Date().toISOString()),
-        ];
-        await database.runAsync(
-          `
-          INSERT OR REPLACE INTO materiels (
-            id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id,
-            etat, statut, date_achat, date_validite, prochain_controle, intervalle_controle_jours,
-            maintenance_todo, maintenance_last_comment,
-            technicien, qr_code, nfc_tag_id, photo_url, photo_local,
-            notice_pdf_local, notice_photo_local, notice_pdf_url, notice_photo_url,
-            vgp_actif, vgp_periodicite_jours, vgp_derniere_visite, vgp_libelle, vgp_epi,
-            gel_brand, gel_code, gel_instead_of_photo,
-            created_at, updated_at, synced
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-        `,
-          matParams
-        );
-      }
-      for (const c of snap.consommables ?? []) {
-        if (!c?.id) continue;
-        const conParams: (string | number | null)[] = [
-          sqlVal(c.id),
-          sqlVal(c.nom),
-          sqlVal(c.reference ?? null),
-          sqlVal(c.unite ?? 'pièce'),
-          Number(c.stock_actuel ?? 0),
-          Number(c.seuil_minimum ?? 5),
-          sqlVal(c.categorie_id ?? null),
-          sqlVal(c.localisation_id ?? null),
-          sqlVal(c.fournisseur ?? null),
-          sqlVal(c.prix_unitaire ?? null),
-          sqlVal(c.qr_code ?? null),
-          sqlVal(c.nfc_tag_id ?? null),
-          sqlVal(c.created_at ?? new Date().toISOString()),
-          sqlVal(c.updated_at ?? new Date().toISOString()),
-        ];
-        await database.runAsync(
-          `INSERT OR REPLACE INTO consommables VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1
-          )`,
-          conParams
-        );
-      }
-      for (const p of snap.prets ?? []) {
-        if (!p?.id) continue;
-        const rappel =
-          p.rappel_jours_avant != null && Number.isFinite(Number(p.rappel_jours_avant))
-            ? Math.min(365, Math.max(1, Math.floor(Number(p.rappel_jours_avant))))
-            : null;
-        const pretParams: (string | number | null)[] = [
-          sqlVal(p.id),
-          sqlVal(p.numero_feuille ?? null),
-          sqlVal(p.statut ?? 'en cours'),
-          sqlVal(p.emprunteur ?? ''),
-          sqlVal(p.organisation ?? null),
-          sqlVal(p.telephone ?? null),
-          sqlVal(p.email ?? null),
-          sqlVal(p.date_depart ?? new Date().toISOString()),
-          sqlVal(p.retour_prevu ?? null),
-          sqlVal(p.retour_reel ?? null),
-          sqlVal(p.valeur_estimee ?? null),
-          sqlVal(p.commentaire ?? null),
-          sqlVal(p.signature_emprunteur_data ?? null),
-          sqlVal(p.signed_at ?? null),
-          sqlVal(p.emprunteur_user_id ?? null),
-          rappel,
-          sqlVal(p.created_at ?? new Date().toISOString()),
-          sqlVal(p.updated_at ?? new Date().toISOString()),
-        ];
-        await database.runAsync(
-          `INSERT OR REPLACE INTO prets (
-            id, numero_feuille, statut, emprunteur, organisation, telephone, email,
-            date_depart, retour_prevu, retour_reel, valeur_estimee, commentaire,
-            signature_emprunteur_data, signed_at, emprunteur_user_id, rappel_jours_avant,
-            created_at, updated_at, synced
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-          pretParams
-        );
-      }
-      for (const pm of snap.pret_materiels ?? []) {
-        if (!pm?.id || !pm?.pret_id || !pm?.materiel_id) continue;
-        await database.runAsync(
-          'INSERT OR REPLACE INTO pret_materiels (id, pret_id, materiel_id, quantite, retourne, etat_au_retour) VALUES (?, ?, ?, ?, ?, ?)',
-          [
-            String(pm.id),
-            String(pm.pret_id),
-            String(pm.materiel_id),
-            pm.quantite != null ? Number(pm.quantite) : 1,
-            num01(pm.retourne),
-            pm.etat_au_retour != null ? String(pm.etat_au_retour) : null,
-          ]
-        );
-      }
-      for (const a of snap.alertes_email ?? []) {
-        if (!a?.id || !a?.email) continue;
-        await database.runAsync(
-          'INSERT OR REPLACE INTO alertes_email (id, nom, email, role) VALUES (?, ?, ?, ?)',
-          [String(a.id), a.nom != null ? String(a.nom) : null, String(a.email), a.role != null ? String(a.role) : null]
-        );
-      }
+      await applyInventorySnapshotRows(database, snap);
 
       const appUsersSnap = snap.app_users;
       if (Array.isArray(appUsersSnap) && appUsersSnap.length > 0) {
@@ -361,6 +478,7 @@ export async function syncFromInventoryApi(
       }
       throw e;
     }
+    invalidateInventorySnapshotCache();
     return { ok: true };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

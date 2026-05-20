@@ -3,7 +3,9 @@ import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import * as XLSX from '@e965/xlsx';
 import { parseISO, addDays, isValid, format, startOfDay } from 'date-fns';
-import { getMateriel, getConsommables, getPrets, getDB, generateId } from '../db/database';
+import { getDB, generateId } from '../db/coreDb';
+import { getMateriel, getConsommables } from '../db/inventoryDb';
+import { getPrets } from '../db/loanDb';
 import type { Pret } from '../types';
 
 function csvEscape(cell: string | number | null | undefined): string {
@@ -426,7 +428,7 @@ export async function exportPretsIcs(): Promise<void> {
     'PRODID:-//StageStock//Prets//FR',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    `X-WR-CALNAME:${icsEscapeText('Stage Stock — Prêts')}`,
+    `X-WR-CALNAME:${icsEscapeText('CATRACK Pro — Prêts')}`,
   ];
   for (const p of included) {
     const { start, endExclusive } = pretAllDayRange(p);

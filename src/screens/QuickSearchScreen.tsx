@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -9,75 +9,23 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { getMateriel, getConsommables } from '../db/database';
-import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import { Materiel, Consommable } from '../types';
 import { TabScreenSafeArea, ScreenHeader } from '../components/UI';
 import { Colors } from '../theme/colors';
 import { Typography } from '../theme/typography';
-
-type Row =
-  | { kind: 'mat'; id: string; label: string; sub?: string; raw: Materiel }
-  | { kind: 'conso'; id: string; label: string; sub?: string; raw: Consommable };
+import { useHybridMaterialSearch } from '../ui/hooks/useHybridMaterialSearch';
+import type { SearchRow } from '../core/stock/stockEngine';
+import { useLanguage } from '../context/LanguageContext';
 
 type RootParams = { QuickSearch: { q?: string } | undefined };
 
 export default function QuickSearchScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<RootParams, 'QuickSearch'>>();
+  const { t } = useLanguage();
   const [query, setQuery] = useState(route.params?.q ?? '');
-  const debouncedQuery = useDebouncedValue(query, 200);
-  const [rows, setRows] = useState<Row[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { rows, loading, aiPending, aiReason, stats } = useHybridMaterialSearch(query, 420);
 
-  const runSearch = useCallback(async (q: string) => {
-    const low = q.trim().toLowerCase();
-    if (!low) {
-      setRows([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const [mats, cons] = await Promise.all([getMateriel(), getConsommables()]);
-      const out: Row[] = [];
-      for (const m of mats) {
-        const blob = `${m.nom} ${m.qr_code ?? ''} ${m.numero_serie ?? ''} ${m.marque ?? ''} ${(m as any).categorie_nom ?? ''}`.toLowerCase();
-        if (blob.includes(low)) {
-          out.push({
-            kind: 'mat',
-            id: m.id,
-            label: m.nom,
-            sub: [m.marque, m.numero_serie].filter(Boolean).join(' · '),
-            raw: m,
-          });
-        }
-      }
-      for (const c of cons) {
-        const blob = `${c.nom} ${c.reference ?? ''} ${c.categorie_nom ?? ''}`.toLowerCase();
-        if (blob.includes(low)) {
-          out.push({
-            kind: 'conso',
-            id: c.id,
-            label: c.nom,
-            sub: [c.unite, String(c.stock_actuel ?? '')].filter(Boolean).join(' · '),
-            raw: c,
-          });
-        }
-      }
-      setRows(out.slice(0, 200));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void runSearch(debouncedQuery);
-  }, [debouncedQuery, runSearch]);
-
-  const data = rows;
-
-  const onPress = (item: Row) => {
+  const onPress = (item: SearchRow) => {
     if (item.kind === 'mat') {
       navigation.navigate('WorkspaceStock', {
         screen: 'WsStock',
@@ -93,17 +41,23 @@ export default function QuickSearchScreen() {
 
   return (
     <TabScreenSafeArea style={s.container}>
-      <ScreenHeader icon={<Text style={{ fontSize: 20 }}>🔍</Text>} title="Recherche locale" />
+      <ScreenHeader icon={<Text style={{ fontSize: 20 }}>🔍</Text>} title={t('quickSearch.title')} />
       <View style={s.searchRow}>
         <Text style={s.searchIcon}>🔍</Text>
         <TextInput
           style={s.searchInput}
           value={query}
           onChangeText={setQuery}
-          placeholder="Filtrer matériel & consommable (hors-ligne / sans IA)"
+          placeholder={t('quickSearch.placeholder')}
           placeholderTextColor={Colors.textMuted}
           autoFocus={!route.params?.q}
         />
+      </View>
+      <View style={s.infoRow}>
+        <Text style={s.infoText}>
+          {t('quickSearch.stats', { total: stats.total, mats: stats.materiels, consos: stats.consommables })}
+        </Text>
+        {aiPending ? <Text style={s.infoAi}>{t('quickSearch.aiPending')}</Text> : aiReason ? <Text style={s.infoAi}>{t('quickSearch.aiOk')}</Text> : null}
       </View>
       {loading ? (
         <View style={s.centered}>
@@ -111,15 +65,15 @@ export default function QuickSearchScreen() {
         </View>
       ) : (
         <FlatList
-          data={data}
+          data={rows}
           keyExtractor={item => `${item.kind}-${item.id}`}
           contentContainerStyle={s.list}
           ListEmptyComponent={
-            <Text style={s.empty}>Aucun résultat. Modifiez le texte ou les données locales.</Text>
+            <Text style={s.empty}>{t('quickSearch.empty')}</Text>
           }
           renderItem={({ item }) => (
             <TouchableOpacity style={s.row} onPress={() => onPress(item)} activeOpacity={0.8}>
-              <Text style={s.badge}>{item.kind === 'mat' ? 'Matériel' : 'Conso'}</Text>
+              <Text style={s.badge}>{item.kind === 'mat' ? t('quickSearch.badge.mat') : t('quickSearch.badge.conso')}</Text>
               <Text style={s.title} numberOfLines={2}>
                 {item.label}
               </Text>
@@ -157,6 +111,15 @@ const s = StyleSheet.create({
     paddingRight: 12,
     fontSize: 15,
   },
+  infoRow: {
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  infoText: { color: Colors.textMuted, fontSize: 12 },
+  infoAi: { color: Colors.green, fontSize: 12, fontWeight: '700' },
   list: { padding: 12, paddingBottom: 32 },
   row: {
     backgroundColor: Colors.bgCard,

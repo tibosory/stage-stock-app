@@ -9,68 +9,93 @@ type Props = {
 };
 
 /**
- * Logo app (tête de chat) : rotation continue + léger rebond pour les écrans d’attente.
+ * Logo app : animation douce (respiration + flottement), plus lisible qu'une rotation continue.
  */
 export function SplashLoadingLogo({ size = 128, style }: Props) {
-  const rotation = useRef(new Animated.Value(0)).current;
-  const bounce = useRef(new Animated.Value(0)).current;
+  const pulse = useRef(new Animated.Value(0)).current;
+  const float = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const spin = Animated.loop(
-      Animated.timing(rotation, {
-        toValue: 1,
-        duration: 2600,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
-    );
-    const bounceLoop = Animated.loop(
+    const pulseLoop = Animated.loop(
       Animated.sequence([
-        Animated.timing(bounce, {
+        Animated.timing(pulse, {
           toValue: 1,
-          duration: 480,
+          duration: 950,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 950,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    const floatLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(float, {
+          toValue: 1,
+          duration: 1200,
           easing: Easing.out(Easing.quad),
           useNativeDriver: true,
         }),
-        Animated.timing(bounce, {
+        Animated.timing(float, {
           toValue: 0,
-          duration: 480,
+          duration: 1200,
           easing: Easing.in(Easing.quad),
           useNativeDriver: true,
         }),
       ]),
     );
-    spin.start();
-    bounceLoop.start();
+    pulseLoop.start();
+    floatLoop.start();
     return () => {
-      spin.stop();
-      bounceLoop.stop();
+      pulseLoop.stop();
+      floatLoop.stop();
     };
-  }, [rotation, bounce]);
+  }, [pulse, float]);
 
-  const spinDeg = rotation.interpolate({
+  const translateY = float.interpolate({
     inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
+    outputRange: [0, -10],
   });
-
-  const translateY = bounce.interpolate({
+  const scale = pulse.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, -22],
+    outputRange: [1, 1.06],
+  });
+  const rotate = float.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['-2deg', '2deg'],
+  });
+  const glowOpacity = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.2, 0.55],
   });
 
   return (
     <Animated.View
-      style={[{ alignItems: 'center', justifyContent: 'center' }, style]}
+      style={[{ alignItems: 'center', justifyContent: 'center' }, style, { transform: [{ translateY }] }]}
       accessibilityRole="progressbar"
       accessibilityLabel="Chargement en cours"
     >
+      <Animated.View
+        style={{
+          position: 'absolute',
+          width: size * 0.92,
+          height: size * 0.92,
+          borderRadius: size,
+          backgroundColor: '#34D399',
+          opacity: glowOpacity,
+        }}
+      />
       <Animated.Image
         source={ICON}
         resizeMode="contain"
         style={{
           width: size,
           height: size,
-          transform: [{ rotate: spinDeg }, { translateY }],
+          transform: [{ rotate }, { scale }],
         }}
       />
     </Animated.View>

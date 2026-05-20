@@ -8,12 +8,14 @@ import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { Colors } from '../theme/colors';
 import {
-  getConsommables, insertConsommable, updateConsommable,
-  deleteConsommable, ajusterStock, getCategories, getLocalisations,
-  getConsommableById,
-  insertCategorie,
-  categoryPathById,
-} from '../db/database';
+  deleteConsommable, ajusterStock,
+} from '../db/inventoryOpsDb';
+import {
+  insertConsommable, updateConsommable, getConsommableById,
+} from '../db/inventoryDb';
+import {
+  getCategories, getLocalisations, insertCategorie, categoryPathById,
+} from '../db/catalogDb';
 import { Consommable, Categorie, Localisation } from '../types';
 import {
   StockBadge, Card, ScreenHeader, BottomModal,
@@ -29,6 +31,8 @@ import {
   getGelSwatch,
   type GelBrand,
 } from '../lib/gelFilters';
+import { getConsommablesCached, invalidateInventorySnapshotCache } from '../db/materialRepository';
+import { useLanguage } from '../context/LanguageContext';
 
 const CONSOMMABLE_UNITE_OPTIONS = [
   'pièce',
@@ -42,7 +46,10 @@ const CONSOMMABLE_UNITE_OPTIONS = [
   '1/2 feuille',
 ].map(u => ({ label: u, value: u }));
 
+const CONSO_LIST_PAGE_SIZE = 90;
+
 export default function ConsommablesScreen() {
+  const { t } = useLanguage();
   const { can } = useAppAuth();
   const editOk = can('edit_inventory');
   const navigation = useNavigation<any>();
@@ -54,10 +61,11 @@ export default function ConsommablesScreen() {
   const [categories, setCategories] = useState<Categorie[]>([]);
   const [localisations, setLocalisations] = useState<Localisation[]>([]);
   const [showShelfModal, setShowShelfModal] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(CONSO_LIST_PAGE_SIZE);
 
   const load = useCallback(async () => {
     const [data, cats, locs] = await Promise.all([
-      getConsommables(), getCategories(), getLocalisations(),
+      getConsommablesCached(), getCategories(), getLocalisations(),
     ]);
     setItems(data);
     setCategories(cats);
@@ -85,6 +93,14 @@ export default function ConsommablesScreen() {
     () => (filterLowStock ? items.filter(c => c.stock_actuel <= c.seuil_minimum) : items),
     [items, filterLowStock]
   );
+  const visibleDisplayedItems = useMemo(
+    () => displayedItems.slice(0, visibleCount),
+    [displayedItems, visibleCount]
+  );
+
+  useEffect(() => {
+    setVisibleCount(CONSO_LIST_PAGE_SIZE);
+  }, [displayedItems.length, filterLowStock]);
 
   useFocusEffect(
     useCallback(() => {
@@ -95,12 +111,13 @@ export default function ConsommablesScreen() {
         if (c) {
           Alert.alert(
             c.nom,
-            `Stock actuel : ${c.stock_actuel} ${c.unite}`,
+            t('consumables.stockCurrent', { stock: c.stock_actuel, unit: c.unite }),
             [
               {
                 text: '-1',
                 onPress: () =>
                   ajusterStock(c.id, -1).then(() => {
+                    invalidateInventorySnapshotCache();
                     load();
                     void triggerSyncAfterActionIfEnabled();
                   }),
@@ -109,6 +126,7 @@ export default function ConsommablesScreen() {
                 text: '-5',
                 onPress: () =>
                   ajusterStock(c.id, -5).then(() => {
+                    invalidateInventorySnapshotCache();
                     load();
                     void triggerSyncAfterActionIfEnabled();
                   }),
@@ -117,6 +135,7 @@ export default function ConsommablesScreen() {
                 text: '+5',
                 onPress: () =>
                   ajusterStock(c.id, 5).then(() => {
+                    invalidateInventorySnapshotCache();
                     load();
                     void triggerSyncAfterActionIfEnabled();
                   }),
@@ -125,11 +144,12 @@ export default function ConsommablesScreen() {
                 text: '+1',
                 onPress: () =>
                   ajusterStock(c.id, 1).then(() => {
+                    invalidateInventorySnapshotCache();
                     load();
                     void triggerSyncAfterActionIfEnabled();
                   }),
               },
-              { text: 'Fermer', style: 'cancel' },
+              { text: t('common.close'), style: 'cancel' },
             ]
           );
         }
@@ -156,6 +176,7 @@ export default function ConsommablesScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
+    invalidateInventorySnapshotCache();
     await load();
     setRefreshing(false);
   };
@@ -164,12 +185,13 @@ export default function ConsommablesScreen() {
     if (!editOk) return;
     Alert.alert(
       item.nom,
-      `Stock actuel : ${item.stock_actuel} ${item.unite}`,
+      t('consumables.stockCurrent', { stock: item.stock_actuel, unit: item.unite }),
       [
         {
           text: '-1',
           onPress: () =>
             ajusterStock(item.id, -1).then(() => {
+              invalidateInventorySnapshotCache();
               load();
               void triggerSyncAfterActionIfEnabled();
             }),
@@ -178,6 +200,7 @@ export default function ConsommablesScreen() {
           text: '-5',
           onPress: () =>
             ajusterStock(item.id, -5).then(() => {
+              invalidateInventorySnapshotCache();
               load();
               void triggerSyncAfterActionIfEnabled();
             }),
@@ -186,6 +209,7 @@ export default function ConsommablesScreen() {
           text: '+5',
           onPress: () =>
             ajusterStock(item.id, 5).then(() => {
+              invalidateInventorySnapshotCache();
               load();
               void triggerSyncAfterActionIfEnabled();
             }),
@@ -194,23 +218,25 @@ export default function ConsommablesScreen() {
           text: '+1',
           onPress: () =>
             ajusterStock(item.id, 1).then(() => {
+              invalidateInventorySnapshotCache();
               load();
               void triggerSyncAfterActionIfEnabled();
             }),
         },
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
       ]
     );
   }, [editOk, load]);
 
   const handleDelete = useCallback((item: Consommable) => {
     if (!editOk) return;
-    Alert.alert('Supprimer', `Supprimer "${item.nom}" ?`, [
-      { text: 'Annuler', style: 'cancel' },
+    Alert.alert(t('consumables.deleteTitle'), `Supprimer "${item.nom}" ?`, [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Supprimer', style: 'destructive',
+        text: t('consumables.deleteTitle'), style: 'destructive',
         onPress: async () => {
           await deleteConsommable(item.id);
+          invalidateInventorySnapshotCache();
           load();
           void triggerSyncAfterActionIfEnabled();
         }
@@ -271,14 +297,14 @@ export default function ConsommablesScreen() {
           </View>
           <View style={{ alignItems: 'flex-end', gap: 4 }}>
             <StockBadge actuel={item.stock_actuel} seuil={item.seuil_minimum} unite={item.unite} />
-            {stockBas && <Text style={{ color: Colors.red, fontSize: 11, fontWeight: '600' }}>Stock bas</Text>}
+            {stockBas && <Text style={{ color: Colors.red, fontSize: 11, fontWeight: '600' }}>{t('consumables.lowStock')}</Text>}
           </View>
         </View>
 
         <View style={s.actions}>
           {editOk && (
             <TouchableOpacity onPress={() => handleAjusterStock(item)} style={s.adjBtn}>
-              <Text style={{ color: Colors.white, fontSize: 12 }}>± Ajuster</Text>
+              <Text style={{ color: Colors.white, fontSize: 12 }}>{t('consumables.adjust')}</Text>
             </TouchableOpacity>
           )}
           {editOk && (
@@ -305,8 +331,8 @@ export default function ConsommablesScreen() {
       <View style={{ padding: 20, paddingBottom: 0 }}>
         <ScreenHeader
           icon={<Text style={{ fontSize: 22, color: Colors.green }}>🛒</Text>}
-          title="Consommables"
-          rightLabel={editOk ? 'Ajouter' : undefined}
+          title={t('consumables.title')}
+          rightLabel={editOk ? t('consumables.add') : undefined}
           onRightPress={editOk ? () => { setEditItem(null); setShowModal(true); } : undefined}
         />
         {editOk && (
@@ -315,21 +341,21 @@ export default function ConsommablesScreen() {
             onPress={() => setShowShelfModal(true)}
             activeOpacity={0.85}
           >
-            <Text style={s.shelfBtnText}>🏷 Étiquettes rayonnage / bac (liste affichée)</Text>
+            <Text style={s.shelfBtnText}>🏷 {t('consumables.shelfLabelsHint')}</Text>
           </TouchableOpacity>
         )}
         {filterLowStock ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-            <Text style={{ color: Colors.red, fontSize: 12, fontWeight: '600' }}>Filtre : stock ≤ seuil</Text>
+            <Text style={{ color: Colors.red, fontSize: 12, fontWeight: '600' }}>{t('consumables.lowFilter')}</Text>
             <TouchableOpacity onPress={() => navigation.setParams({ filterLowStock: false } as never)}>
-              <Text style={{ color: Colors.green, fontSize: 12, fontWeight: '700' }}>Tout afficher</Text>
+              <Text style={{ color: Colors.green, fontSize: 12, fontWeight: '700' }}>{t('consumables.showAll')}</Text>
             </TouchableOpacity>
           </View>
         ) : null}
       </View>
 
       <FlatList
-        data={displayedItems}
+        data={visibleDisplayedItems}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
         contentContainerStyle={{ padding: 20, paddingTop: 10 }}
@@ -337,12 +363,18 @@ export default function ConsommablesScreen() {
         maxToRenderPerBatch={16}
         windowSize={7}
         removeClippedSubviews={Platform.OS === 'android'}
+        onEndReachedThreshold={0.45}
+        onEndReached={() => {
+          if (visibleCount < displayedItems.length) {
+            setVisibleCount(c => Math.min(c + CONSO_LIST_PAGE_SIZE, displayedItems.length));
+          }
+        }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.green} />}
         ListEmptyComponent={
           <View style={s.empty}>
             <Text style={{ fontSize: 40 }}>🛒</Text>
             <Text style={{ color: Colors.textMuted, marginTop: 12 }}>
-              {filterLowStock ? 'Aucun consommable sous le seuil' : 'Aucun consommable'}
+              {filterLowStock ? t('consumables.emptyLow') : t('consumables.empty')}
             </Text>
           </View>
         }
@@ -355,7 +387,10 @@ export default function ConsommablesScreen() {
           setEditItem(null);
           navigation.setParams({ newQr: undefined, newNfc: undefined } as never);
         }}
-        onSaved={load}
+        onSaved={() => {
+          invalidateInventorySnapshotCache();
+          void load();
+        }}
         onCategoriesRefresh={load}
         item={editItem}
         categories={categories}
@@ -367,8 +402,8 @@ export default function ConsommablesScreen() {
       <ShelfLabelsModal
         visible={showShelfModal}
         onClose={() => setShowShelfModal(false)}
-        title="Étiquettes rayonnage (consommables)"
-        items={displayedItems.map(c => ({
+        title={t('consumables.shelfLabelsTitle')}
+        items={visibleDisplayedItems.map(c => ({
           id: c.id,
           title: c.nom,
           subtitle: [
@@ -396,6 +431,7 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
   initialQr?: string;
   initialNfc?: string;
 }) {
+  const { t } = useLanguage();
   const [nom, setNom] = useState('');
   const [reference, setReference] = useState('');
   const [unite, setUnite] = useState('pièce');
@@ -417,8 +453,8 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
 
   const gelRefOptions = useMemo(() => {
     if (!gelBrand) return [{ label: '—', value: '' }];
-    return [{ label: '— Choisir —', value: '' }, ...gelPickerOptions(gelBrand)];
-  }, [gelBrand]);
+    return [{ label: t('common.chooseLongDash'), value: '' }, ...gelPickerOptions(gelBrand)];
+  }, [gelBrand, t]);
 
   const gelPreview = useMemo(
     () => (gelBrand && gelCode.trim() ? getGelSwatch(gelBrand, gelCode.trim()) : null),
@@ -437,24 +473,24 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
 
   const catOptions = useMemo(
     () => [
-      { label: 'Aucune', value: '' },
+      { label: t('common.none'), value: '' },
       ...sortedCats.map(c => ({
         label: categoryPathById(categories, c.id) || c.nom,
         value: c.id,
       })),
     ],
-    [categories, sortedCats]
+    [categories, sortedCats, t]
   );
 
   const parentCreateOptions = useMemo(
     () => [
-      { label: '— Racine (catégorie principale) —', value: '' },
+      { label: t('consumables.category.rootMain'), value: '' },
       ...sortedCats.map(c => ({
         label: categoryPathById(categories, c.id) || c.nom,
         value: c.id,
       })),
     ],
-    [categories, sortedCats]
+    [categories, sortedCats, t]
   );
 
   useEffect(() => {
@@ -484,9 +520,9 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
   }, [visible, item, initialQr, initialNfc]);
 
   const handlePhoto = async () => {
-    Alert.alert('Photo', 'Source', [
+    Alert.alert(t('consumables.photo.title'), t('consumables.photo.source'), [
       {
-        text: 'Caméra',
+        text: t('consumables.photo.camera'),
         onPress: async () => {
           const perm = await ImagePicker.requestCameraPermissionsAsync();
           if (!perm.granted) return;
@@ -495,7 +531,7 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
         },
       },
       {
-        text: 'Galerie',
+        text: t('consumables.photo.gallery'),
         onPress: async () => {
           const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
           if (!perm.granted) return;
@@ -503,14 +539,14 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
           if (!res.canceled) setPhotoLocal(res.assets[0].uri);
         },
       },
-      { text: 'Annuler', style: 'cancel' },
+      { text: t('common.cancel'), style: 'cancel' },
     ]);
   };
 
   const handleCreateCategory = async () => {
     const n = newCatName.trim();
     if (!n) {
-      Alert.alert('Nom requis', 'Indiquez le nom de la catégorie ou sous-catégorie.');
+      Alert.alert(t('consumables.category.nameRequired'), t('consumables.category.nameRequiredBody'));
       return;
     }
     try {
@@ -520,15 +556,15 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
       setCategorieId(id);
       setNewCatName('');
       setNewCatParentId('');
-      Alert.alert('✓', 'Catégorie créée et associée à ce consommable.');
+      Alert.alert('✓', t('consumables.category.created'));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      Alert.alert('Erreur', msg);
+      Alert.alert(t('scanner.error'), msg);
     }
   };
 
   const handleSave = async () => {
-    if (!nom.trim()) { Alert.alert('Champ requis', 'Le nom est obligatoire'); return; }
+    if (!nom.trim()) { Alert.alert(t('consumables.field.required'), t('consumables.field.nameRequired')); return; }
     setSaving(true);
     try {
       const gelPatch =
@@ -570,46 +606,46 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
       void triggerSyncAfterActionIfEnabled();
       onClose();
     } catch (e: any) {
-      Alert.alert('Erreur', e.message);
+      Alert.alert(t('scanner.error'), e.message);
     } finally {
       setSaving(false);
     }
   };
 
-  const locOptions = [{ label: 'Aucune', value: '' }, ...localisations.map(l => ({ label: l.nom, value: l.id }))];
+  const locOptions = [{ label: t('common.none'), value: '' }, ...localisations.map(l => ({ label: l.nom, value: l.id }))];
 
   return (
     <BottomModal
       visible={visible}
       onClose={onClose}
-      title={item ? 'Modifier un consommable' : 'Ajouter un consommable'}
+      title={item ? t('consumables.modal.edit') : t('consumables.modal.add')}
     >
-      <Input label="Nom" value={nom} onChangeText={setNom} required />
+      <Input label={t('consumables.field.name')} value={nom} onChangeText={setNom} required />
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
-          <Input label="Référence" value={reference} onChangeText={setReference} />
+          <Input label={t('consumables.field.reference')} value={reference} onChangeText={setReference} />
         </View>
         <View style={{ flex: 1 }}>
-          <SelectPicker label="Unité" value={unite} options={CONSOMMABLE_UNITE_OPTIONS} onChange={setUnite} />
+          <SelectPicker label={t('consumables.field.unit')} value={unite} options={CONSOMMABLE_UNITE_OPTIONS} onChange={setUnite} />
         </View>
       </View>
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
-          <Input label="Stock actuel" value={stockActuel} onChangeText={setStockActuel} keyboardType="numeric" />
+          <Input label={t('consumables.field.stockCurrent')} value={stockActuel} onChangeText={setStockActuel} keyboardType="numeric" />
         </View>
         <View style={{ flex: 1 }}>
-          <Input label="Seuil minimum" value={seuilMin} onChangeText={setSeuilMin} keyboardType="numeric" />
+          <Input label={t('consumables.field.stockMin')} value={seuilMin} onChangeText={setSeuilMin} keyboardType="numeric" />
         </View>
       </View>
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
-          <SelectPicker label="Catégorie" value={categorieId} options={catOptions} onChange={setCategorieId} />
+          <SelectPicker label={t('consumables.field.category')} value={categorieId} options={catOptions} onChange={setCategorieId} />
         </View>
         <View style={{ flex: 1 }}>
-          <SelectPicker label="Localisation" value={localisationId} options={locOptions} onChange={setLocalisationId} />
+          <SelectPicker label={t('consumables.field.location')} value={localisationId} options={locOptions} onChange={setLocalisationId} />
         </View>
       </View>
 
@@ -625,20 +661,19 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
         }}
       >
         <Text style={{ color: Colors.textMuted, fontSize: 12, marginBottom: 10 }}>
-          Créer une catégorie ou sous-catégorie (ex. Scotch › Scotch PVC › PVC blanc 50×50). La nouvelle catégorie est
-          tout de suite sélectionnée pour ce consommable.
+          {t('consumables.category.createHint')}
         </Text>
         <SelectPicker
-          label="Parent (optionnel)"
+          label={t('consumables.category.parentOptional')}
           value={newCatParentId}
           options={parentCreateOptions}
           onChange={setNewCatParentId}
         />
         <Input
-          label="Nom de la nouvelle catégorie"
+          label={t('consumables.category.newName')}
           value={newCatName}
           onChangeText={setNewCatName}
-          placeholder="ex. Scotch PVC"
+          placeholder={t('consumables.category.newPlaceholder')}
           onSubmitEditing={handleCreateCategory}
           returnKeyType="done"
         />
@@ -652,37 +687,37 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
           }}
           onPress={handleCreateCategory}
         >
-          <Text style={{ color: Colors.white, fontWeight: '700' }}>Créer la catégorie</Text>
+          <Text style={{ color: Colors.white, fontWeight: '700' }}>{t('consumables.category.create')}</Text>
         </TouchableOpacity>
       </View>
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
-          <Input label="Fournisseur" value={fournisseur} onChangeText={setFournisseur} />
+          <Input label={t('consumables.field.supplier')} value={fournisseur} onChangeText={setFournisseur} />
         </View>
         <View style={{ flex: 1 }}>
-          <Input label="Prix unitaire (€)" value={prix} onChangeText={setPrix} keyboardType="decimal-pad" />
+          <Input label={t('consumables.field.unitPrice')} value={prix} onChangeText={setPrix} keyboardType="decimal-pad" />
         </View>
       </View>
 
       {!item ? (
         <>
           <Text style={{ color: Colors.textMuted, fontSize: 12, marginBottom: 8 }}>
-            Code QR : identifiant interne attribué automatiquement si vous laissez vide.
+            {t('consumables.qrHint')}
           </Text>
           <Input
-            label="QR personnalisé (optionnel)"
+            label={t('consumables.field.customQr')}
             value={qrCode}
             onChangeText={setQrCode}
-            placeholder="Vide = ID auto"
+            placeholder={t('consumables.field.customQrPlaceholder')}
           />
         </>
       ) : (
-        <Input label="QR Code" value={qrCode} onChangeText={setQrCode} placeholder="Scannez ou saisissez" />
+        <Input label={t('consumables.field.qrCode')} value={qrCode} onChangeText={setQrCode} placeholder={t('consumables.field.scanOrType')} />
       )}
-      <Input label="Tag NFC ID" value={nfcTagId} onChangeText={setNfcTagId} />
+      <Input label={t('consumables.field.nfcTag')} value={nfcTagId} onChangeText={setNfcTagId} />
 
-      <Text style={s.consoSectionLabel}>Photo</Text>
+      <Text style={s.consoSectionLabel}>{t('consumables.photo.title')}</Text>
       <TouchableOpacity style={s.consoPhotoBox} onPress={handlePhoto} activeOpacity={0.85}>
         {photoLocal ? (
           <Image source={{ uri: photoLocal }} style={s.consoPhoto} />
@@ -690,7 +725,7 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
           <View style={s.consoPhotoPlaceholder}>
             <Text style={{ fontSize: 28 }}>📷</Text>
             <Text style={{ color: Colors.textMuted, fontSize: 12, marginTop: 6 }}>
-              Prendre / choisir une photo
+              {t('consumables.photo.pick')}
             </Text>
           </View>
         )}
@@ -701,16 +736,16 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
           onPress={() => setPhotoLocal('')}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Text style={{ color: Colors.textMuted, fontSize: 12 }}>Retirer la photo</Text>
+          <Text style={{ color: Colors.textMuted, fontSize: 12 }}>{t('consumables.photo.remove')}</Text>
         </TouchableOpacity>
       )}
 
-      <Text style={s.consoSectionLabel}>Couleur gel (éclairage)</Text>
+      <Text style={s.consoSectionLabel}>{t('consumables.gel.title')}</Text>
       <Text style={s.consoSectionHint}>
-        Référentiels Lee Filters et Rosco Supergel (teintes indicatives). Numéro libre possible.
+        {t('consumables.gel.hint')}
       </Text>
       <SelectPicker
-        label="Marque"
+        label={t('consumables.gel.brand')}
         value={gelBrand}
         options={GEL_BRAND_OPTIONS}
         onChange={v => {
@@ -722,13 +757,13 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
       {!!gelBrand && (
         <>
           <SelectPicker
-            label="Référence (liste courante)"
+            label={t('consumables.gel.referenceList')}
             value={gelCode && gelRefOptions.some(o => o.value === gelCode) ? gelCode : ''}
             options={gelRefOptions}
             onChange={setGelCode}
           />
           <Input
-            label="Numéro (saisie libre)"
+            label={t('consumables.gel.numberFree')}
             value={gelCode}
             onChangeText={setGelCode}
             placeholder={gelBrand === 'lee' ? 'ex. 201' : 'ex. 09'}
@@ -745,10 +780,10 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
             activeOpacity={0.85}
           >
             <Text style={{ color: Colors.white, fontSize: 14, fontWeight: '600', flex: 1 }}>
-              Afficher la couleur gel à la place de la photo (liste)
+              {t('consumables.gel.showInsteadPhoto')}
             </Text>
             <Text style={{ color: gelInsteadOfPhoto ? Colors.green : Colors.textMuted, fontWeight: '800' }}>
-              {gelInsteadOfPhoto ? 'Oui' : 'Non'}
+              {gelInsteadOfPhoto ? t('common.yes') : t('common.no')}
             </Text>
           </TouchableOpacity>
         </>

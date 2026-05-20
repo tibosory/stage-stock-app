@@ -24,7 +24,7 @@ import {
   exportPretsIcs,
   importMaterielsFromCsv,
 } from '../lib/csvExportImport';
-import { getConsommablesAlerte, getMateriel } from '../db/database';
+import { getMateriel, getConsommablesAlerte } from '../db/inventoryDb';
 import { rescheduleVgpDueReminders } from '../lib/vgpNotifications';
 import { rescheduleSeuilBasReminders } from '../lib/seuilNotifications';
 import {
@@ -44,6 +44,7 @@ import {
 } from '../lib/inventoryApiSync';
 import { copyInventoryBetweenServers } from '../lib/backendBridgeSync';
 import { runRefreshSessionAfterInventoryPullIfRegistered } from '../lib/foregroundInventorySync';
+import { useLanguage } from '../context/LanguageContext';
 
 function secondaryEndpoint(url: string, key: string): InventorySyncEndpoint | null {
   const u = url.trim();
@@ -54,6 +55,7 @@ function secondaryEndpoint(url: string, key: string): InventorySyncEndpoint | nu
 export default function ImportExportScreen() {
   const insets = useSafeAreaInsets();
   const { can, refreshSession } = useAppAuth();
+  const { t } = useLanguage();
   const exportOk = can('export_data');
 
   const [resolvedPrimary, setResolvedPrimary] = useState('');
@@ -61,6 +63,8 @@ export default function ImportExportScreen() {
   const [secondaryKey, setSecondaryKey] = useState('');
   const [savingSecondary, setSavingSecondary] = useState(false);
   const [bridgeBusy, setBridgeBusy] = useState(false);
+  const bottomSafePad =
+    Platform.OS === 'android' ? Math.max(insets.bottom, 64) : Math.max(insets.bottom, 16);
 
   const loadEndpoints = useCallback(async () => {
     const [r, s, k] = await Promise.all([
@@ -68,7 +72,7 @@ export default function ImportExportScreen() {
       getSecondaryApiBase(),
       getSecondaryApiKey(),
     ]);
-    setResolvedPrimary(r || '(non configuré — onglet Réseau)');
+    setResolvedPrimary(r || t('importExport.primaryUnset'));
     setSecondaryUrl(s ?? '');
     setSecondaryKey(k ?? '');
   }, []);
@@ -94,17 +98,20 @@ export default function ImportExportScreen() {
   };
 
   const saveSecondary = async () => {
-    const t = secondaryUrl.trim();
-    if (t && !looksLikeHttpUrl(t)) {
-      Alert.alert('URL invalide', 'Utilisez une adresse http:// ou https:// complète.');
+    const trimmedUrl = secondaryUrl.trim();
+    if (trimmedUrl && !looksLikeHttpUrl(trimmedUrl)) {
+      Alert.alert(
+        t('common.error'),
+        t('onboarding.invalidUrlExpectedBody')
+      );
       return;
     }
     setSavingSecondary(true);
     try {
-      await setSecondaryApiBase(t || null);
+      await setSecondaryApiBase(trimmedUrl || null);
       await setSecondaryApiKey(secondaryKey.trim() || null);
       await loadEndpoints();
-      Alert.alert('Enregistré', 'Le serveur secondaire a été mémorisé sur cet appareil.');
+      Alert.alert(t('importExport.savedTitle'), t('importExport.savedBody'));
     } finally {
       setSavingSecondary(false);
     }
@@ -123,9 +130,9 @@ export default function ImportExportScreen() {
       const r = await fn();
       if (r.ok) {
         await afterBridgeSuccess();
-        Alert.alert('✓', label);
+        Alert.alert(t('importExport.successShort'), label);
       } else {
-        Alert.alert('Erreur', r.error ?? 'Échec');
+        Alert.alert(t('common.error'), r.error ?? t('importExport.failGeneric'));
       }
     } finally {
       setBridgeBusy(false);
@@ -136,7 +143,7 @@ export default function ImportExportScreen() {
     return (
       <TabScreenSafeArea style={styles.container}>
         <View style={{ padding: 20 }}>
-          <Text style={{ color: Colors.textMuted }}>Accès non autorisé.</Text>
+          <Text style={{ color: Colors.textMuted }}>{t('importExport.denied')}</Text>
         </View>
       </TabScreenSafeArea>
     );
@@ -147,42 +154,38 @@ export default function ImportExportScreen() {
   return (
     <TabScreenSafeArea style={styles.container}>
       <ScrollView
-        contentContainerStyle={{ padding: 20, paddingBottom: 28 + Math.max(insets.bottom, 12) }}
+        contentContainerStyle={{ padding: 20, paddingBottom: 28 + bottomSafePad }}
       >
         <View style={styles.headerRow}>
           <Text style={{ fontSize: 22, color: Colors.green }}>📤</Text>
-          <Text style={styles.title}>Import / export</Text>
+          <Text style={styles.title}>{t('importExport.title')}</Text>
         </View>
 
         <Card style={{ marginBottom: 16 }}>
-          <Text style={styles.sectionTitle}>Serveur actuel (onglet Réseau)</Text>
+          <Text style={styles.sectionTitle}>{t('importExport.primarySection')}</Text>
           <Text style={styles.monoHint} selectable>
             {resolvedPrimary}
           </Text>
           <Text style={styles.hint}>
-            C’est la cible des boutons « Envoyer / Recevoir » sur l’écran Réseau. Le serveur secondaire ci‑dessous sert
-            à synchroniser explicitement avec un autre hôte (ex. PC local ↔ cloud Railway).
+            {t('importExport.primaryHint')}
           </Text>
         </Card>
 
         <Card style={{ marginBottom: 16 }}>
-          <Text style={styles.sectionTitle}>Autre serveur (local ↔ cloud)</Text>
-          <Text style={styles.hint}>
-            URL et clé API optionnelle si elle diffère de celle de l’onglet Réseau. Enregistrez avant les actions
-            ci‑dessous.
-          </Text>
+          <Text style={styles.sectionTitle}>{t('importExport.secondarySection')}</Text>
+          <Text style={styles.hint}>{t('importExport.secondaryHint')}</Text>
           <Input
-            label="URL du serveur secondaire"
+            label={t('importExport.secondaryUrlLabel')}
             value={secondaryUrl}
             onChangeText={setSecondaryUrl}
-            placeholder="https://… ou http://192.168.x.x:3847"
+            placeholder={t('importExport.secondaryUrlPlaceholder')}
             autoCapitalize="none"
           />
           <Input
-            label="Clé API (optionnel)"
+            label={t('importExport.secondaryKeyLabel')}
             value={secondaryKey}
             onChangeText={setSecondaryKey}
-            placeholder="Si le serveur secondaire exige une autre clé"
+            placeholder={t('importExport.secondaryKeyPlaceholder')}
             autoCapitalize="none"
           />
           <TouchableOpacity
@@ -193,7 +196,7 @@ export default function ImportExportScreen() {
             {savingSecondary ? (
               <ActivityIndicator color={Colors.white} />
             ) : (
-              <Text style={styles.syncBtnText}>Enregistrer le serveur secondaire</Text>
+              <Text style={styles.syncBtnText}>{t('importExport.saveSecondary')}</Text>
             )}
           </TouchableOpacity>
 
@@ -202,55 +205,55 @@ export default function ImportExportScreen() {
           ) : (
             <>
               <Text style={[styles.sectionTitle, { fontSize: 13, marginTop: 16, marginBottom: 8 }]}>
-                Depuis / vers cet appareil
+                {t('importExport.fromDevice')}
               </Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 <TouchableOpacity
                   style={styles.syncBtnSm}
                   onPress={() => {
                     if (!sec) {
-                      Alert.alert('Serveur secondaire', 'Renseignez une URL valide et enregistrez.');
+                      Alert.alert(t('importExport.secondaryAlertTitle'), t('importExport.needSecondaryUrl'));
                       return;
                     }
-                    void runBridge('Données du serveur secondaire importées dans l’app.', async () => {
+                    void runBridge(t('importExport.bridgePullOk'), async () => {
                       const r = await syncFromInventoryApi(sec);
                       if (r.ok) await afterImport();
                       return r;
                     });
                   }}
                 >
-                  <Text style={styles.syncBtnTextSm}>↓ Recevoir depuis serveur 2</Text>
+                  <Text style={styles.syncBtnTextSm}>{t('importExport.receiveFrom2')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.syncBtnSm}
                   onPress={() => {
                     if (!sec) {
-                      Alert.alert('Serveur secondaire', 'Renseignez une URL valide et enregistrez.');
+                      Alert.alert(t('importExport.secondaryAlertTitle'), t('importExport.needSecondaryUrl'));
                       return;
                     }
-                    void runBridge('Modifications envoyées vers le serveur secondaire.', () =>
+                    void runBridge(t('importExport.bridgePushOk'), () =>
                       syncToInventoryApi(sec)
                     );
                   }}
                 >
-                  <Text style={styles.syncBtnTextSm}>↑ Envoyer modifs → serveur 2</Text>
+                  <Text style={styles.syncBtnTextSm}>{t('importExport.pushTo2')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.syncBtnSm}
                   onPress={() => {
                     if (!sec) {
-                      Alert.alert('Serveur secondaire', 'Renseignez une URL valide et enregistrez.');
+                      Alert.alert(t('importExport.secondaryAlertTitle'), t('importExport.needSecondaryUrl'));
                       return;
                     }
                     Alert.alert(
-                      'Envoi complet',
-                      'Tout l’inventaire local sera envoyé vers le serveur secondaire (écrasement des mêmes IDs). Continuer ?',
+                      t('importExport.sendFullTitle'),
+                      t('importExport.sendFullBody'),
                       [
-                        { text: 'Annuler', style: 'cancel' },
+                        { text: t('common.cancel'), style: 'cancel' },
                         {
-                          text: 'Envoyer',
+                          text: t('importExport.send'),
                           onPress: () =>
-                            void runBridge('Inventaire complet envoyé vers le serveur secondaire.', () =>
+                            void runBridge(t('importExport.bridgeFullOk'), () =>
                               pushFullInventoryToApi(sec)
                             ),
                         },
@@ -258,40 +261,37 @@ export default function ImportExportScreen() {
                     );
                   }}
                 >
-                  <Text style={styles.syncBtnTextSm}>↑ Tout envoyer → serveur 2</Text>
+                  <Text style={styles.syncBtnTextSm}>{t('importExport.pushFullTo2')}</Text>
                 </TouchableOpacity>
               </View>
 
               <Text style={[styles.sectionTitle, { fontSize: 13, marginTop: 16, marginBottom: 8 }]}>
-                Direct entre deux serveurs (sans tout stocker sur le téléphone)
+                {t('importExport.betweenServers')}
               </Text>
-              <Text style={styles.hint}>
-                Copie l’inventaire d’une base PostgreSQL vers l’autre. Les deux URLs doivent être joignables (même
-                compte JWT ou clés API valides sur chaque hôte).
-              </Text>
+              <Text style={styles.hint}>{t('importExport.betweenServersHint')}</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 <TouchableOpacity
                   style={styles.syncBtnOutline}
                   onPress={() => {
                     if (!sec) {
-                      Alert.alert('Serveur secondaire', 'Renseignez une URL valide et enregistrez.');
+                      Alert.alert(t('importExport.secondaryAlertTitle'), t('importExport.needSecondaryUrl'));
                       return;
                     }
                     void (async () => {
                       const primary = await getPrimaryEndpoint();
                       if (!primary) {
-                        Alert.alert('Serveur actuel', 'Configurez d’abord l’URL dans l’onglet Réseau.');
+                        Alert.alert(t('importExport.primaryUnsetTitle'), t('importExport.needPrimaryNetwork'));
                         return;
                       }
                       Alert.alert(
-                        'Copier vers le cloud / autre hôte',
-                        'Le contenu du serveur actuel (Réseau) remplacera les données correspondantes sur le serveur secondaire. Continuer ?',
+                        t('importExport.copyToOtherTitle'),
+                        t('importExport.copyToOtherBody'),
                         [
-                          { text: 'Annuler', style: 'cancel' },
+                          { text: t('common.cancel'), style: 'cancel' },
                           {
-                            text: 'Copier',
+                            text: t('importExport.copy'),
                             onPress: () =>
-                              void runBridge('Copie effectuée : actuel → serveur secondaire.', () =>
+                              void runBridge(t('importExport.bridgeCopyFwdOk'), () =>
                                 copyInventoryBetweenServers(primary, sec)
                               ),
                           },
@@ -300,30 +300,30 @@ export default function ImportExportScreen() {
                     })();
                   }}
                 >
-                  <Text style={styles.syncBtnTextOutline}>Actuel → serveur 2</Text>
+                  <Text style={styles.syncBtnTextOutline}>{t('importExport.currentTo2')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.syncBtnOutline}
                   onPress={() => {
                     if (!sec) {
-                      Alert.alert('Serveur secondaire', 'Renseignez une URL valide et enregistrez.');
+                      Alert.alert(t('importExport.secondaryAlertTitle'), t('importExport.needSecondaryUrl'));
                       return;
                     }
                     void (async () => {
                       const primary = await getPrimaryEndpoint();
                       if (!primary) {
-                        Alert.alert('Serveur actuel', 'Configurez d’abord l’URL dans l’onglet Réseau.');
+                        Alert.alert(t('importExport.primaryUnsetTitle'), t('importExport.needPrimaryNetwork'));
                         return;
                       }
                       Alert.alert(
-                        'Copier vers le serveur actuel',
-                        'Le contenu du serveur secondaire remplacera les données correspondantes sur le serveur défini dans Réseau. Continuer ?',
+                        t('importExport.copyToCurrentTitle'),
+                        t('importExport.copyToCurrentBody'),
                         [
-                          { text: 'Annuler', style: 'cancel' },
+                          { text: t('common.cancel'), style: 'cancel' },
                           {
-                            text: 'Copier',
+                            text: t('importExport.copy'),
                             onPress: () =>
-                              void runBridge('Copie effectuée : serveur secondaire → actuel.', () =>
+                              void runBridge(t('importExport.bridgeCopyBackOk'), () =>
                                 copyInventoryBetweenServers(sec, primary)
                               ),
                           },
@@ -332,7 +332,7 @@ export default function ImportExportScreen() {
                     })();
                   }}
                 >
-                  <Text style={styles.syncBtnTextOutline}>Serveur 2 → actuel</Text>
+                  <Text style={styles.syncBtnTextOutline}>{t('importExport.twoToCurrent')}</Text>
                 </TouchableOpacity>
               </View>
             </>
@@ -340,66 +340,61 @@ export default function ImportExportScreen() {
         </Card>
 
         <Card style={{ marginBottom: 16 }}>
-          <Text style={styles.sectionTitle}>Fichiers (Excel, CSV, calendrier)</Text>
-          <Text style={styles.hint}>
-            Excel : un onglet par catégorie. CSV : fichier simple. Calendrier : une entrée par prêt (dates départ →
-            retour prévu, hors annulés) au format .ics.
-          </Text>
-          <Text style={styles.hint}>
-            Après génération, utilisez le partage natif pour envoyer vers le cloud ou l’e-mail.
-          </Text>
-          <Text style={[styles.sectionTitle, { fontSize: 13, marginBottom: 8 }]}>Excel (.xlsx)</Text>
+          <Text style={styles.sectionTitle}>{t('importExport.filesSection')}</Text>
+          <Text style={styles.hint}>{t('importExport.filesHint1')}</Text>
+          <Text style={styles.hint}>{t('importExport.filesHint2')}</Text>
+          <Text style={[styles.sectionTitle, { fontSize: 13, marginBottom: 8 }]}>{t('importExport.label.excel')}</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             <TouchableOpacity
               style={styles.syncBtn}
-              onPress={() => exportMaterielsExcel().catch(e => Alert.alert('Erreur', e.message))}
+              onPress={() => exportMaterielsExcel().catch(e => Alert.alert(t('common.error'), e.message))}
             >
-              <Text style={styles.syncBtnText}>Matériels</Text>
+              <Text style={styles.syncBtnText}>{t('stock.title')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.syncBtn}
-              onPress={() => exportConsommablesExcel().catch(e => Alert.alert('Erreur', e.message))}
+              onPress={() => exportConsommablesExcel().catch(e => Alert.alert(t('common.error'), e.message))}
             >
-              <Text style={styles.syncBtnText}>Consommables</Text>
+              <Text style={styles.syncBtnText}>{t('consumables.title')}</Text>
             </TouchableOpacity>
           </View>
-          <Text style={[styles.sectionTitle, { fontSize: 13, marginTop: 14, marginBottom: 8 }]}>CSV</Text>
+          <Text style={[styles.sectionTitle, { fontSize: 13, marginTop: 14, marginBottom: 8 }]}>{t('importExport.label.csv')}</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             <TouchableOpacity
               style={styles.syncBtn}
-              onPress={() => exportMaterielsCsv().catch(e => Alert.alert('Erreur', e.message))}
+              onPress={() => exportMaterielsCsv().catch(e => Alert.alert(t('common.error'), e.message))}
             >
-              <Text style={styles.syncBtnText}>Matériels</Text>
+              <Text style={styles.syncBtnText}>{t('stock.title')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.syncBtn}
-              onPress={() => exportConsommablesCsv().catch(e => Alert.alert('Erreur', e.message))}
+              onPress={() => exportConsommablesCsv().catch(e => Alert.alert(t('common.error'), e.message))}
             >
-              <Text style={styles.syncBtnText}>Consommables</Text>
+              <Text style={styles.syncBtnText}>{t('consumables.title')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.syncBtn}
-              onPress={() => exportPretsCsv().catch(e => Alert.alert('Erreur', e.message))}
+              onPress={() => exportPretsCsv().catch(e => Alert.alert(t('common.error'), e.message))}
             >
-              <Text style={styles.syncBtnText}>Prêts</Text>
+              <Text style={styles.syncBtnText}>{t('loans.title')}</Text>
             </TouchableOpacity>
           </View>
-          <Text style={[styles.sectionTitle, { fontSize: 13, marginTop: 14, marginBottom: 8 }]}>Calendrier</Text>
+          <Text style={[styles.sectionTitle, { fontSize: 13, marginTop: 14, marginBottom: 8 }]}>{t('importExport.label.calendar')}</Text>
           <TouchableOpacity
             style={styles.syncBtn}
-            onPress={() => exportPretsIcs().catch(e => Alert.alert('Erreur', e.message))}
+            onPress={() => exportPretsIcs().catch(e => Alert.alert(t('common.error'), e.message))}
           >
-            <Text style={styles.syncBtnText}>Prêts → Outlook (.ics)</Text>
+            <Text style={styles.syncBtnText}>{t('importExport.loansOutlookIcs')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.syncBtnOutline, { marginTop: 10 }]}
             onPress={async () => {
               const r = await importMaterielsFromCsv();
-              Alert.alert('Import matériels', r.err ?? `${r.ok} ligne(s) importée(s).`);
+              Alert.alert(t('importExport.importMatAlertTitle'), r.err ?? t('importExport.importMatLines', { n: r.ok }));
               await afterImport();
             }}
           >
-            <Text style={styles.syncBtnTextOutline}>Importer matériels (CSV)</Text>
+            <Text style={styles.syncBtnTextOutline}>{t('importExport.importMatCsv')}</Text>
           </TouchableOpacity>
         </Card>
       </ScrollView>

@@ -6,11 +6,12 @@ import { format, parseISO, isValid } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Colors } from '../theme/colors';
-import { getPrets, updatePret, deletePret } from '../db/database';
+import { getPrets, updatePret, deletePret } from '../db/loanDb';
 import type { Pret } from '../types';
 import { Card, ScreenHeader, PretStatutBadge, TabScreenSafeArea } from '../components/UI';
 import { notifyBorrowerDemandeAcceptee } from '../lib/pretDemandeNotifications';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
+import { useLanguage } from '../context/LanguageContext';
 
 function formatDateCourt(raw: string | undefined): string {
   if (!raw) return '';
@@ -21,6 +22,7 @@ function formatDateCourt(raw: string | undefined): string {
 
 export default function DemandePretScreen() {
   const navigation = useNavigation<any>();
+  const { t } = useLanguage();
   const [list, setList] = useState<Pret[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -39,8 +41,8 @@ export default function DemandePretScreen() {
 
   const valider = (item: Pret) => {
     Alert.alert(
-      'Valider la demande',
-      `Passer le prêt de « ${item.emprunteur} » en « en cours » ? Le matériel sera marqué sorti du stock.`,
+      t('loanReq.validateTitle'),
+      t('loanReq.validateBody', { borrower: item.emprunteur }),
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -53,10 +55,10 @@ export default function DemandePretScreen() {
               if (p) await notifyBorrowerDemandeAcceptee(p);
               await load();
               void triggerSyncAfterActionIfEnabled();
-              Alert.alert('Validé', 'Le prêt est en cours. L’emprunteur a été notifié.');
+              Alert.alert(t('loanReq.doneTitle'), t('loanReq.doneBody'));
             } catch (e: unknown) {
               const msg = e instanceof Error ? e.message : String(e);
-              Alert.alert('Erreur', msg);
+              Alert.alert(t('common.error'), msg);
             }
           },
         },
@@ -66,8 +68,8 @@ export default function DemandePretScreen() {
 
   const refuser = (item: Pret) => {
     Alert.alert(
-      'Refuser la demande',
-      `Supprimer définitivement la demande de « ${item.emprunteur} » ?`,
+      t('loanReq.refuseTitle'),
+      t('loanReq.refuseBody', { borrower: item.emprunteur }),
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -80,7 +82,7 @@ export default function DemandePretScreen() {
               void triggerSyncAfterActionIfEnabled();
             } catch (e: unknown) {
               const msg = e instanceof Error ? e.message : String(e);
-              Alert.alert('Erreur', msg);
+              Alert.alert(t('common.error'), msg);
             }
           },
         },
@@ -99,8 +101,8 @@ export default function DemandePretScreen() {
           <Text style={s.name}>{item.emprunteur}</Text>
           {item.organisation ? <Text style={s.sub}>{item.organisation}</Text> : null}
           <Text style={s.sub}>
-            Départ {formatDateCourt(item.date_depart)}
-            {item.retour_prevu ? ` → retour ${formatDateCourt(item.retour_prevu)}` : ''}
+            {t('loanReq.depart')} {formatDateCourt(item.date_depart)}
+            {item.retour_prevu ? ` → ${t('loanReq.return')} ${formatDateCourt(item.retour_prevu)}` : ''}
           </Text>
           {item.commentaire ? (
             <Text style={[s.sub, { marginTop: 6 }]} numberOfLines={3}>
@@ -112,13 +114,13 @@ export default function DemandePretScreen() {
       </View>
       <View style={s.actions}>
         <TouchableOpacity style={s.btn} onPress={() => modifier(item)}>
-          <Text style={s.btnTextOut}>Modifier</Text>
+          <Text style={s.btnTextOut}>{t('loanReq.modify')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[s.btn, s.btnDanger]} onPress={() => refuser(item)}>
-          <Text style={s.btnTextDanger}>Refuser</Text>
+          <Text style={s.btnTextDanger}>{t('loanReq.reject')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[s.btn, s.btnOk]} onPress={() => valider(item)}>
-          <Text style={s.btnTextOk}>Valider</Text>
+          <Text style={s.btnTextOk}>{t('loanReq.approve')}</Text>
         </TouchableOpacity>
       </View>
     </Card>
@@ -129,12 +131,9 @@ export default function DemandePretScreen() {
       <View style={{ padding: 20, paddingBottom: 8 }}>
         <ScreenHeader
           icon={<Text style={{ fontSize: 22 }}>📥</Text>}
-          title="Demandes de prêt"
+          title={t('loanReq.title')}
         />
-        <Text style={s.intro}>
-          Validez ou refusez les demandes créées par les emprunteurs. Après validation, le prêt passe en « en cours »
-          et le matériel est sorti du stock.
-        </Text>
+        <Text style={s.intro}>{t('loanReq.intro')}</Text>
       </View>
       <FlatList
         data={list}
@@ -145,7 +144,7 @@ export default function DemandePretScreen() {
         ListEmptyComponent={
           <View style={s.empty}>
             <Text style={{ fontSize: 40 }}>📥</Text>
-            <Text style={{ color: Colors.textMuted, marginTop: 12 }}>Aucune demande en attente</Text>
+            <Text style={{ color: Colors.textMuted, marginTop: 12 }}>{t('loanReq.empty')}</Text>
           </View>
         }
       />

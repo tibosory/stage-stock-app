@@ -1,8 +1,9 @@
 /**
  * Génère les PNG Expo pour l’icône app et l’adaptive icon Android.
  *
- * - icon.png : 1024×1024, logo dans la partie haute + libellé « Stage Stock » lisible en bas.
- * - adaptive-icon.png : logo seul dans la zone sûr ~60 % (pas de texte — évite la coupe sous masque).
+ * - icon.png : 1024×1024, logo contrasté + libellé « CATRACK Pro » lisible.
+ * - adaptive-icon.png : logo seul dans la zone sûre ~66 % (pas de texte).
+ * - splash.png : visuel de lancement propre (logo centré + halo léger).
  *
  * Source du visuel : uniquement assets/icon-master.png. S’il est absent, il est créé une fois
  * en copiant icon.png (visuel sans libellé généré — remplacez ce fichier si besoin).
@@ -22,11 +23,12 @@ const sharp = require('sharp');
 const BG = { r: 11, g: 12, b: 15, alpha: 1 }; // #0B0C0F
 const SIZE = 1024;
 /** Réserve basse pour le texte (le logo tient au-dessus). */
-const LOWER_BAND = Math.floor(SIZE * 0.26);
+const LOWER_BAND = Math.floor(SIZE * 0.24);
 const LOGO_H = SIZE - LOWER_BAND;
-/** Zone sûre adaptive : ~60 %. */
-const SAFE_FRACTION = 0.6;
+/** Zone sûre adaptive : ~66 %. */
+const SAFE_FRACTION = 0.66;
 const SAFE = Math.round(SIZE * SAFE_FRACTION);
+const SPLASH_SIZE = 2048;
 
 const assets = path.join(__dirname, '..', 'assets');
 
@@ -57,7 +59,7 @@ function titleOverlayPng() {
     stroke="#0b0c0f"
     stroke-width="3"
     paint-order="stroke fill"
-  >Stage Stock</text>
+  >CATRACK Pro</text>
 </svg>`;
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
@@ -72,12 +74,15 @@ async function main() {
   const master = fs.readFileSync(inputPath);
   const outIcon = path.join(assets, 'icon.png');
   const outAdaptive = path.join(assets, 'adaptive-icon.png');
+  const outSplash = path.join(assets, 'splash.png');
 
   const logoStrip = await sharp(master)
     .resize(SIZE, LOGO_H, {
       fit: 'contain',
       background: BG,
+      kernel: sharp.kernel.lanczos3,
     })
+    .sharpen(0.35, 0.9, 1.1)
     .png()
     .toBuffer();
 
@@ -95,11 +100,13 @@ async function main() {
       { input: logoStrip, left: 0, top: 0 },
       { input: titleLayer, left: 0, top: 0 },
     ])
+    .sharpen(0.25, 0.8, 1.05)
     .png()
     .toBuffer();
 
   const inner = await sharp(master)
-    .resize(SAFE, SAFE, { fit: 'inside' })
+    .resize(SAFE, SAFE, { fit: 'inside', kernel: sharp.kernel.lanczos3 })
+    .sharpen(0.35, 0.9, 1.1)
     .png()
     .toBuffer();
 
@@ -119,12 +126,51 @@ async function main() {
     .png()
     .toBuffer();
 
+  const splashIconSize = Math.round(SPLASH_SIZE * 0.36);
+  const splashInner = await sharp(master)
+    .resize(splashIconSize, splashIconSize, { fit: 'inside', kernel: sharp.kernel.lanczos3 })
+    .sharpen(0.35, 0.9, 1.1)
+    .png()
+    .toBuffer();
+  const splashGlow = await sharp(
+    Buffer.from(`
+      <svg width="${SPLASH_SIZE}" height="${SPLASH_SIZE}" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="g" cx="50%" cy="46%" r="34%">
+            <stop offset="0%" stop-color="#34D399" stop-opacity="0.50"/>
+            <stop offset="55%" stop-color="#34D399" stop-opacity="0.16"/>
+            <stop offset="100%" stop-color="#34D399" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <rect x="0" y="0" width="${SPLASH_SIZE}" height="${SPLASH_SIZE}" fill="url(#g)"/>
+      </svg>`)
+  )
+    .png()
+    .toBuffer();
+  const splashMeta = await sharp(splashInner).metadata();
+  const splashLeft = Math.floor((SPLASH_SIZE - (splashMeta.width || 0)) / 2);
+  const splashTop = Math.floor((SPLASH_SIZE - (splashMeta.height || 0)) / 2) - Math.floor(SPLASH_SIZE * 0.03);
+  const splashBuf = await sharp({
+    create: {
+      width: SPLASH_SIZE,
+      height: SPLASH_SIZE,
+      channels: 4,
+      background: BG,
+    },
+  })
+    .composite([
+      { input: splashGlow, left: 0, top: 0 },
+      { input: splashInner, left: splashLeft, top: splashTop },
+    ])
+    .png()
+    .toBuffer();
+
   fs.writeFileSync(outIcon, iconBuf);
   fs.writeFileSync(outAdaptive, adaptiveBuf);
+  fs.writeFileSync(outSplash, splashBuf);
 
   console.log(
-    `OK: icon.png + adaptive-icon.png (${SIZE}×${SIZE}), ` +
-      `logo ~${LOGO_H}px + bande libellé, source=${path.basename(inputPath)}, adaptive ${SAFE}×${SAFE}`
+    `OK: icon.png + adaptive-icon.png + splash.png, source=${path.basename(inputPath)}`
   );
 }
 
