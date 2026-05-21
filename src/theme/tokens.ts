@@ -168,6 +168,46 @@ export const touch = {
   hitSlop: { top: 12, bottom: 12, left: 12, right: 12 },
 } as const;
 
+/**
+ * Palette module **Accueil Pro** (indigo / or / crème) — exposée via `AccueilProColors` dans `colors.ts`.
+ */
+export const moduleAccueilPro = {
+  navy: '#1A2744',
+  gold: '#C8973A',
+  cream: '#F7F4EE',
+  card: '#FFFFFF',
+  surfaceMuted: '#F0EDE5',
+  textPrimary: '#1A2744',
+  textSecondary: 'rgba(26, 39, 68, 0.68)',
+  textMuted: 'rgba(26, 39, 68, 0.45)',
+  borderSubtle: 'rgba(26, 39, 68, 0.12)',
+
+  statusConfirme: '#2E7D5A',
+  statusBrouillon: '#C8973A',
+  statusAnnule: '#B54A45',
+  statusEnCours: '#4068E0',
+  statusTermine: '#5A6778',
+  statusSigné: '#1A2744',
+
+  eventSpectacle: '#6B4C9A',
+  eventConcert: '#B84C7A',
+  eventRéunion: '#4068E0',
+  eventFormation: '#2E7D5A',
+  eventConférence: '#C8973A',
+  eventSéminaire: '#8B5E3C',
+  eventMariage: '#C8973A',
+  eventLocation: '#C8973A',
+  eventAutre: '#5A6778',
+  primary: '#4068E0',
+
+  /** Cible tactile recommandée sur le terrain (gants, debout). */
+  touchMin: 52,
+  radiusLg: 14,
+  radiusMd: 12,
+} as const;
+
+export type ModuleAccueilProPalette = typeof moduleAccueilPro;
+
 /** Agrégat lisible (utile pour exposer un objet unique aux thèmes futurs). */
 export const tokens = {
   surface,
@@ -182,6 +222,7 @@ export const tokens = {
   motion,
   elevation,
   touch,
+  moduleAccueilPro,
 } as const;
 
 export type Tokens = typeof tokens;

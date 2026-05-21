@@ -11,6 +11,7 @@ import { Platform } from 'react-native';
 export const TRAY_CHANNEL_PRETS = 'stagestock-tray-prets-v1';
 export const TRAY_CHANNEL_VGP = 'stagestock-tray-vgp-v1';
 export const TRAY_CHANNEL_SEUILS = 'stagestock-tray-seuils-v1';
+export const TRAY_CHANNEL_ACCUEILPRO = 'stagestock-tray-accueilpro-v1';
 
 let handlerConfigured = false;
 const isExpoGoRuntime = Constants.appOwnership === 'expo';
@@ -52,6 +53,10 @@ export async function ensureTrayAndroidChannels(): Promise<void> {
   });
   await Notifications.setNotificationChannelAsync(TRAY_CHANNEL_SEUILS, {
     name: 'Seuils consommables',
+    ...common,
+  });
+  await Notifications.setNotificationChannelAsync(TRAY_CHANNEL_ACCUEILPRO, {
+    name: 'Accueil Pro',
     ...common,
   });
 }

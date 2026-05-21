@@ -55,6 +55,7 @@ import { initDB } from './src/db/database';
 import { getPrets } from './src/db/loanDb';
 import { getMateriel, getConsommablesAlerte } from './src/db/inventoryDb';
 import { initSupabaseFromStorage } from './src/lib/supabase';
+import { loadDataBackendModeFromStorage } from './src/lib/backendModeRuntime';
 import { Colors } from './src/theme/colors';
 import { AppAuthProvider, useAppAuth } from './src/context/AuthContext';
 import { AuthProvider } from './src/context/AuthProvider';
@@ -100,6 +101,7 @@ import {
   WorkspaceAssistant,
   WorkspaceNotice,
   WorkspaceReseau,
+  WorkspaceAccueilPro,
   WorkspaceCompteEmprunteur,
 } from './src/navigation/ActivityWorkspaces';
 import { DockTabBar } from './src/navigation/DockTabBar';
@@ -445,6 +447,7 @@ function LoggedInNavigator() {
       <RootStack.Screen name="WorkspaceAssistant" component={WorkspaceAssistant} />
       <RootStack.Screen name="WorkspaceNotice" component={WorkspaceNotice} />
       <RootStack.Screen name="WorkspaceReseau" component={WorkspaceReseau} />
+      <RootStack.Screen name="WorkspaceAccueilPro" component={WorkspaceAccueilPro} />
       <RootStack.Screen name="WorkspaceCompteEmprunteur" component={WorkspaceCompteEmprunteur} />
     </RootStack.Navigator>
   );
@@ -628,6 +631,7 @@ function AppWithLanguageLoaded() {
       .then(() => {
         setLoading(false);
         void initSupabaseFromStorage().catch(() => undefined);
+        void loadDataBackendModeFromStorage().catch(() => undefined);
       })
       .catch(e => {
         setError(e instanceof Error ? e.message : String(e));

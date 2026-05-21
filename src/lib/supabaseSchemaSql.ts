@@ -92,6 +92,9 @@ UPDATE consommables SET created_at = COALESCE(created_at, now()), updated_at = C
 ALTER TABLE prets ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
 ALTER TABLE prets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
 UPDATE prets SET created_at = COALESCE(created_at, now()), updated_at = COALESCE(updated_at, created_at, now()) WHERE true;
+
+-- Accueil Pro (sync mobile, mode Supabase) :
+-- exécutez aussi supabase/migrations/20260520120000_accueilpro_mobile_sync_tables.sql
 `;
 
 export async function exportShareSupabaseSchemaSql(): Promise<void> {

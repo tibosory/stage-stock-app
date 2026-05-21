@@ -7,7 +7,7 @@
  * — voir `docs/DESIGN_SYSTEM.md`. Aucune valeur ne change ici : les comparaisons
  * pixel-par-pixel restent vraies, seules les sources d’indirection diffèrent.
  */
-import { accent, alert, border, elevation, status, surface, tab, text } from './tokens';
+import { accent, alert, border, elevation, moduleAccueilPro, status, surface, tab, text } from './tokens';
 
 export const Colors = {
   bg: surface.base,
@@ -59,6 +59,9 @@ export const Colors = {
   alerteRouge: alert.high,
   alerteOrange: alert.medium,
 };
+
+/** Palette Accueil Pro — import préféré dans les écrans du module. */
+export const AccueilProColors = moduleAccueilPro;
 
 export const Shadow = {
   card: elevation.card,

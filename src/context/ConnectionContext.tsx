@@ -9,12 +9,13 @@ import React, {
   type ReactNode,
 } from 'react';
 import { AppState } from 'react-native';
-import { isConsumerApp } from '../config/appMode';
+import { isConsumerApp, isV1LanMode } from '../config/appMode';
 import { checkServerReachableQuick } from '../config/stageStockApi';
 import { runAutoLanDiscoveryWhenUnreachable } from '../lib/consumerAutoConnect';
+import { hasLocalSyncApiKey } from '../lib/serverAuthHeaders';
 import { runSilentServerDiagnostics } from '../lib/silentHealthCheck';
 
-export type ConnectionStatus = 'checking' | 'ok' | 'offline';
+export type ConnectionStatus = 'checking' | 'ok' | 'offline' | 'needs_pairing';
 
 type Ctx = {
   status: ConnectionStatus;
@@ -46,10 +47,16 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     lastRefreshAt.current = now;
     setStatus('checking');
     const ok = await checkServerReachableQuick();
-    setStatus(ok ? 'ok' : 'offline');
-    if (ok) {
-      void runSilentServerDiagnostics();
+    if (!ok) {
+      setStatus('offline');
+      return;
     }
+    if (isV1LanMode() && !(await hasLocalSyncApiKey())) {
+      setStatus('needs_pairing');
+      return;
+    }
+    setStatus('ok');
+    void runSilentServerDiagnostics();
   }, []);
 
   useEffect(() => {

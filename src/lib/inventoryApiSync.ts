@@ -3,22 +3,23 @@
  * distincte de Supabase. Utilise GET /api/sync/snapshot et POST /api/sync/bulk.
  */
 import { Platform } from 'react-native';
-import { getResolvedApiBase, stageStockApiHeadersAsync } from '../config/stageStockApi';
+import { getResolvedApiBase } from '../config/stageStockApi';
 import { fetchWithTimeout } from './fetchWithTimeout';
 import {
-  getAccessToken,
   getApiKeyOverride,
   looksLikeHttpUrl,
+  stripStageStockServerRootSuffix,
 } from './apiEndpointStorage';
+import { buildServerAuthHeaders } from './serverAuthHeaders';
 import { getDB } from '../db/coreDb';
 import { invalidateInventorySnapshotCache } from '../db/materialRepository';
 import { getSessionAppUserRole } from '../db/userDb';
-import { canCallApiSync } from './syncGuards';
+import { canCallApiSync, isLocalBackendDisabledReason } from './syncGuards';
 import { mergeMaterielLocalMedia, filterSnapshotRowsByUnsyncedIds, type MaterielLocalMedia } from './inventorySnapshotMerge';
 
 const MSG_NO_API =
   'Aucune URL d’API CATRACK Pro configurée (onglet Réseau ou EXPO_PUBLIC_API_URL au build).';
-const MSG_API_DISABLED = 'Synchro API désactivée (DOUBLE_BACKEND off).';
+const MSG_API_DISABLED = 'Synchro serveur local désactivée (backend Supabase sélectionné).';
 
 /** Cible explicite (autre URL / clé) pour sync depuis l’écran Import / export. */
 export type InventorySyncEndpoint = {
@@ -40,28 +41,27 @@ async function isEndpointConfigured(endpoint?: InventorySyncEndpoint | null): Pr
 
 async function buildHeadersForEndpoint(endpoint: InventorySyncEndpoint | null): Promise<Record<string, string>> {
   if (!endpoint?.baseUrl?.trim()) {
-    return stageStockApiHeadersAsync();
+    return buildServerAuthHeaders();
   }
   const resolved = (await getResolvedApiBase())?.replace(/\/+$/, '') ?? '';
   const target = endpoint.baseUrl.trim().replace(/\/+$/, '');
   if (target === resolved) {
-    return stageStockApiHeadersAsync();
+    return buildServerAuthHeaders();
   }
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'X-StageStock-Client': `StageStock-${Platform.OS}`,
   };
-  const jwt = await getAccessToken();
-  if (jwt) headers.Authorization = `Bearer ${jwt}`;
   const key =
     endpoint.apiKey?.trim() ||
     (await getApiKeyOverride())?.trim() ||
     process.env.EXPO_PUBLIC_API_KEY?.trim();
   if (key) {
     headers['X-API-Key'] = key;
-    if (!jwt) headers.Authorization = `Bearer ${key}`;
+    headers.Authorization = `Bearer ${key}`;
+    return headers;
   }
-  return headers;
+  return buildServerAuthHeaders();
 }
 
 export async function inventoryApiFetch(
@@ -71,7 +71,7 @@ export async function inventoryApiFetch(
 ): Promise<Response> {
   const guard = await canCallApiSync(`inventoryApiFetch:${path}`);
   if (!guard.ok) {
-    throw new Error(guard.reason === 'DOUBLE_BACKEND désactivé' ? 'API_SYNC_DISABLED' : 'API_NON_CONFIGUREE');
+    throw new Error(isLocalBackendDisabledReason(guard.reason) ? 'API_SYNC_DISABLED' : 'API_NON_CONFIGUREE');
   }
   const base = endpoint?.baseUrl?.trim()
     ? endpoint.baseUrl.trim().replace(/\/+$/, '')
@@ -118,9 +118,21 @@ type Snapshot = {
 };
 
 function joinBasePath(base: string, path: string): string {
-  const b = base.replace(/\/+$/, '');
+  const b = stripStageStockServerRootSuffix(base.replace(/\/+$/, ''));
   const p = path.startsWith('/') ? path : `/${path}`;
   return `${b}${p}`;
+}
+
+function formatSyncHttpError(status: number, text: string): string {
+  const preview = text.slice(0, 600);
+  if (status === 405 && /nginx/i.test(text)) {
+    return (
+      `HTTP 405 — cette adresse ne pointe pas vers le serveur Stage Stock (réponse nginx).\n\n` +
+      `Vérifiez dans Réseau que l’URL est http://IP_DU_PC:8091 (sans /pair), que le serveur tourne sur le PC, et que téléphone + PC sont sur le même Wi‑Fi.\n\n` +
+      preview
+    );
+  }
+  return `HTTP ${status} — ${preview}`;
 }
 
 function num01(v: unknown): number {
@@ -410,7 +422,7 @@ export async function syncFromInventoryApi(
   const ep = endpoint ?? null;
   const guard = await canCallApiSync('syncFromInventoryApi');
   if (!guard.ok) {
-    return { ok: false, error: guard.reason === 'DOUBLE_BACKEND désactivé' ? MSG_API_DISABLED : MSG_NO_API };
+    return { ok: false, error: isLocalBackendDisabledReason(guard.reason) ? MSG_API_DISABLED : MSG_NO_API };
   }
   if (!(await isEndpointConfigured(ep))) {
     return { ok: false, error: MSG_NO_API };
@@ -419,7 +431,7 @@ export async function syncFromInventoryApi(
     const res = await inventoryApiFetch('/api/sync/snapshot', { method: 'GET' }, ep);
     const text = await res.text();
     if (!res.ok) {
-      return { ok: false, error: `HTTP ${res.status} — ${text.slice(0, 600)}` };
+      return { ok: false, error: formatSyncHttpError(res.status, text) };
     }
     let snap: Snapshot;
     try {
@@ -518,7 +530,7 @@ export async function syncToInventoryApi(
   const ep = endpoint ?? null;
   const guard = await canCallApiSync('syncToInventoryApi');
   if (!guard.ok) {
-    return { ok: false, error: guard.reason === 'DOUBLE_BACKEND désactivé' ? MSG_API_DISABLED : MSG_NO_API };
+    return { ok: false, error: isLocalBackendDisabledReason(guard.reason) ? MSG_API_DISABLED : MSG_NO_API };
   }
   try {
     const database = await getDB();
@@ -625,7 +637,7 @@ export async function syncToInventoryApi(
     );
     const respText = await res.text();
     if (!res.ok) {
-      return { ok: false, error: `HTTP ${res.status} — ${respText.slice(0, 600)}` };
+      return { ok: false, error: formatSyncHttpError(res.status, respText) };
     }
 
     await database.execAsync('BEGIN IMMEDIATE;');
@@ -693,7 +705,7 @@ export async function pushFullInventoryToApi(
   const ep = endpoint ?? null;
   const guard = await canCallApiSync('pushFullInventoryToApi');
   if (!guard.ok) {
-    return { ok: false, error: guard.reason === 'DOUBLE_BACKEND désactivé' ? MSG_API_DISABLED : MSG_NO_API };
+    return { ok: false, error: isLocalBackendDisabledReason(guard.reason) ? MSG_API_DISABLED : MSG_NO_API };
   }
   if (!(await isEndpointConfigured(ep))) {
     return { ok: false, error: MSG_NO_API };
@@ -794,7 +806,7 @@ export async function pushFullInventoryToApi(
     );
     const respText = await res.text();
     if (!res.ok) {
-      return { ok: false, error: `HTTP ${res.status} — ${respText.slice(0, 600)}` };
+      return { ok: false, error: formatSyncHttpError(res.status, respText) };
     }
 
     await database.execAsync('BEGIN IMMEDIATE;');

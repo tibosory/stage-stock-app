@@ -6,25 +6,28 @@ import { ClientReadOnlyBanner } from './ClientReadOnlyBanner';
 
 type Props = {
   children: React.ReactNode;
-  allowedRoles: AccueilProKnownRole[];
-  /** Si le rôle n’est pas autorisé : bannière seule, contenu masqué, ou les deux selon usage. */
+  /** Réservé à l’équipe du lieu (admin, technicien, régisseur…). */
+  staffOnly?: boolean;
+  allowedRoles?: AccueilProKnownRole[];
   fallback?: React.ReactNode;
-  /** Si vrai et rôle refusé : affiche les enfants mais enveloppés d’un bandeau (préparation écran mixte). */
+  /** Si vrai et accès refusé : bandeau lecture seule au-dessus du contenu. */
   showReadOnlyBannerInstead?: boolean;
 };
 
 /**
- * Garde d’écran : n’affiche les actions sensibles que pour les rôles listés.
- * Pour le portail client, préférer `allowedRoles` = staff uniquement et `fallback` = null avec boutons désactivés ailleurs.
+ * Garde d’écran : masque les actions sensibles pour le portail association.
  */
 export function PermissionGuard({
   children,
+  staffOnly = false,
   allowedRoles,
   fallback,
   showReadOnlyBannerInstead = false,
 }: Props) {
-  const { role } = useAccueilProRole();
-  const ok = allowedRoles.map(String).includes(String(role));
+  const { role, isStaff } = useAccueilProRole();
+  const okByStaff = staffOnly ? isStaff : true;
+  const okByRole = allowedRoles ? allowedRoles.map(String).includes(String(role)) : true;
+  const ok = okByStaff && okByRole;
 
   if (ok) {
     return <>{children}</>;

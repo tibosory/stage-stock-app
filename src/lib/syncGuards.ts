@@ -1,4 +1,6 @@
 import { getResolvedApiBase } from '../config/stageStockApi';
+import { isSupabaseConfigured } from './supabase';
+import { BACKEND_SKIP, getDataBackendMode } from './backendMode';
 import {
   getDoubleBackendRuntime,
   isDoubleBackendRuntimeInitialized,
@@ -22,12 +24,9 @@ function parseBooleanEnv(v: string | undefined): boolean | null {
 /**
  * DOUBLE_BACKEND : piloté par l'UI (AsyncStorage), avec fallback optionnel via env.
  *
- * ⚠️  Déprécié S2.0 (mai 2026). Ce flag correspond historiquement au "Mode C"
- * (réplication simultanée Express PG + Supabase), qui dégrade l’intégrité des
- * données (P0-E : pull qui écrase synced=0). La cible architecturale est
- * `SyncProfileRouter` (single-target choisi au runtime : docker-local OU
- * supabase-cloud). Le branchement se fait en S2.4. Pour l’instant ce getter
- * reste actif pour ne casser aucun call-site, mais émet un warn unique.
+ * ⚠️  Déprécié S2.0 (mai 2026). Remplacé par le choix explicite `DataBackendMode`
+ * (serveur local **ou** Supabase, jamais les deux). Ce getter reste pour compatibilité
+ * des call-sites qui lisent encore `doubleBackend` dans le retour de `canCallApiSync`.
  */
 let _deprecationLogged = false;
 export async function getDoubleBackendEnabled(): Promise<boolean> {
@@ -46,8 +45,7 @@ export async function getDoubleBackendEnabled(): Promise<boolean> {
     _deprecationLogged = true;
     console.warn(
       '[deprecation] DOUBLE_BACKEND activé : la réplication simultanée Express+Supabase ' +
-        'est dépréciée (mode C, risque P0-E). Cible : SyncProfileRouter single-target ' +
-        '(docker-local OU supabase-cloud). Migration : S2.4.',
+        'est dépréciée. Utilisez le choix de backend dans Connexion/Réseau (local ou Supabase).',
     );
   }
   return enabled;
@@ -66,6 +64,13 @@ export async function canCallApiSync(scope: string): Promise<
 > {
   const doubleBackend = await getDoubleBackendEnabled();
   const apiUrl = await resolveApiUrlForSync();
+  const backendMode = await getDataBackendMode();
+
+  if (backendMode !== 'local_server') {
+    const reason = BACKEND_SKIP.localNotSelected;
+    console.log(`[sync][skip][${scope}] ${reason}`);
+    return { ok: false, reason, doubleBackend, apiUrl };
+  }
 
   if (!apiUrl) {
     const reason = 'API_URL non configurée';
@@ -74,4 +79,29 @@ export async function canCallApiSync(scope: string): Promise<
   }
   console.log(`[sync][guard][${scope}] API autorisée (${apiUrl})`);
   return { ok: true, apiUrl, doubleBackend };
+}
+
+export async function canCallSupabaseSync(scope: string): Promise<
+  { ok: true } | { ok: false; reason: string }
+> {
+  const backendMode = await getDataBackendMode();
+
+  if (backendMode !== 'supabase') {
+    const reason = BACKEND_SKIP.supabaseNotSelected;
+    console.log(`[sync][skip][${scope}] ${reason}`);
+    return { ok: false, reason };
+  }
+
+  if (!isSupabaseConfigured()) {
+    const reason = 'Supabase non configuré';
+    console.log(`[sync][skip][${scope}] ${reason}`);
+    return { ok: false, reason };
+  }
+
+  console.log(`[sync][guard][${scope}] Supabase autorisé`);
+  return { ok: true };
+}
+
+export function isLocalBackendDisabledReason(reason: string): boolean {
+  return reason === BACKEND_SKIP.localNotSelected || reason === 'DOUBLE_BACKEND désactivé';
 }

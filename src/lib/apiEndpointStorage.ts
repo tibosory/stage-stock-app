@@ -28,11 +28,12 @@ const HOST_WITH_OPTIONAL_PORT_RE =
  * (ex. `http://192.168.1.20:8091`). Si l’utilisateur saisit `http://…/api`, sans correction on obtient `/api/ask` → 404.
  */
 export function stripStageStockServerRootSuffix(url: string): string {
-  const t = url.trim().replace(/\/+$/, '');
+  let t = url.trim().replace(/\/+$/, '');
   if (!t) return '';
   if (/\/api$/i.test(t)) {
-    return t.replace(/\/api$/i, '').replace(/\/+$/, '');
+    t = t.replace(/\/api$/i, '').replace(/\/+$/, '');
   }
+  t = t.replace(/\/(pair\.html|pair|serveur\.html|diagnostic)$/i, '').replace(/\/+$/, '');
   return t;
 }
 

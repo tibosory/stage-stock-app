@@ -30,13 +30,17 @@ import {
   getBundledDefaultApiBase,
   getResolvedApiBase,
   probeStageStockSyncApi,
+  probeAccueilProSyncApi,
   pingStageStockApi,
 } from '../config/stageStockApi';
 import { GuideReseauLocalContent, GuideReseauPublicContent } from '../content/guideReseauLocal';
 import { isConsumerApp } from '../config/appMode';
+import { hasLocalSyncApiKey } from '../lib/serverAuthHeaders';
 import { useConnection } from '../context/ConnectionContext';
 import { connectionSurfaceLabel } from '../lib/urlDisplay';
 import { NetworkCloudSync } from '../components/NetworkCloudSync';
+import { NetworkAccueilProSync } from '../components/NetworkAccueilProSync';
+import { BackendModePicker } from '../components/BackendModePicker';
 import { WindowsInstallerCard } from '../components/WindowsInstallerCard';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -169,8 +173,12 @@ export default function NetworkScreen() {
       await setApiBaseOverride(hit.baseUrl);
       await refreshMeta();
       void refresh();
+      const hasKey = await hasLocalSyncApiKey();
       if (isConsumerApp()) {
-        Alert.alert(t('network.connectionTitle'), t('network.serverDetectedConsumerBody'));
+        Alert.alert(
+          t('network.connectionTitle'),
+          hasKey ? t('network.serverDetectedConsumerBody') : t('network.serverDetectedNeedPairing')
+        );
       } else {
         Alert.alert(
           t('network.serverDetectedTitle'),
@@ -188,9 +196,16 @@ export default function NetworkScreen() {
       await onDiscoverLan();
       await refresh();
       await refreshMeta();
-      const ping = await pingStageStockApi();
-      if (ping.ok) {
+      const [ping, sync, apSync] = await Promise.all([
+        pingStageStockApi(),
+        probeStageStockSyncApi(),
+        probeAccueilProSyncApi(),
+      ]);
+      if (ping.ok && sync.ok && apSync.ok) {
         Alert.alert(t('network.quickSetupOkTitle'), t('network.quickSetupOkBody'));
+      } else if (ping.ok && (!sync.ok || !apSync.ok)) {
+        const detail = !sync.ok ? sync.message : apSync.message;
+        Alert.alert(t('network.smartDiagTitle'), t('network.smartDiagSyncFail') + '\n\n' + detail);
       } else {
         Alert.alert(t('network.quickSetupFailTitle'), t('network.quickSetupFailBody'));
       }
@@ -282,7 +297,10 @@ export default function NetworkScreen() {
   if (isConsumerApp()) {
     const modeLabel = connectionSurfaceLabel(resolved || getBundledDefaultApiBase());
     const stateLabel =
-      status === 'checking' ? t('network.state.checking') : status === 'ok' ? t('network.state.connected') : t('network.state.offline');
+      status === 'checking' ? t('network.state.checking')
+      : status === 'ok' ? t('network.state.connected')
+      : status === 'needs_pairing' ? t('network.state.needsPairing')
+      : t('network.state.offline');
     return (
       <TabScreenSafeArea style={styles.container} edges={['left', 'right']}>
         <ScrollView
@@ -415,7 +433,9 @@ export default function NetworkScreen() {
                   </TouchableOpacity>
                 </Card>
               ) : null}
+              <BackendModePicker />
               <NetworkCloudSync />
+              <NetworkAccueilProSync />
             </>
           ) : (
             <Card style={{ marginBottom: 14 }}>
@@ -535,7 +555,9 @@ export default function NetworkScreen() {
                 <Text style={styles.dangerOutlineText}>{t('network.resetOverrides')}</Text>
               </TouchableOpacity>
             </Card>
+            <BackendModePicker />
             <NetworkCloudSync />
+            <NetworkAccueilProSync />
           </>
         ) : (
           <Card style={{ marginBottom: 14 }}>

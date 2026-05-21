@@ -1,21 +1,17 @@
 /**
  * Option Paramètres : après une action locale (sauvegarde prêt, matériel, etc.), envoi puis réception
- * depuis **Supabase** (si configuré + en ligne) puis depuis l’**API inventaire** si joignable.
+ * vers le backend choisi (serveur local **ou** Supabase), jamais les deux.
  * Désactivé par défaut (économie réseau / batterie).
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { checkServerReachableQuick } from '../config/stageStockApi';
 import { getPrets } from '../db/loanDb';
 import { getMateriel, getConsommablesAlerte } from '../db/inventoryDb';
 import { reschedulePretReturnReminders } from './pretNotifications';
 import { rescheduleVgpDueReminders } from './vgpNotifications';
 import { rescheduleSeuilBasReminders } from './seuilNotifications';
-import { syncFromInventoryApi, syncToInventoryApi } from './inventoryApiSync';
 import { runRefreshSessionAfterInventoryPullIfRegistered } from './foregroundInventorySync';
 import { maybeSendAutoAlertEmailsIfNeeded } from './autoAlertEmails';
-import { recordSyncTelemetry } from './syncTelemetry';
-import { canCallApiSync } from './syncGuards';
-import { runSupabaseSyncCycleIfEnabled } from './supabaseSyncCycle';
+import { runInventorySync } from './inventorySyncOrchestrator';
 
 const STORAGE_KEY = 'stagestock_sync_after_each_action';
 
@@ -39,28 +35,12 @@ export async function triggerSyncAfterActionIfEnabled(): Promise<void> {
   lastTriggerAt = now;
 
   try {
-    let gotFreshData = false;
-    const apiGuard = await canCallApiSync('triggerSyncAfterActionIfEnabled');
+    const result = await runInventorySync({
+      scope: 'triggerSyncAfterActionIfEnabled',
+      direction: 'bidirectional',
+    });
 
-    if (await runSupabaseSyncCycleIfEnabled()) {
-      gotFreshData = true;
-    }
-
-    if (apiGuard.ok && (await checkServerReachableQuick())) {
-      const pushApi = await syncToInventoryApi();
-      await recordSyncTelemetry('api', 'push', pushApi.ok ? 'ok' : 'error', pushApi.error);
-      const pull = await syncFromInventoryApi();
-      await recordSyncTelemetry('api', 'pull', pull.ok ? 'ok' : 'error', pull.error);
-      if (pull.ok) gotFreshData = true;
-    } else if (!apiGuard.ok) {
-      await recordSyncTelemetry('api', 'push', 'skipped', apiGuard.reason);
-      await recordSyncTelemetry('api', 'pull', 'skipped', apiGuard.reason);
-    } else {
-      await recordSyncTelemetry('api', 'push', 'skipped', 'Serveur API injoignable');
-      await recordSyncTelemetry('api', 'pull', 'skipped', 'Serveur API injoignable');
-    }
-
-    if (gotFreshData) {
+    if (result.ok) {
       await runRefreshSessionAfterInventoryPullIfRegistered();
       const [prets, mats, seuils] = await Promise.all([
         getPrets(),

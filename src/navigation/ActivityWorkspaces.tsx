@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Pressable, Text, StyleSheet, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Shadow } from '../theme/colors';
+import { Colors, Shadow, AccueilProColors } from '../theme/colors';
 import ScannerScreen from '../screens/ScannerScreen';
 import PretsScreen from '../screens/PretsScreen';
 import ParamsScreen from '../screens/ParamsScreen';
@@ -32,6 +32,7 @@ import {
   NetworkIcon,
 } from '../components/Icons';
 import { isConsumerApp } from '../config/appMode';
+import { AccueilProStackNavigator } from './AccueilProStackNavigator';
 
 const Tab = createBottomTabNavigator();
 
@@ -72,6 +73,28 @@ function WorkspaceHomeFab() {
   );
 }
 
+/** FAB Accueil Pro — bas droite, accent or (maquette). */
+function AccueilProHomeFab() {
+  const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const bottom = Math.max(insets.bottom, Platform.OS === 'android' ? 56 : 52) + 12;
+  return (
+    <Pressable
+      onPress={() => goActivityHome(navigation)}
+      style={({ pressed }) => [
+        styles.apHomeFab,
+        { bottom, right: 14, opacity: pressed ? 0.88 : 1 },
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel="Retour au menu d'accueil des activités"
+    >
+      <Text style={styles.apHomeFabIcon} accessibilityElementsHidden>
+        ⌂
+      </Text>
+    </Pressable>
+  );
+}
+
 function workspaceTabIcon(
   routeName: string,
   color: string,
@@ -102,6 +125,8 @@ function workspaceTabIcon(
       return <BookIcon size={s} color={color} />;
     case 'WsReseau':
       return <NetworkIcon size={s} color={color} />;
+    case 'WsAccueilPro':
+      return <Text style={{ fontSize: s, color }}>🏛</Text>;
     case 'WsCompte':
       return <ClipboardIcon size={s} color={color} />;
     default:
@@ -119,6 +144,31 @@ function shell(Ws: React.ComponentType) {
     );
   };
 }
+
+function shellAccueilPro(Ws: React.ComponentType) {
+  return function AccueilProWorkspaceWithFab() {
+    return (
+      <View style={[styles.shell, { backgroundColor: AccueilProColors.cream }]} pointerEvents="box-none">
+        <AccueilProHomeFab />
+        <Ws />
+      </View>
+    );
+  };
+}
+
+const AP_TAB_BAR = {
+  ...WS_TAB_BAR,
+  tabBarStyle: {
+    ...WS_TAB_BAR.tabBarStyle,
+    backgroundColor: AccueilProColors.navy,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    minHeight: Platform.OS === 'android' ? 60 : 56,
+    paddingBottom: Platform.OS === 'android' ? 8 : 6,
+  },
+  tabBarActiveTintColor: AccueilProColors.gold,
+  tabBarInactiveTintColor: 'rgba(255,255,255,0.45)',
+  tabBarLabelStyle: { fontSize: 13, fontWeight: '600' as const },
+};
 
 function StockWorkspaceTabs() {
   return (
@@ -350,6 +400,29 @@ function NoticeWithScan() {
   );
 }
 
+function AccueilProWorkspaceTabs() {
+  return (
+    <Tab.Navigator screenOptions={AP_TAB_BAR}>
+      <Tab.Screen
+        name="WsAccueilProMain"
+        component={AccueilProStackNavigator}
+        options={{
+          tabBarLabel: 'Accueil Pro',
+          tabBarIcon: ({ color, size }) => workspaceTabIcon('WsAccueilPro', color, size),
+        }}
+      />
+      <Tab.Screen
+        name="WsAccueilProReseau"
+        component={NetworkScreen}
+        options={{
+          tabBarLabel: isConsumerApp() ? 'Lien' : 'Réseau',
+          tabBarIcon: ({ color, size }) => workspaceTabIcon('WsReseau', color, size),
+        }}
+      />
+    </Tab.Navigator>
+  );
+}
+
 function ReseauWorkspaceTabs() {
   return (
     <Tab.Navigator screenOptions={WS_TAB_BAR}>
@@ -407,6 +480,7 @@ export const WorkspaceImpression = shell(PrintWithScan);
 export const WorkspaceAssistant = shell(AssistantWithScan);
 export const WorkspaceNotice = shell(NoticeWithScan);
 export const WorkspaceReseau = shell(ReseauWorkspaceTabs);
+export const WorkspaceAccueilPro = shellAccueilPro(AccueilProWorkspaceTabs);
 export const WorkspaceCompteEmprunteur = shell(CompteEmprunteurWithScan);
 
 const styles = StyleSheet.create({
@@ -427,6 +501,24 @@ const styles = StyleSheet.create({
   homeFabIcon: {
     fontSize: 22,
     color: Colors.white,
+    fontWeight: '700',
+  },
+  apHomeFab: {
+    position: 'absolute',
+    zIndex: 200,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: AccueilProColors.navy,
+    borderWidth: 2,
+    borderColor: AccueilProColors.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadow.dock,
+  },
+  apHomeFabIcon: {
+    fontSize: 24,
+    color: AccueilProColors.gold,
     fontWeight: '700',
   },
 });

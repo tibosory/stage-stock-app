@@ -1,5 +1,18 @@
 import { getResolvedApiBase } from '../config/stageStockApi';
 import { getAccessToken, setAccessToken } from './apiEndpointStorage';
+import { runAutoLanDiscoveryWhenUnreachable } from './consumerAutoConnect';
+
+const API_BASE_REQUIRED_MSG =
+  'Aucun serveur configuré. Jumelez d’abord le PC (QR /pair, recherche Wi‑Fi ou URL dans la section « Serveur » de l’écran de connexion), puis réessayez.';
+
+async function resolveCloudApiBase(): Promise<{ ok: true; base: string } | { ok: false; message: string }> {
+  await runAutoLanDiscoveryWhenUnreachable();
+  const base = (await getResolvedApiBase()).trim().replace(/\/+$/, '');
+  if (!base || base.length < 8 || !/^https?:\/\//i.test(base)) {
+    return { ok: false, message: API_BASE_REQUIRED_MSG };
+  }
+  return { ok: true, base };
+}
 
 export type CloudUser = {
   id: string;
@@ -35,8 +48,9 @@ export async function registerCloud(
   password: string,
   displayName?: string
 ): Promise<{ ok: true; user: CloudUser } | { ok: false; message: string }> {
-  const base = await getResolvedApiBase();
-  const url = `${base.replace(/\/+$/, '')}/auth/register`;
+  const resolved = await resolveCloudApiBase();
+  if (!resolved.ok) return resolved;
+  const url = `${resolved.base}/auth/register`;
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -73,8 +87,9 @@ export async function loginCloud(
   email: string,
   password: string
 ): Promise<{ ok: true; user: CloudUser } | { ok: false; message: string }> {
-  const base = await getResolvedApiBase();
-  const url = `${base.replace(/\/+$/, '')}/auth/login`;
+  const resolved = await resolveCloudApiBase();
+  if (!resolved.ok) return resolved;
+  const url = `${resolved.base}/auth/login`;
   try {
     const res = await fetch(url, {
       method: 'POST',

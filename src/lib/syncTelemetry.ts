@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export type SyncBackend = 'api' | 'supabase';
+export type SyncBackend = 'api' | 'supabase' | 'accueilpro';
 export type SyncDirection = 'push' | 'pull';
 export type SyncStatus = 'ok' | 'error' | 'skipped';
 
@@ -13,6 +13,7 @@ export type SyncStamp = {
 export type SyncTelemetry = {
   api: { push?: SyncStamp; pull?: SyncStamp };
   supabase: { push?: SyncStamp; pull?: SyncStamp };
+  accueilpro: { push?: SyncStamp; pull?: SyncStamp };
 };
 
 const STORAGE_KEY = 'stagestock_sync_telemetry_v1';
@@ -20,6 +21,7 @@ const STORAGE_KEY = 'stagestock_sync_telemetry_v1';
 const EMPTY: SyncTelemetry = {
   api: {},
   supabase: {},
+  accueilpro: {},
 };
 
 export async function loadSyncTelemetry(): Promise<SyncTelemetry> {
@@ -35,6 +37,10 @@ export async function loadSyncTelemetry(): Promise<SyncTelemetry> {
       supabase: {
         push: parsed.supabase?.push,
         pull: parsed.supabase?.pull,
+      },
+      accueilpro: {
+        push: parsed.accueilpro?.push,
+        pull: parsed.accueilpro?.pull,
       },
     };
   } catch {

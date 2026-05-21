@@ -1,0 +1,208 @@
+import React, { useCallback, useState } from 'react';
+import { Text, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { AccueilProFormCard } from '../../components/accueilpro/AccueilProUI';
+import { ContactActionRow } from '../../components/accueilpro/ContactActionRow';
+import { AccueilProScreenLayout, apStyles } from '../../components/accueilpro/AccueilProUI';
+import { Spacing } from '../../theme/spacing';
+import { useLanguage } from '../../context/LanguageContext';
+import {
+  findApRoomInspection,
+  getApEvent,
+  listApConventionsByEvent,
+  listApEventPersonnel,
+  resolveSpacesForEvent,
+} from '../../db/accueilProDb';
+import type {
+  ApConvention,
+  ApEvent,
+  ApEventPersonnel,
+  ApInspectionKind,
+  ApRoomInspection,
+  ApSpace,
+} from '../../types/accueilPro';
+import { parsePhotosJson } from '../../modules/accueilpro/constants/inspectionChecklist';
+
+export default function AccueilProEventDetailScreen() {
+  const navigation = useNavigation<any>();
+  const route = useRoute<any>();
+  const { t } = useLanguage();
+  const eventId = route.params?.id as string;
+  const [event, setEvent] = useState<ApEvent | null>(null);
+  const [spaces, setSpaces] = useState<ApSpace[]>([]);
+  const [conventions, setConventions] = useState<ApConvention[]>([]);
+  const [team, setTeam] = useState<ApEventPersonnel[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const ev = await getApEvent(eventId);
+      setEvent(ev);
+      if (ev) {
+        const [sp, conv, tp] = await Promise.all([
+          resolveSpacesForEvent(ev),
+          listApConventionsByEvent(eventId),
+          listApEventPersonnel(eventId),
+        ]);
+        setSpaces(sp);
+        setConventions(conv);
+        setTeam(tp);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [eventId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      void load();
+    }, [load])
+  );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  };
+
+  const spacesLabel =
+    event?.spaces_mode === 'all'
+      ? t('accueilpro.spaces.allHint', { n: String(spaces.length) })
+      : t('accueilpro.spaces.selectedCount', { n: String(spaces.length) });
+
+  return (
+    <AccueilProScreenLayout
+      backLabel={t('accueilpro.back')}
+      onBack={() => navigation.goBack()}
+      headerIcon={<Text style={{ fontSize: 22 }}>📅</Text>}
+      headerTitle={event?.name ?? t('accueilpro.events.title')}
+      headerRightLabel={event ? t('accueilpro.edit') : undefined}
+      onHeaderRight={
+        event ? () => navigation.navigate('AccueilProEventEdit', { id: event.id }) : undefined
+      }
+      loading={loading || !event}
+      refreshing={refreshing}
+      onRefresh={() => void onRefresh()}
+    >
+      {event ?
+        <>
+          <AccueilProFormCard>
+            <Text style={apStyles.detailLine}>
+              <Text style={apStyles.detailLabel}>{t('accueilpro.events.fieldStatus')} : </Text>
+              {event.status}
+            </Text>
+            <Text style={apStyles.detailLine}>
+              <Text style={apStyles.detailLabel}>{t('accueilpro.events.fieldStart')} : </Text>
+              {event.date_debut}
+            </Text>
+            <Text style={apStyles.detailLine}>
+              <Text style={apStyles.detailLabel}>{t('accueilpro.spaces.title')} : </Text>
+              {spacesLabel}
+            </Text>
+          </AccueilProFormCard>
+
+          <View style={apStyles.sectionHeader}>
+            <Text style={apStyles.sectionTitle}>{t('accueilpro.inspection.section')}</Text>
+          </View>
+          {spaces.map(sp => (
+            <AccueilProFormCard key={sp.id} style={{ marginBottom: Spacing.sm }}>
+              <Text style={apStyles.rowTitle}>{sp.name}</Text>
+              <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm }}>
+                <InspectionBtn
+                  eventId={eventId}
+                  spaceId={sp.id}
+                  type="entrée"
+                  label={t('accueilpro.inspection.entry')}
+                  navigation={navigation}
+                />
+                <InspectionBtn
+                  eventId={eventId}
+                  spaceId={sp.id}
+                  type="sortie"
+                  label={t('accueilpro.inspection.exit')}
+                  navigation={navigation}
+                />
+              </View>
+            </AccueilProFormCard>
+          ))}
+
+          <View style={apStyles.sectionHeader}>
+            <Text style={apStyles.sectionTitle}>{t('accueilpro.eventTeam.title')}</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('AccueilProEventPersonnel', { eventId })}>
+              <Text style={apStyles.sectionLink}>{t('accueilpro.eventTeam.manage')}</Text>
+            </TouchableOpacity>
+          </View>
+          {team.length === 0 ?
+            <Text style={apStyles.empty}>{t('accueilpro.eventTeam.empty')}</Text>
+          : team.map(m => (
+              <View key={m.id} style={apStyles.row}>
+                <Text style={apStyles.rowTitle}>{m.name}</Text>
+                <Text style={apStyles.rowMeta}>
+                  {[m.day_role, m.day_mission].filter(Boolean).join(' · ')}
+                </Text>
+                <ContactActionRow phone={m.phone} email={m.email} emailSubject={`StageStock · ${m.name}`} />
+              </View>
+            ))
+          }
+
+          <View style={apStyles.sectionHeader}>
+            <Text style={apStyles.sectionTitle}>{t('accueilpro.conventions.section')}</Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('AccueilProConventionEdit', { eventId: event.id })}
+            >
+              <Text style={apStyles.sectionLink}>+ {t('accueilpro.orgs.add')}</Text>
+            </TouchableOpacity>
+          </View>
+          {conventions.map(c => (
+            <TouchableOpacity
+              key={c.id}
+              style={apStyles.row}
+              onPress={() => navigation.navigate('AccueilProConventionEdit', { eventId: event.id, id: c.id })}
+            >
+              <Text style={apStyles.rowTitle}>{c.titre}</Text>
+              <Text style={apStyles.rowMeta}>{c.status}</Text>
+            </TouchableOpacity>
+          ))}
+        </>
+      : null}
+    </AccueilProScreenLayout>
+  );
+}
+
+function InspectionBtn({
+  eventId,
+  spaceId,
+  type,
+  label,
+  navigation,
+}: {
+  eventId: string;
+  spaceId: string;
+  type: ApInspectionKind;
+  label: string;
+  navigation: { navigate: (a: string, b: object) => void };
+}) {
+  const [done, setDone] = React.useState(false);
+  const [photoCount, setPhotoCount] = React.useState(0);
+  React.useEffect(() => {
+    void findApRoomInspection(eventId, spaceId, type).then((i: ApRoomInspection | null) => {
+      setDone(i?.status === 'terminé');
+      setPhotoCount(i ? parsePhotosJson(i.photos).length : 0);
+    });
+  }, [eventId, spaceId, type]);
+
+  return (
+    <TouchableOpacity
+      style={[apStyles.inspBtn, done && apStyles.inspDone]}
+      onPress={() => navigation.navigate('AccueilProInspectionEdit', { eventId, spaceId, type })}
+    >
+      <Text style={apStyles.inspText}>
+        {label}
+        {done ? ' ✓' : ''}
+        {photoCount > 0 ? ` · ${photoCount} 📷` : ''}
+      </Text>
+    </TouchableOpacity>
+  );
+}

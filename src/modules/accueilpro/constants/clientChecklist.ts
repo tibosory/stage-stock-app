@@ -1,86 +1,56 @@
-/**
- * Checklist portail client (complétion des dossiers association / entreprise).
- * Brancher sur les données Supabase : organizations, organization_contacts, organization_documents.
- */
+import type { AssociationChecklistSnapshot } from '../../../lib/associationProfileStorage';
 
-export type ClientOrgSnapshot = {
-  name?: string | null;
-  address?: string | null;
-  email?: string | null;
-  contacts?: Array<{ is_primary?: boolean | null; phone?: string | null }>;
-  documents?: Array<{ category?: string | null }>;
-};
-
-export type ClientChecklistItem = {
+export type ClientPortalChecklistItem = {
   id: string;
   label: string;
   description: string;
   required: boolean;
-  isComplete: (org: ClientOrgSnapshot) => boolean;
+  isComplete: (snap: AssociationChecklistSnapshot) => boolean;
 };
 
-export const CLIENT_PORTAL_CHECKLIST: ClientChecklistItem[] = [
+export const CLIENT_PORTAL_CHECKLIST: ClientPortalChecklistItem[] = [
   {
-    id: 'org_info',
-    label: 'Informations sur votre organisation',
-    description: 'Nom, adresse, e-mail de contact',
+    id: 'identity',
+    label: 'Identité organisation',
+    description: 'Nom et coordonnées de base.',
     required: true,
-    isComplete: o => !!(o.name?.trim() && o.address?.trim() && o.email?.trim()),
+    isComplete: snap => Boolean(String((snap as { name?: string }).name ?? '').trim()),
   },
   {
-    id: 'contacts',
-    label: 'Contacts référents',
-    description: 'Au moins un contact principal avec téléphone',
+    id: 'address',
+    label: 'Adresse complète',
+    description: 'Adresse, code postal et ville.',
+    required: false,
+    isComplete: snap => Boolean((snap as { addressFilled?: boolean }).addressFilled),
+  },
+  {
+    id: 'contact',
+    label: 'Contact principal',
+    description: 'Une personne référente avec e-mail et téléphone.',
     required: true,
-    isComplete: o =>
-      !!o.contacts?.some(c => c.is_primary && (c.phone?.trim() ?? '').length > 0),
+    isComplete: snap => Boolean((snap as { contactFilled?: boolean }).contactFilled),
   },
   {
-    id: 'assurance',
-    label: 'Attestation d’assurance',
-    description: 'Document de responsabilité civile à jour',
-    required: true,
-    isComplete: o => !!o.documents?.some(d => d.category === 'assurance'),
-  },
-  {
-    id: 'programme',
-    label: 'Programme / descriptif',
-    description: 'Déroulé, public, artistes',
+    id: 'documents',
+    label: 'Documents',
+    description: 'Ajout d’au moins une pièce (assurance, programme, rider…).',
     required: false,
-    isComplete: o => !!o.documents?.some(d => d.category === 'programme'),
-  },
-  {
-    id: 'rider',
-    label: 'Rider technique',
-    description: 'Besoins son, lumière, scène',
-    required: false,
-    isComplete: o => !!o.documents?.some(d => d.category === 'rider'),
-  },
-  {
-    id: 'liste',
-    label: 'Liste des intervenants / artistes',
-    description: 'Noms et rôles',
-    required: false,
-    isComplete: o => !!o.documents?.some(d => d.category === 'liste'),
+    isComplete: snap => Boolean((snap as { documentCategoriesPresent?: boolean }).documentCategoriesPresent),
   },
 ];
 
-export function computeClientChecklistProgress(org: ClientOrgSnapshot): {
-  done: number;
-  total: number;
+export function computeClientChecklistProgress(snapshot: AssociationChecklistSnapshot): {
   requiredDone: number;
   requiredTotal: number;
 } {
+  const req = CLIENT_PORTAL_CHECKLIST.filter(i => i.required);
   let done = 0;
-  let total = CLIENT_PORTAL_CHECKLIST.length;
-  let requiredDone = 0;
-  let requiredTotal = 0;
-  for (const item of CLIENT_PORTAL_CHECKLIST) {
-    if (item.required) requiredTotal += 1;
-    if (item.isComplete(org)) {
-      done += 1;
-      if (item.required) requiredDone += 1;
+  for (const item of req) {
+    try {
+      if (item.isComplete(snapshot)) done += 1;
+    } catch {
+      /* ignore */
     }
   }
-  return { done, total, requiredDone, requiredTotal };
+  return { requiredDone: done, requiredTotal: req.length };
 }

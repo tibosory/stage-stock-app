@@ -18,6 +18,10 @@ import { getStats } from '../db/metadataDb';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 import { triggerScanMatchHaptic } from '../lib/scanHaptic';
 import { openMaterielFicheFromAlerte, openConsoFicheFromAlerte } from '../navigation/openFicheFromAlerte';
+import { tryApplyPairingFromScan } from '../lib/pairingDeepLink';
+import { pingStageStockApi, probeStageStockSyncApi } from '../config/stageStockApi';
+import { setServerPairingVerified } from '../lib/workspaceOnboardingStorage';
+import { useConnection } from '../context/ConnectionContext';
 import { useNfc } from '../hooks/useNfc';
 import { EtatBadge, Card, BottomModal, Input, TabScreenSafeArea } from '../components/UI';
 import { BurstQtyNumpadModal } from '../components/BurstQtyNumpadModal';
@@ -34,10 +38,11 @@ type LastConsoMove = {
 };
 
 export default function ScannerScreen() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { can } = useAppAuth();
+  const { refresh: refreshConnection } = useConnection();
   const editInventory = can('edit_inventory');
   const [permission, requestPermission] = useCameraPermissions();
   const [mode, setMode] = useState<Mode>('home');
@@ -220,6 +225,28 @@ export default function ScannerScreen() {
     setScanned(true);
     Vibration.vibrate(80);
 
+    const paired = await tryApplyPairingFromScan(result.data);
+    if (paired) {
+      await refreshConnection();
+      const ping = await pingStageStockApi();
+      const sync = await probeStageStockSyncApi();
+      if (ping.ok && sync.ok) {
+        await setServerPairingVerified();
+      }
+      Alert.alert(
+        language === 'en' ? 'Pairing' : 'Jumelage',
+        ping.ok && sync.ok
+          ? language === 'en'
+            ? 'Server connected. Use Send / Receive in Menu to sync.'
+            : 'Serveur connecté. Utilisez Envoyer / Recevoir dans le menu pour synchroniser.'
+          : language === 'en'
+            ? `Address saved.\n\n${sync.ok ? ping.message : sync.message}`
+            : `Adresse enregistrée.\n\n${sync.ok ? ping.message : sync.message}`,
+        [{ text: t('common.ok'), onPress: () => setScanned(false) }]
+      );
+      return;
+    }
+
     const mat = await getMaterielByQr(result.data);
     if (mat) {
       void triggerScanMatchHaptic();
@@ -316,6 +343,8 @@ export default function ScannerScreen() {
     consoBurstAskQtyEachScan,
     applyConsoBurst,
     openConsoMove,
+    refreshConnection,
+    language,
   ]);
 
   const handleNfcScan = async () => {

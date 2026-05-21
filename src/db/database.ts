@@ -442,6 +442,8 @@ export const initDB = async (): Promise<void> => {
 
   await runSchemaMigrations(database);
   await seedDefaultAdminIfNeeded(database);
+  const acc = await import('./accueilProDb');
+  await acc.ensureAccueilProSchema(database);
 };
 
 // ── Génération d'ID unique ──────────────────────────────────────────────────

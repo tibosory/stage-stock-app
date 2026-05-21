@@ -13,6 +13,7 @@ import { Typography } from '../theme/typography';
 import { Spacing } from '../theme/spacing';
 import { isConsumerApp } from '../config/appMode';
 import { useConnection } from '../context/ConnectionContext';
+import { useLanguage } from '../context/LanguageContext';
 
 /**
  * Bandeau non bloquant pour l’app consommateur : état connexion serveur.
@@ -20,6 +21,7 @@ import { useConnection } from '../context/ConnectionContext';
  */
 export function ConnectionStatusBanner() {
   const { status, refresh } = useConnection();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
@@ -27,6 +29,7 @@ export function ConnectionStatusBanner() {
   if (status === 'ok') return null;
 
   const isChecking = status === 'checking';
+  const needsPairing = status === 'needs_pairing';
 
   return (
     <Pressable
@@ -38,23 +41,27 @@ export function ConnectionStatusBanner() {
           opacity: pressed ? 0.92 : 1,
           maxWidth: width,
         },
-        isChecking ? styles.bgChecking : styles.bgOffline,
+        isChecking ? styles.bgChecking : needsPairing ? styles.bgPairing : styles.bgOffline,
       ]}
       accessibilityRole="button"
       accessibilityLabel={
         isChecking
-          ? 'Vérification de la connexion au serveur'
-          : 'Serveur inaccessible. Appuyer pour réessayer'
+          ? t('network.state.checking')
+          : needsPairing
+            ? t('network.state.needsPairing')
+            : t('network.state.offline')
       }
     >
       <View style={styles.row}>
         {isChecking && (
           <ActivityIndicator color={Colors.yellow} size="small" style={styles.spinner} />
         )}
-        <Text style={styles.text} numberOfLines={3}>
+        <Text style={styles.text} numberOfLines={4}>
           {isChecking
-            ? 'Vérification du serveur…'
-            : 'Hors ligne — impossible de joindre le serveur. Toucher pour réessayer.'}
+            ? t('network.state.checking')
+            : needsPairing
+              ? t('network.state.needsPairingBanner')
+              : t('network.state.offlineBanner')}
         </Text>
       </View>
     </Pressable>
@@ -73,6 +80,9 @@ const styles = StyleSheet.create({
   },
   bgOffline: {
     backgroundColor: Colors.redBg,
+  },
+  bgPairing: {
+    backgroundColor: Colors.yellowBg,
   },
   row: {
     flexDirection: 'row',

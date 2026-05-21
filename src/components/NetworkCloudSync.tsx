@@ -5,28 +5,33 @@ import { Colors, Shadow } from '../theme/colors';
 import { Card } from './UI';
 import { useAppAuth } from '../context/AuthContext';
 import { useNetworkStatus } from '../context/NetworkStatusContext';
-import { syncToInventoryApi, syncFromInventoryApi } from '../lib/inventoryApiSync';
 import { getMateriel, getConsommablesAlerte } from '../db/inventoryDb';
 import { rescheduleVgpDueReminders } from '../lib/vgpNotifications';
 import { rescheduleSeuilBasReminders } from '../lib/seuilNotifications';
 import { isConsumerApp, isV1LanMode } from '../config/appMode';
-import { isSupabaseConfigured, syncFromSupabase, syncToSupabase } from '../lib/supabase';
+import { isSupabaseConfigured } from '../lib/supabase';
 import {
   getSyncAfterEachActionEnabled,
   setSyncAfterEachActionEnabled,
 } from '../lib/syncAfterAction';
-import { loadSyncTelemetry, recordSyncTelemetry, type SyncStamp, type SyncTelemetry } from '../lib/syncTelemetry';
-import { canCallApiSync } from '../lib/syncGuards';
+import { loadSyncTelemetry, type SyncStamp, type SyncTelemetry } from '../lib/syncTelemetry';
+import { getDataBackendMode, type DataBackendMode } from '../lib/backendMode';
+import { runInventorySync } from '../lib/inventorySyncOrchestrator';
+import { useLanguage } from '../context/LanguageContext';
 
 export function NetworkCloudSync() {
   const { can, refreshSession } = useAppAuth();
   const { isOnline } = useNetworkStatus();
+  const { t } = useLanguage();
   const [syncing, setSyncing] = useState(false);
   const [syncAfterEachAction, setSyncAfterEachAction] = useState(false);
-  const [telemetry, setTelemetry] = useState<SyncTelemetry>({ api: {}, supabase: {} });
+  const [backendMode, setBackendMode] = useState<DataBackendMode>('local_server');
+  const [telemetry, setTelemetry] = useState<SyncTelemetry>({ api: {}, supabase: {}, accueilpro: {} });
 
   const refreshTelemetry = useCallback(async () => {
-    setTelemetry(await loadSyncTelemetry());
+    const [tel, mode] = await Promise.all([loadSyncTelemetry(), getDataBackendMode()]);
+    setTelemetry(tel);
+    setBackendMode(mode);
   }, []);
 
   const formatStamp = useCallback((stamp?: SyncStamp) => {
@@ -34,9 +39,9 @@ export function NetworkCloudSync() {
     const when = new Date(stamp.at);
     const date = Number.isNaN(when.getTime()) ? stamp.at : when.toLocaleString('fr-FR');
     const statusLabel =
-      stamp.status === 'ok' ? 'OK' : stamp.status === 'error' ? 'Échec' : 'Ignoré';
+      stamp.status === 'ok' ? 'OK' : stamp.status === 'error' ? t('network.accueilpro.statusError') : t('network.accueilpro.statusSkipped');
     return stamp.message ? `${date} · ${statusLabel} · ${stamp.message}` : `${date} · ${statusLabel}`;
-  }, []);
+  }, [t]);
 
   useFocusEffect(
     useCallback(() => {
@@ -49,71 +54,50 @@ export function NetworkCloudSync() {
 
   const handleSync = async (direction: 'push' | 'pull') => {
     setSyncing(true);
-    let supabaseResult: { ok: boolean; error?: string } | null = null;
-
-    if (!isV1LanMode() && isSupabaseConfigured() && isOnline) {
-      const fnSb = direction === 'push' ? syncToSupabase : syncFromSupabase;
-      supabaseResult = await fnSb();
-      await recordSyncTelemetry(
-        'supabase',
-        direction,
-        supabaseResult.ok ? 'ok' : 'error',
-        supabaseResult.error
-      );
-    } else if (!isV1LanMode() && !isOnline) {
-      await recordSyncTelemetry('supabase', direction, 'skipped', 'OFFLINE');
-    } else if (!isV1LanMode()) {
-      await recordSyncTelemetry('supabase', direction, 'skipped', 'Supabase non configuré');
-    }
-
-    const apiGuard = await canCallApiSync(`NetworkCloudSync:${direction}`);
-    let apiResult: { ok: boolean; error?: string };
-    if (!apiGuard.ok) {
-      apiResult = { ok: false, error: apiGuard.reason };
-      await recordSyncTelemetry('api', direction, 'skipped', apiGuard.reason);
-    } else {
-      const fnApi = direction === 'push' ? syncToInventoryApi : syncFromInventoryApi;
-      apiResult = await fnApi();
-      await recordSyncTelemetry('api', direction, apiResult.ok ? 'ok' : 'error', apiResult.error);
-    }
+    const result = await runInventorySync({
+      scope: `NetworkCloudSync:${direction}`,
+      direction,
+    });
     setSyncing(false);
     await refreshTelemetry();
-    const syncedOk = apiResult.ok || supabaseResult?.ok;
-    if (syncedOk) {
+
+    if (result.ok) {
       await refreshSession();
       const [m, seuils] = await Promise.all([getMateriel(), getConsommablesAlerte()]);
       await rescheduleVgpDueReminders(m);
       await rescheduleSeuilBasReminders(seuils);
-      const msg = isV1LanMode()
-        ? `Synchronisation avec le PC : ${apiResult.ok ? 'OK' : 'échec'}`
-        : [
-            `Supabase: ${supabaseResult?.ok ? 'OK' : 'ignoré ou échec'}`,
-            `PC / API: ${apiResult.ok ? 'OK' : `Échec (${apiResult.error ?? 'inconnu'})`}`,
-          ].join('\n');
-      Alert.alert('✓ Sync terminée', msg);
+      const target =
+        result.backend === 'supabase'
+          ? t('network.backendMode.supabase')
+          : t('network.backendMode.local');
+      Alert.alert(
+        t('network.cloudSync.doneTitle'),
+        t('network.cloudSync.doneBody', { target, direction: direction === 'push' ? '↑' : '↓' })
+      );
     } else {
-      const msg = isV1LanMode()
-        ? apiResult.error ?? 'Le PC de la salle ne répond pas. Vérifiez le Wi‑Fi.'
-        : [
-            supabaseResult?.error ? `Supabase: ${supabaseResult.error}` : 'Supabase: ignoré',
-            `PC / API: ${apiResult.error ?? 'Erreur inconnue'}`,
-          ].join('\n');
-      Alert.alert('Erreur sync', msg);
+      Alert.alert(
+        t('network.cloudSync.errorTitle'),
+        result.error ?? t('network.cloudSync.errorUnknown')
+      );
     }
   };
 
   if (!can('params_sync')) return null;
+
+  const isLocal = isV1LanMode() || backendMode === 'local_server';
+  const syncTitle = isV1LanMode()
+    ? t('network.cloudSync.titleLan')
+    : isLocal
+      ? t('network.cloudSync.titleLocal')
+      : t('network.cloudSync.titleSupabase');
 
   return (
     <>
       <Card style={{ marginBottom: 14 }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.cardTitle}>Synchro après chaque action</Text>
-            <Text style={styles.hint}>
-              Après enregistrement (prêt, matériel, consommable, VGP, etc.), envoi puis réception automatiques si le
-              serveur répond.
-            </Text>
+            <Text style={styles.cardTitle}>{t('network.cloudSync.afterActionTitle')}</Text>
+            <Text style={styles.hint}>{t('network.cloudSync.afterActionHint')}</Text>
           </View>
           <Switch
             value={syncAfterEachAction}
@@ -129,61 +113,54 @@ export function NetworkCloudSync() {
 
       <Card style={{ marginBottom: 14 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-          <Text style={{ fontSize: 16 }}>{isV1LanMode() ? '🖥️' : '☁️'}</Text>
-            <Text style={styles.cardTitle}>
-              {isV1LanMode() ? 'Synchronisation avec le PC' : 'Synchronisation cloud (Supabase puis API inventaire)'}
-            </Text>
+          <Text style={{ fontSize: 16 }}>{isLocal ? '🖥️' : '☁️'}</Text>
+          <Text style={styles.cardTitle}>{syncTitle}</Text>
         </View>
         {syncing ? (
           <ActivityIndicator color={Colors.green} />
         ) : (
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }]} onPress={() => void handleSync('push')}>
-              <Text style={styles.primaryBtnText}>↑ Envoyer</Text>
+              <Text style={styles.primaryBtnText}>{t('network.accueilpro.push')}</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.secondaryBtn, { flex: 1 }]}
-              onPress={() => void handleSync('pull')}
-            >
-              <Text style={styles.secondaryBtnText}>↓ Recevoir</Text>
+            <TouchableOpacity style={[styles.secondaryBtn, { flex: 1 }]} onPress={() => void handleSync('pull')}>
+              <Text style={styles.secondaryBtnText}>{t('network.accueilpro.pull')}</Text>
             </TouchableOpacity>
           </View>
         )}
         <View style={styles.syncMetaBox}>
-          <Text style={styles.syncMetaTitle}>Dernières synchronisations</Text>
-          <Text style={styles.syncMetaLine}>PC ↑ {formatStamp(telemetry.api.push)}</Text>
-          <Text style={styles.syncMetaLine}>PC ↓ {formatStamp(telemetry.api.pull)}</Text>
-          {!isV1LanMode() ? (
+          <Text style={styles.syncMetaTitle}>{t('network.cloudSync.lastSync')}</Text>
+          {isLocal ? (
             <>
-              <Text style={styles.syncMetaLine}>Supabase ↑ {formatStamp(telemetry.supabase.push)}</Text>
-              <Text style={styles.syncMetaLine}>Supabase ↓ {formatStamp(telemetry.supabase.pull)}</Text>
+              <Text style={styles.syncMetaLine}>{t('network.cloudSync.pcPush', { stamp: formatStamp(telemetry.api.push) })}</Text>
+              <Text style={styles.syncMetaLine}>{t('network.cloudSync.pcPull', { stamp: formatStamp(telemetry.api.pull) })}</Text>
             </>
-          ) : null}
+          ) : (
+            <>
+              <Text style={styles.syncMetaLine}>{t('network.cloudSync.sbPush', { stamp: formatStamp(telemetry.supabase.push) })}</Text>
+              <Text style={styles.syncMetaLine}>{t('network.cloudSync.sbPull', { stamp: formatStamp(telemetry.supabase.pull) })}</Text>
+            </>
+          )}
         </View>
         {isConsumerApp() ? (
           <>
-            <Text style={[styles.hintMuted, { marginTop: 10 }]}>
-              Envoyez vos modifications vers le service, ou récupérez les données depuis le service.
-            </Text>
-            <Text style={styles.hintMuted}>
-              Une synchro est aussi lancée automatiquement à l’ouverture de l’app si le serveur est joignable.
-            </Text>
+            <Text style={[styles.hintMuted, { marginTop: 10 }]}>{t('network.cloudSync.consumerHint1')}</Text>
+            <Text style={styles.hintMuted}>{t('network.cloudSync.consumerHint2')}</Text>
           </>
         ) : (
           <>
             <Text style={[styles.hintMuted, { marginTop: 10 }]}>
-              Même URL que ci-dessus (build ou surcharge sur cet appareil). ↑ envoie les lignes locales ; ↓ récupère le
-              snapshot serveur. Comptes utilisateurs (PIN) : seul un administrateur les envoie (↑) ; les autres
-              téléphones les reçoivent (↓). Les jetons de notification push restent locaux à chaque appareil.
+              {isLocal ? t('network.cloudSync.proHintLocal') : t('network.cloudSync.proHintSupabase')}
             </Text>
-            <Text style={styles.hintMuted}>
-              À chaque retour au premier plan, l’app tente aussi envoi puis réception (silencieux en cas d’échec).
-            </Text>
+            <Text style={styles.hintMuted}>{t('network.cloudSync.proHintForeground')}</Text>
           </>
         )}
-        {isSupabaseConfigured() && !isConsumerApp() ? (
-          <Text style={[styles.hintMuted, { marginTop: 8 }]}>
-            Notices PDF / photo : Supabase optionnel pour l’upload (écran Utilisateur).
+        {isSupabaseConfigured() && isLocal && !isConsumerApp() ? (
+          <Text style={[styles.hintMuted, { marginTop: 8 }]}>{t('network.cloudSync.photosSupabaseOptional')}</Text>
+        ) : null}
+        {!isOnline && backendMode === 'supabase' ? (
+          <Text style={[styles.hintMuted, { marginTop: 8, color: '#f59e0b' }]}>
+            {t('network.cloudSync.offlineSupabase')}
           </Text>
         ) : null}
       </Card>

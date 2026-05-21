@@ -14,7 +14,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { TabScreenSafeArea } from '../components/UI';
-import { Colors, Shadow } from '../theme/colors';
+import { Colors, Shadow, AccueilProColors } from '../theme/colors';
 import { HitSlop, Spacing } from '../theme/spacing';
 import { Typography } from '../theme/typography';
 import { useAppAuth } from '../context/AuthContext';
@@ -31,6 +31,8 @@ type MainTile = {
 };
 
 type TileTemplate = Omit<MainTile, 'label'> & { labelKey: string };
+
+const ACCUEIL_PRO_GRADIENT = [AccueilProColors.navy, '#243556', '#2F4268'] as const;
 
 const PRIDE_TILE_DEFS_STAFF: TileTemplate[] = [
   { key: 'stock', labelKey: 'stock.title', route: 'WorkspaceStock', accent: '#EF4444', tint: 'rgba(239,68,68,0.12)' },
@@ -114,6 +116,7 @@ export default function ActivityHomeScreen() {
 
   const isEmp = user?.role === 'emprunteur';
   const tourModeEnabled = !isEmp;
+  const accueilProEnabled = !isEmp;
   const tiles = useMemo(
     (): MainTile[] =>
       (isEmp ? PRIDE_TILE_DEFS_EMPRUNTEUR : PRIDE_TILE_DEFS_STAFF).map(d => ({
@@ -216,6 +219,31 @@ export default function ActivityHomeScreen() {
             <Text style={s.tourHeroTitle}>{t('home.tourHero.title')}</Text>
             <Text style={s.tourHeroSub}>{t('home.tourHero.sub')}</Text>
             <Text style={s.tourHeroCta}>{t('home.tourHero.cta')}</Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {accueilProEnabled ? (
+          <TouchableOpacity
+            style={[s.apHero, { width: width - 32 }]}
+            onPress={() => navigation.navigate('WorkspaceAccueilPro' as never)}
+            activeOpacity={0.9}
+            accessibilityRole="button"
+            accessibilityLabel={t('home.accueilProHero.a11y')}
+          >
+            <LinearGradient
+              colors={[...ACCUEIL_PRO_GRADIENT]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={s.apHeroGrad}
+            >
+              <View style={s.apHeroBadge}>
+                <Text style={s.apHeroBadgeText}>{t('home.accueilProHero.badge')}</Text>
+              </View>
+              <Text style={s.apHeroEmoji}>🏛️</Text>
+              <Text style={s.apHeroTitle}>{t('home.tile.accueilPro')}</Text>
+              <Text style={s.apHeroSub}>{t('home.accueilProHero.sub')}</Text>
+              <Text style={s.apHeroCta}>{t('home.accueilProHero.cta')}</Text>
+            </LinearGradient>
           </TouchableOpacity>
         ) : null}
 
@@ -335,6 +363,58 @@ const s = StyleSheet.create({
     marginBottom: 10,
   },
   tourHeroCta: { color: '#6EE7B7', fontSize: 16, fontWeight: '800' },
+  apHero: {
+    alignSelf: 'center',
+    marginBottom: 16,
+    borderRadius: 22,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: AccueilProColors.gold,
+    ...Shadow.card,
+  },
+  apHeroGrad: {
+    paddingVertical: 22,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    minHeight: 148,
+    justifyContent: 'center',
+  },
+  apHeroBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(200, 151, 58, 0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(200, 151, 58, 0.55)',
+  },
+  apHeroBadgeText: {
+    color: AccueilProColors.gold,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  apHeroEmoji: { fontSize: 38, marginBottom: 6 },
+  apHeroTitle: {
+    color: AccueilProColors.cream,
+    fontSize: 24,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+    marginBottom: 6,
+  },
+  apHeroSub: {
+    color: 'rgba(247, 244, 238, 0.88)',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 10,
+    paddingHorizontal: 8,
+  },
+  apHeroCta: { color: AccueilProColors.gold, fontSize: 16, fontWeight: '800' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'stretch' },
   tile: {
     minHeight: 108,

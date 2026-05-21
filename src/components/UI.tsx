@@ -2,7 +2,7 @@
 import React, { ReactNode } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, Modal,
-  ScrollView, StyleSheet, ActivityIndicator, ViewStyle, type StyleProp,
+  ScrollView, StyleSheet, ActivityIndicator, ViewStyle, type StyleProp, type TextStyle,
   Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -212,6 +212,7 @@ interface InputProps {
   /** false = lecture seule (TextInput non éditable) */
   editable?: boolean;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  labelStyle?: TextStyle;
 }
 
 export const Input = ({
@@ -219,6 +220,7 @@ export const Input = ({
   secureTextEntry, onSubmitEditing, onBlur, returnKeyType, blurOnSubmit,
   editable = true,
   autoCapitalize,
+  labelStyle,
 }: InputProps) => {
   const a11yLabel =
     label != null && label !== ''
@@ -227,7 +229,7 @@ export const Input = ({
   return (
     <View style={[input.wrap, style]}>
       {label && (
-        <Text style={input.label}>
+        <Text style={[input.label, labelStyle]}>
           {label}{required && <Text style={{ color: Colors.green }}> *</Text>}
         </Text>
       )}
@@ -297,6 +299,7 @@ export const DateField = ({
   allowClear,
   style,
   disabled,
+  labelStyle,
 }: {
   label: string;
   value: string;
@@ -308,6 +311,7 @@ export const DateField = ({
   style?: StyleProp<ViewStyle>;
   /** true = affichage date sans ouverture du calendrier */
   disabled?: boolean;
+  labelStyle?: TextStyle;
 }) => {
   const [androidOpen, setAndroidOpen] = React.useState(false);
   const [iosOpen, setIosOpen] = React.useState(false);
@@ -343,7 +347,7 @@ export const DateField = ({
   return (
     <View style={[input.wrap, style]}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Text style={input.label}>
+        <Text style={[input.label, labelStyle]}>
           {label}
           {required && <Text style={{ color: Colors.green }}> *</Text>}
         </Text>
@@ -462,7 +466,7 @@ const df = StyleSheet.create({
 
 // ── Select ──────────────────────────────────────────────────────────
 export const SelectPicker = ({
-  label, value, options, onChange, required, disabled
+  label, value, options, onChange, required, disabled, labelStyle
 }: {
   label?: string;
   value: string;
@@ -470,6 +474,7 @@ export const SelectPicker = ({
   onChange: (v: string) => void;
   required?: boolean;
   disabled?: boolean;
+  labelStyle?: TextStyle;
 }) => {
   const [open, setOpen] = React.useState(false);
   const selected = options.find(o => o.value === value);
@@ -478,7 +483,7 @@ export const SelectPicker = ({
   return (
     <View style={{ marginBottom: 12 }}>
       {label && (
-        <Text style={input.label}>
+        <Text style={[input.label, labelStyle]}>
           {label}{required && <Text style={{ color: Colors.green }}> *</Text>}
         </Text>
       )}

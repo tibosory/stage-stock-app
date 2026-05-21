@@ -2,19 +2,28 @@ import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, Alert, ScrollView,
 } from 'react-native';
+import * as Network from 'expo-network';
 import { FullScreenSafeArea } from '../components/UI';
 import { SplashLoadingLogo } from '../components/SplashLoadingLogo';
 import { Colors, Shadow } from '../theme/colors';
 import { Typography } from '../theme/typography';
 import { useAppAuth } from '../context/AuthContext';
 import { useSupabaseAuth } from '../hooks/useAuth';
-import { listAppUsersForLogin } from '../db/userDb';
+import { listAppUsersForLogin, insertAppUser } from '../db/userDb';
 import { isSupabaseConfigured, saveAndApplySupabaseConfig } from '../lib/supabase';
 import { finalizeAccueilProInvitation, previewAccueilProInvitation } from '../lib/accueilproInvitations';
 import { ACCUEILPRO_ORGANISATEUR_ROLE } from '../modules/accueilpro/types/roles';
 import { AppUserRole } from '../types';
 import { isV1LanMode } from '../config/appMode';
 import { useLanguage } from '../context/LanguageContext';
+import {
+  getApiBaseOverride,
+  looksLikeHttpUrl,
+  setApiBaseOverride,
+} from '../lib/apiEndpointStorage';
+import { getResolvedApiBase, pingStageStockApi } from '../config/stageStockApi';
+import { discoverStageStockOnLan, privateSubnetPrefixForIpv4 } from '../lib/lanDiscovery';
+import { runConsumerAutoConnect } from '../lib/consumerAutoConnect';
 
 function roleLabelKey(role: AppUserRole): string {
   if (role === 'admin') return 'auth.role.label.admin';
@@ -51,9 +60,21 @@ export default function LoginScreen() {
   const [apInviteToken, setApInviteToken] = useState('');
   const [apInvitePreview, setApInvitePreview] = useState('');
   const [apInviteBusy, setApInviteBusy] = useState(false);
+  const [serverBaseUrl, setServerBaseUrl] = useState('');
+  const [serverBusy, setServerBusy] = useState(false);
+  const [resolvedApi, setResolvedApi] = useState('');
+  const [bootstrapNom, setBootstrapNom] = useState('Administrateur');
+  const [bootstrapPin, setBootstrapPin] = useState('');
+  const [bootstrapBusy, setBootstrapBusy] = useState(false);
   const { t } = useLanguage();
 
   const v1Lan = isV1LanMode();
+
+  const refreshServerMeta = async () => {
+    const [resolved, override] = await Promise.all([getResolvedApiBase(), getApiBaseOverride()]);
+    setResolvedApi(resolved);
+    if (override && !serverBaseUrl.trim()) setServerBaseUrl(override);
+  };
 
   useEffect(() => {
     listAppUsersForLogin().then(u => {
@@ -61,6 +82,7 @@ export default function LoginScreen() {
       if (u.length === 1) setUserId(u[0].id);
       setLoading(false);
     });
+    void runConsumerAutoConnect().then(() => refreshServerMeta());
   }, []);
 
   const handleSupabase = async () => {
@@ -111,7 +133,7 @@ export default function LoginScreen() {
       }
       Alert.alert(
         t('login.cloud.alertTitle'),
-        cloudRegister ? t('login.cloud.registered') : t('login.cloud.signedIn')
+        cloudRegister ? t('login.cloud.registeredNextPin') : t('login.cloud.signedIn')
       );
       setCloudPassword('');
     } finally {
@@ -126,6 +148,71 @@ export default function LoginScreen() {
     const unk = t('login.accueilpro.err.unknown');
     return detail ? `${unk} ${detail}` : unk;
   }
+
+  const onDiscoverServer = async () => {
+    setServerBusy(true);
+    try {
+      let preferredSubnetPrefixes: string[] = [];
+      try {
+        const ip = await Network.getIpAddressAsync();
+        if (ip && ip !== '0.0.0.0') {
+          const p = privateSubnetPrefixForIpv4(ip);
+          if (p) preferredSubnetPrefixes = [p];
+        }
+      } catch {
+        /* ignore */
+      }
+      const hit = await discoverStageStockOnLan({ preferredSubnetPrefixes });
+      if (!hit) {
+        Alert.alert(t('network.noneDetectedTitle'), t('network.noneDetectedBody'));
+        return;
+      }
+      await setApiBaseOverride(hit.baseUrl);
+      await refreshServerMeta();
+      Alert.alert(t('network.connectionTitle'), t('login.server.detected'));
+    } finally {
+      setServerBusy(false);
+    }
+  };
+
+  const onSaveServerUrl = async () => {
+    const urlTrim = serverBaseUrl.trim();
+    if (urlTrim && !looksLikeHttpUrl(urlTrim)) {
+      Alert.alert(t('network.invalidUrlTitle'), t('onboarding.invalidUrlBody'));
+      return;
+    }
+    setServerBusy(true);
+    try {
+      await setApiBaseOverride(urlTrim || null);
+      await refreshServerMeta();
+      const ping = await pingStageStockApi();
+      Alert.alert(ping.ok ? t('network.testOk') : t('network.testFail'), ping.message);
+    } finally {
+      setServerBusy(false);
+    }
+  };
+
+  const onBootstrapFirstUser = async () => {
+    const nom = bootstrapNom.trim();
+    const pin = bootstrapPin.trim();
+    if (!nom || pin.length < 4) {
+      Alert.alert(t('login.bootstrap.title'), t('login.bootstrap.needNomPin'));
+      return;
+    }
+    setBootstrapBusy(true);
+    try {
+      const id = await insertAppUser(nom, 'admin', pin);
+      const next = await listAppUsersForLogin();
+      setUsers(next);
+      setUserId(id);
+      setBootstrapPin('');
+      Alert.alert(t('login.bootstrap.title'), t('login.bootstrap.done'));
+    } catch (e: unknown) {
+      Alert.alert(t('login.bootstrap.title'), e instanceof Error ? e.message : String(e));
+    } finally {
+      setBootstrapBusy(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (!userId || !pin) {
@@ -203,6 +290,48 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
         </View>
+      ) : null}
+
+      {!v1Lan ? (
+        <>
+          <Text style={s.section}>{t('login.server.section')}</Text>
+          <Text style={s.subSmall}>{t('login.server.hint')}</Text>
+          {resolvedApi ? (
+            <Text style={s.cloudOk}>{t('login.server.resolved', { url: resolvedApi })}</Text>
+          ) : (
+            <Text style={[s.subSmall, { color: '#F59E0B' }]}>
+              {t('login.server.missing')}
+            </Text>
+          )}
+          <TextInput
+            style={s.inputEmail}
+            value={serverBaseUrl}
+            onChangeText={setServerBaseUrl}
+            placeholder={t('network.field.apiBasePlaceholderLocal')}
+            placeholderTextColor={Colors.textMuted}
+            keyboardType="url"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TouchableOpacity style={s.btnSecondary} disabled={serverBusy} onPress={() => void onSaveServerUrl()}>
+            {serverBusy ? (
+              <ActivityIndicator color={Colors.green} />
+            ) : (
+              <Text style={s.btnSecondaryTxt}>{t('login.server.saveTest')}</Text>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.btnSecondary}
+            disabled={serverBusy}
+            onPress={() => void onDiscoverServer()}
+          >
+            {serverBusy ? (
+              <ActivityIndicator color={Colors.green} />
+            ) : (
+              <Text style={s.btnSecondaryTxt}>{t('login.server.discover')}</Text>
+            )}
+          </TouchableOpacity>
+        </>
       ) : null}
 
       {!v1Lan ? (
@@ -389,7 +518,48 @@ export default function LoginScreen() {
 
       <Text style={s.section}>{t('login.device.section')}</Text>
       <Text style={s.subSmall}>{v1Lan ? t('login.device.pinHintV1') : t('login.device.pinHint')}</Text>
+      {v1Lan ? (
+        <View style={s.hintCard}>
+          <Text style={s.hintCardTitle}>{t('login.v1.firstAccessTitle')}</Text>
+          <Text style={s.hintCardBody}>{t('login.v1.firstAccessBody')}</Text>
+        </View>
+      ) : null}
 
+      {users.length === 0 ? (
+        <View style={s.hintCard}>
+          <Text style={s.hintCardTitle}>{t('login.bootstrap.title')}</Text>
+          <Text style={s.hintCardBody}>{t('login.bootstrap.hint')}</Text>
+          <TextInput
+            style={s.inputEmail}
+            value={bootstrapNom}
+            onChangeText={setBootstrapNom}
+            placeholder={t('login.bootstrap.nomPlaceholder')}
+            placeholderTextColor={Colors.textMuted}
+          />
+          <TextInput
+            style={s.inputEmail}
+            value={bootstrapPin}
+            onChangeText={setBootstrapPin}
+            placeholder={t('login.bootstrap.pinPlaceholder')}
+            placeholderTextColor={Colors.textMuted}
+            keyboardType="number-pad"
+            secureTextEntry
+            maxLength={12}
+          />
+          <TouchableOpacity
+            style={s.btnSecondary}
+            disabled={bootstrapBusy}
+            onPress={() => void onBootstrapFirstUser()}
+          >
+            {bootstrapBusy ? (
+              <ActivityIndicator color={Colors.green} />
+            ) : (
+              <Text style={s.btnSecondaryTxt}>{t('login.bootstrap.submit')}</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <>
       <Text style={s.label}>{t('login.device.userLabel')}</Text>
       <View style={s.chips}>
         {users.map(u => (
@@ -424,6 +594,8 @@ export default function LoginScreen() {
           <Text style={s.btnTxt}>{t('login.device.submit')}</Text>
         )}
       </TouchableOpacity>
+        </>
+      )}
     </ScrollView>
     </FullScreenSafeArea>
   );
@@ -504,4 +676,14 @@ const s = StyleSheet.create({
   section: { ...Typography.sectionTitle, marginBottom: 6 },
   subSmall: { color: Colors.textMuted, fontSize: 12, marginBottom: 12 },
   link: { color: Colors.blue, fontSize: 14, textAlign: 'center' },
+  hintCard: {
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.35)',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+    backgroundColor: Colors.greenMuted,
+  },
+  hintCardTitle: { color: Colors.green, fontWeight: '700', fontSize: 14, marginBottom: 6 },
+  hintCardBody: { color: Colors.textSecondary, fontSize: 13, lineHeight: 19, marginBottom: 8 },
 });

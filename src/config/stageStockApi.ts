@@ -1,12 +1,12 @@
 import { Platform } from 'react-native';
 import {
   getApiBaseOverride,
-  getApiKeyOverride,
   getHealthPathOverride,
-  getAccessToken,
   normalizeHttpBaseUrl,
   stripStageStockServerRootSuffix,
 } from '../lib/apiEndpointStorage';
+import { buildServerAuthHeaders } from '../lib/serverAuthHeaders';
+import { formatSyncHttpError } from '../lib/syncAuthErrors';
 import { fetchWithTimeout } from '../lib/fetchWithTimeout';
 import {
   getCachedQuickReachable,
@@ -63,27 +63,7 @@ export function stageStockApiHeaders(): Record<string, string> {
 }
 
 export async function stageStockApiHeadersAsync(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-    'X-StageStock-Client': `StageStock-${Platform.OS}`,
-  };
-  const jwt = await getAccessToken();
-  if (jwt) {
-    headers['Authorization'] = `Bearer ${jwt}`;
-    const keyOverride = await getApiKeyOverride();
-    const key = keyOverride || process.env.EXPO_PUBLIC_API_KEY?.trim();
-    if (key) {
-      headers['X-API-Key'] = key;
-    }
-    return headers;
-  }
-  const keyOverride = await getApiKeyOverride();
-  const key = keyOverride || process.env.EXPO_PUBLIC_API_KEY?.trim();
-  if (key) {
-    headers['X-API-Key'] = key;
-    headers['Authorization'] = `Bearer ${key}`;
-  }
-  return headers;
+  return buildServerAuthHeaders();
 }
 
 function pushCustomHealthUrls(base: string, custom: string | undefined | null, out: string[]) {
@@ -229,6 +209,12 @@ export async function probeStageStockSyncApi(): Promise<{ ok: boolean; message: 
     const res = await fetchWithTimeout(url, { method: 'GET', headers }, SNAPSHOT_TEST_MS);
     const text = await res.text();
     if (!res.ok) {
+      if (res.status === 401) {
+        return {
+          ok: false,
+          message: formatSyncHttpError(401, text, 'Test sync').message,
+        };
+      }
       return {
         ok: false,
         message:
@@ -242,6 +228,56 @@ export async function probeStageStockSyncApi(): Promise<{ ok: boolean; message: 
       message:
         `Sync API accessible (HTTP ${res.status})\n${url}\n\n` +
         `Le téléphone peut lire les données de sync. Vous pouvez ensuite tester Envoyer/Recevoir dans Paramètres.`,
+    };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      message:
+        `Erreur réseau vers ${url}\n${msg}\n\n` +
+        `Vérifiez le Wi‑Fi commun, le pare-feu Windows, l'écoute serveur sur 0.0.0.0 et l'URL dans Réseau.`,
+    };
+  }
+}
+
+/**
+ * Vérifie si l’API Accueil Pro accepte la sync (lecture snapshot).
+ */
+export async function probeAccueilProSyncApi(): Promise<{ ok: boolean; message: string }> {
+  const base = await getResolvedApiBase();
+  if (!base || base.length < 8) {
+    return {
+      ok: false,
+      message:
+        'Aucune URL d’API configurée. Définissez l’URL dans l’onglet Réseau ou EXPO_PUBLIC_API_URL au build.',
+    };
+  }
+  const headers = await stageStockApiHeadersAsync();
+  const url = `${base.replace(/\/+$/, '')}/api/accueilpro/snapshot`;
+  const SNAPSHOT_TEST_MS = 12_000;
+  try {
+    const res = await fetchWithTimeout(url, { method: 'GET', headers }, SNAPSHOT_TEST_MS);
+    const text = await res.text();
+    if (!res.ok) {
+      if (res.status === 401) {
+        return {
+          ok: false,
+          message: formatSyncHttpError(401, text, 'Test Accueil Pro').message,
+        };
+      }
+      return {
+        ok: false,
+        message:
+          `Endpoint Accueil Pro non valide: HTTP ${res.status}\n${url}\n\n` +
+          `${text.slice(0, 500)}\n\n` +
+          `Le backend doit exposer GET /api/accueilpro/snapshot.`,
+      };
+    }
+    return {
+      ok: true,
+      message:
+        `Accueil Pro sync accessible (HTTP ${res.status})\n${url}\n\n` +
+        `Le téléphone peut lire les données Accueil Pro du serveur.`,
     };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -6,6 +6,7 @@ import { Colors } from '../theme/colors';
 type Props = {
   onOK: (base64Png: string) => void;
   onClear?: () => void;
+  label?: string;
 };
 
 const WEB_SIG_STYLE = `
@@ -16,7 +17,7 @@ const WEB_SIG_STYLE = `
   canvas { touch-action: none !important; -ms-touch-action: none; }
 `;
 
-export default function SignaturePad({ onOK, onClear }: Props) {
+export default function SignaturePad({ onOK, onClear, label = 'Signature électronique (emprunteur)' }: Props) {
   const ref = useRef<React.ElementRef<typeof SignatureCanvas>>(null);
   const [hint, setHint] = useState('Signez dans le cadre avec le doigt ou un stylet.');
 
@@ -32,7 +33,7 @@ export default function SignaturePad({ onOK, onClear }: Props) {
 
   return (
     <View style={s.wrap}>
-      <Text style={s.label}>Signature électronique (emprunteur)</Text>
+      <Text style={s.label}>{label}</Text>
       <Text style={s.hint}>{hint}</Text>
       <View style={s.box} collapsable={false}>
         <SignatureCanvas
