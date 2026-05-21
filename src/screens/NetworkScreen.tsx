@@ -33,16 +33,18 @@ import {
   probeAccueilProSyncApi,
   pingStageStockApi,
 } from '../config/stageStockApi';
-import { GuideReseauLocalContent, GuideReseauPublicContent } from '../content/guideReseauLocal';
-import { isConsumerApp } from '../config/appMode';
+import { GuideReseauLocalContent, GuideReseauPublicContent, GuideReseauSupabaseContent } from '../content/guideReseauLocal';
+import { isConsumerApp, isV1LanMode } from '../config/appMode';
 import { hasLocalSyncApiKey } from '../lib/serverAuthHeaders';
 import { useConnection } from '../context/ConnectionContext';
 import { connectionSurfaceLabel } from '../lib/urlDisplay';
 import { NetworkCloudSync } from '../components/NetworkCloudSync';
 import { NetworkAccueilProSync } from '../components/NetworkAccueilProSync';
 import { BackendModePicker } from '../components/BackendModePicker';
+import { NetworkSupabasePanel } from '../components/NetworkSupabasePanel';
 import { WindowsInstallerCard } from '../components/WindowsInstallerCard';
 import { useLanguage } from '../context/LanguageContext';
+import { getDataBackendMode, type DataBackendMode } from '../lib/backendMode';
 
 type Segment = 'config' | 'guide';
 
@@ -63,6 +65,13 @@ export default function NetworkScreen() {
   const [quickSetupBusy, setQuickSetupBusy] = useState(false);
   /** Mode grand public : afficher URL / clé / tests comme sur l’écran Réseau complet */
   const [showManualServer, setShowManualServer] = useState(false);
+  const [backendMode, setBackendMode] = useState<DataBackendMode>('local_server');
+
+  const isLocalBackend = isV1LanMode() || backendMode === 'local_server';
+
+  const refreshBackendMode = useCallback(async () => {
+    setBackendMode(await getDataBackendMode());
+  }, []);
 
   const refreshMeta = useCallback(async () => {
     const [b, r, baseO, keyO, healthO] = await Promise.all([
@@ -82,7 +91,8 @@ export default function NetworkScreen() {
   useFocusEffect(
     useCallback(() => {
       refreshMeta();
-    }, [refreshMeta])
+      void refreshBackendMode();
+    }, [refreshMeta, refreshBackendMode])
   );
 
   const onSave = async () => {
@@ -310,8 +320,6 @@ export default function NetworkScreen() {
         >
           <ScreenHeader icon={<Text style={{ fontSize: 22 }}>📶</Text>} title={t('network.connectionTitle')} />
 
-          <WindowsInstallerCard />
-
           <View style={styles.segmentRow}>
             <TouchableOpacity
               style={[styles.segmentBtn, segment === 'config' && styles.segmentBtnActive]}
@@ -329,117 +337,136 @@ export default function NetworkScreen() {
 
           {segment === 'config' ? (
             <>
-              <Card style={{ marginBottom: 14 }}>
-                <Text style={styles.cardTitle}>{t('network.serviceTitle')}</Text>
-                <Text style={styles.hintMuted}>{t('network.serviceHint')}</Text>
-                <Text style={styles.mono}>{modeLabel}</Text>
-                <Text style={[styles.cardTitle, { marginTop: 14 }]}>{t('network.stateTitle')}</Text>
-                <Text style={styles.mono}>{stateLabel}</Text>
-                <TouchableOpacity
-                  style={styles.primaryBtn}
-                  onPress={async () => {
-                    await refresh();
-                    await refreshMeta();
-                  }}
-                >
-                  <Text style={styles.primaryBtnText}>{t('network.retry')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.primaryBtn} disabled={quickSetupBusy} onPress={onQuickSetup}>
-                  {quickSetupBusy ? (
-                    <ActivityIndicator color={Colors.white} />
-                  ) : (
-                    <Text style={styles.primaryBtnText}>{t('network.quickSetup')}</Text>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.secondaryBtn} disabled={discovering} onPress={onDiscoverLan}>
-                  {discovering ? (
-                    <ActivityIndicator color={Colors.green} />
-                  ) : (
-                    <Text style={styles.secondaryBtnText}>{t('network.searchWifi')}</Text>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.secondaryBtn} disabled={quickSetupBusy} onPress={onSmartDiagnose}>
-                  {quickSetupBusy ? (
-                    <ActivityIndicator color={Colors.green} />
-                  ) : (
-                    <Text style={styles.secondaryBtnText}>{t('network.smartDiagnose')}</Text>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.secondaryBtn}
-                  onPress={() => setShowManualServer(v => !v)}
-                >
-                  <Text style={styles.secondaryBtnText}>
-                    {showManualServer ? t('network.hideManual') : t('network.showManual')}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.secondaryBtn} onPress={onOpenPairingQrPage}>
-                  <Text style={styles.secondaryBtnText}>{t('network.openPairPage')}</Text>
-                </TouchableOpacity>
-              </Card>
-
-              {showManualServer ? (
-                <Card style={{ marginBottom: 14 }}>
-                  <Text style={styles.cardTitle}>{t('network.localAddressTitle')}</Text>
-                  <Text style={styles.hint}>
-                    {t('network.localAddressHint')}
-                  </Text>
-                  <Input
-                    label={t('network.field.apiBase')}
-                    value={baseUrl}
-                    onChangeText={setBaseUrl}
-                    placeholder={t('network.field.apiBasePlaceholderLocal')}
-                    autoCapitalize="none"
-                    keyboardType="url"
-                  />
-                  <Input
-                    label={t('network.field.apiKeyOptional')}
-                    value={apiKey}
-                    onChangeText={setApiKey}
-                    placeholder={t('network.field.apiKeyPlaceholderPc')}
-                    autoCapitalize="none"
-                    secureTextEntry
-                  />
-                  <Input
-                    label={t('network.field.healthPathOptional')}
-                    value={healthPath}
-                    onChangeText={setHealthPath}
-                    placeholder={t('network.field.healthPathPlaceholderEmpty')}
-                    autoCapitalize="none"
-                  />
-                  <TouchableOpacity style={styles.primaryBtn} disabled={saving} onPress={onSave}>
-                    {saving ? (
-                      <ActivityIndicator color={Colors.white} />
-                    ) : (
-                      <Text style={styles.primaryBtnText}>{t('common.save')}</Text>
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.secondaryBtn} disabled={testing} onPress={onTest}>
-                    {testing ? (
-                      <ActivityIndicator color={Colors.green} />
-                    ) : (
-                      <Text style={styles.secondaryBtnText}>{t('network.testButton')}</Text>
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.secondaryBtn} disabled={discovering} onPress={onDiscoverLan}>
-                    {discovering ? (
-                      <ActivityIndicator color={Colors.green} />
-                    ) : (
-                      <Text style={styles.secondaryBtnText}>{t('network.searchWifiAgain')}</Text>
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.dangerOutline} disabled={saving} onPress={onReset}>
-                    <Text style={styles.dangerOutlineText}>{t('network.resetCustomUrl')}</Text>
-                  </TouchableOpacity>
-                </Card>
+              {!isV1LanMode() ? (
+                <BackendModePicker onModeChange={setBackendMode} />
               ) : null}
-              <BackendModePicker />
+
+              {isLocalBackend ? (
+                <>
+                  <WindowsInstallerCard />
+                  <Card style={{ marginBottom: 14 }}>
+                    <Text style={styles.cardTitle}>{t('network.backendMode.sectionLocal')}</Text>
+                    <Text style={styles.hintMuted}>{t('network.backendMode.localDetail')}</Text>
+                    <Text style={styles.cardTitle}>{t('network.serviceTitle')}</Text>
+                    <Text style={styles.hintMuted}>{t('network.serviceHint')}</Text>
+                    <Text style={styles.mono}>{modeLabel}</Text>
+                    <Text style={[styles.cardTitle, { marginTop: 14 }]}>{t('network.stateTitle')}</Text>
+                    <Text style={styles.mono}>{stateLabel}</Text>
+                    <TouchableOpacity
+                      style={styles.primaryBtn}
+                      onPress={async () => {
+                        await refresh();
+                        await refreshMeta();
+                      }}
+                    >
+                      <Text style={styles.primaryBtnText}>{t('network.retry')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.primaryBtn} disabled={quickSetupBusy} onPress={onQuickSetup}>
+                      {quickSetupBusy ? (
+                        <ActivityIndicator color={Colors.white} />
+                      ) : (
+                        <Text style={styles.primaryBtnText}>{t('network.quickSetup')}</Text>
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.secondaryBtn} disabled={discovering} onPress={onDiscoverLan}>
+                      {discovering ? (
+                        <ActivityIndicator color={Colors.green} />
+                      ) : (
+                        <Text style={styles.secondaryBtnText}>{t('network.searchWifi')}</Text>
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.secondaryBtn} disabled={quickSetupBusy} onPress={onSmartDiagnose}>
+                      {quickSetupBusy ? (
+                        <ActivityIndicator color={Colors.green} />
+                      ) : (
+                        <Text style={styles.secondaryBtnText}>{t('network.smartDiagnose')}</Text>
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.secondaryBtn}
+                      onPress={() => setShowManualServer(v => !v)}
+                    >
+                      <Text style={styles.secondaryBtnText}>
+                        {showManualServer ? t('network.hideManual') : t('network.showManual')}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.secondaryBtn} onPress={onOpenPairingQrPage}>
+                      <Text style={styles.secondaryBtnText}>{t('network.openPairPage')}</Text>
+                    </TouchableOpacity>
+                  </Card>
+
+                  {showManualServer ? (
+                    <Card style={{ marginBottom: 14 }}>
+                      <Text style={styles.cardTitle}>{t('network.localAddressTitle')}</Text>
+                      <Text style={styles.hint}>
+                        {t('network.localAddressHint')}
+                      </Text>
+                      <Input
+                        label={t('network.field.apiBase')}
+                        value={baseUrl}
+                        onChangeText={setBaseUrl}
+                        placeholder={t('network.field.apiBasePlaceholderLocal')}
+                        autoCapitalize="none"
+                        keyboardType="url"
+                      />
+                      <Input
+                        label={t('network.field.apiKeyOptional')}
+                        value={apiKey}
+                        onChangeText={setApiKey}
+                        placeholder={t('network.field.apiKeyPlaceholderPc')}
+                        autoCapitalize="none"
+                        secureTextEntry
+                      />
+                      <Input
+                        label={t('network.field.healthPathOptional')}
+                        value={healthPath}
+                        onChangeText={setHealthPath}
+                        placeholder={t('network.field.healthPathPlaceholderEmpty')}
+                        autoCapitalize="none"
+                      />
+                      <TouchableOpacity style={styles.primaryBtn} disabled={saving} onPress={onSave}>
+                        {saving ? (
+                          <ActivityIndicator color={Colors.white} />
+                        ) : (
+                          <Text style={styles.primaryBtnText}>{t('common.save')}</Text>
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.secondaryBtn} disabled={testing} onPress={onTest}>
+                        {testing ? (
+                          <ActivityIndicator color={Colors.green} />
+                        ) : (
+                          <Text style={styles.secondaryBtnText}>{t('network.testButton')}</Text>
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.secondaryBtn} disabled={discovering} onPress={onDiscoverLan}>
+                        {discovering ? (
+                          <ActivityIndicator color={Colors.green} />
+                        ) : (
+                          <Text style={styles.secondaryBtnText}>{t('network.searchWifiAgain')}</Text>
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.dangerOutline} disabled={saving} onPress={onReset}>
+                        <Text style={styles.dangerOutlineText}>{t('network.resetCustomUrl')}</Text>
+                      </TouchableOpacity>
+                    </Card>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <Card style={{ marginBottom: 14 }}>
+                    <Text style={styles.cardTitle}>{t('network.backendMode.sectionSupabase')}</Text>
+                    <Text style={styles.hintMuted}>{t('network.backendMode.supabaseDetail')}</Text>
+                  </Card>
+                  <NetworkSupabasePanel />
+                </>
+              )}
+
               <NetworkCloudSync />
               <NetworkAccueilProSync />
             </>
           ) : (
             <Card style={{ marginBottom: 14 }}>
-              <GuideReseauPublicContent />
+              {isLocalBackend ? <GuideReseauPublicContent /> : <GuideReseauSupabaseContent />}
             </Card>
           )}
         </ScrollView>
@@ -455,8 +482,6 @@ export default function NetworkScreen() {
         showsVerticalScrollIndicator
       >
         <ScreenHeader icon={<Text style={{ fontSize: 22 }}>📡</Text>} title={t('network.serverTitle')} />
-
-        <WindowsInstallerCard />
 
         <View style={styles.segmentRow}>
           <TouchableOpacity
@@ -479,89 +504,110 @@ export default function NetworkScreen() {
 
         {segment === 'config' ? (
           <>
-            <Card style={{ marginBottom: 14 }}>
-              <Text style={styles.cardTitle}>{t('network.effectiveUrl')}</Text>
-              <Text selectable style={styles.mono}>
-                {resolved || t('common.dash')}
-              </Text>
-              <Text style={styles.hintMuted}>
-                {t('network.buildValueNoOverride')}{' '}
-                <Text selectable style={styles.monoSmall}>
-                  {bundled}
-                </Text>
-              </Text>
-            </Card>
+            {!isV1LanMode() ? (
+              <BackendModePicker onModeChange={setBackendMode} />
+            ) : null}
 
-            <Card style={{ marginBottom: 14 }}>
-              <Text style={styles.cardTitle}>{t('network.overrideThisDevice')}</Text>
-              <Text style={styles.hint}>
-                {t('network.overrideHint')}
-              </Text>
-              <Input
-                label={t('network.field.apiBaseOptional')}
-                value={baseUrl}
-                onChangeText={setBaseUrl}
-                placeholder={t('network.field.apiBasePlaceholder')}
-                autoCapitalize="none"
-                keyboardType="url"
-              />
-              <Input
-                label={t('network.field.apiKeyOptional')}
-                value={apiKey}
-                onChangeText={setApiKey}
-                placeholder={t('network.field.apiKeyPlaceholder')}
-                autoCapitalize="none"
-                secureTextEntry
-              />
-              <Input
-                label={t('network.field.healthPathOptional')}
-                value={healthPath}
-                onChangeText={setHealthPath}
-                placeholder={t('network.field.healthPathPlaceholder')}
-                autoCapitalize="none"
-              />
-              <TouchableOpacity style={styles.primaryBtn} disabled={saving} onPress={onSave}>
-                {saving ? (
-                  <ActivityIndicator color={Colors.white} />
-                ) : (
-                  <Text style={styles.primaryBtnText}>{t('common.save')}</Text>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryBtn} disabled={testing} onPress={onTest}>
-                {testing ? (
-                  <ActivityIndicator color={Colors.green} />
-                ) : (
-                  <Text style={styles.secondaryBtnText}>{t('network.testButton')}</Text>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryBtn} disabled={discovering} onPress={onDiscoverLan}>
-                {discovering ? (
-                  <ActivityIndicator color={Colors.green} />
-                ) : (
-                  <Text style={styles.secondaryBtnText}>{t('network.autoDetectLan')}</Text>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryBtn} disabled={testingSync} onPress={onTestSync}>
-                {testingSync ? (
-                  <ActivityIndicator color={Colors.green} />
-                ) : (
-                  <Text style={styles.secondaryBtnText}>{t('network.syncTestButton')}</Text>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryBtn} onPress={onOpenPairingQrPage}>
-                <Text style={styles.secondaryBtnText}>{t('network.openPairPage')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.dangerOutline} disabled={saving} onPress={onReset}>
-                <Text style={styles.dangerOutlineText}>{t('network.resetOverrides')}</Text>
-              </TouchableOpacity>
-            </Card>
-            <BackendModePicker />
+            {isLocalBackend ? (
+              <>
+                <WindowsInstallerCard />
+                <Card style={{ marginBottom: 14 }}>
+                  <Text style={styles.cardTitle}>{t('network.backendMode.sectionLocal')}</Text>
+                  <Text style={styles.hintMuted}>{t('network.backendMode.localDetail')}</Text>
+                </Card>
+                <Card style={{ marginBottom: 14 }}>
+                  <Text style={styles.cardTitle}>{t('network.effectiveUrl')}</Text>
+                  <Text selectable style={styles.mono}>
+                    {resolved || t('common.dash')}
+                  </Text>
+                  <Text style={styles.hintMuted}>
+                    {t('network.buildValueNoOverride')}{' '}
+                    <Text selectable style={styles.monoSmall}>
+                      {bundled}
+                    </Text>
+                  </Text>
+                </Card>
+
+                <Card style={{ marginBottom: 14 }}>
+                  <Text style={styles.cardTitle}>{t('network.overrideThisDevice')}</Text>
+                  <Text style={styles.hint}>
+                    {t('network.overrideHint')}
+                  </Text>
+                  <Input
+                    label={t('network.field.apiBaseOptional')}
+                    value={baseUrl}
+                    onChangeText={setBaseUrl}
+                    placeholder={t('network.field.apiBasePlaceholder')}
+                    autoCapitalize="none"
+                    keyboardType="url"
+                  />
+                  <Input
+                    label={t('network.field.apiKeyOptional')}
+                    value={apiKey}
+                    onChangeText={setApiKey}
+                    placeholder={t('network.field.apiKeyPlaceholder')}
+                    autoCapitalize="none"
+                    secureTextEntry
+                  />
+                  <Input
+                    label={t('network.field.healthPathOptional')}
+                    value={healthPath}
+                    onChangeText={setHealthPath}
+                    placeholder={t('network.field.healthPathPlaceholder')}
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity style={styles.primaryBtn} disabled={saving} onPress={onSave}>
+                    {saving ? (
+                      <ActivityIndicator color={Colors.white} />
+                    ) : (
+                      <Text style={styles.primaryBtnText}>{t('common.save')}</Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.secondaryBtn} disabled={testing} onPress={onTest}>
+                    {testing ? (
+                      <ActivityIndicator color={Colors.green} />
+                    ) : (
+                      <Text style={styles.secondaryBtnText}>{t('network.testButton')}</Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.secondaryBtn} disabled={discovering} onPress={onDiscoverLan}>
+                    {discovering ? (
+                      <ActivityIndicator color={Colors.green} />
+                    ) : (
+                      <Text style={styles.secondaryBtnText}>{t('network.autoDetectLan')}</Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.secondaryBtn} disabled={testingSync} onPress={onTestSync}>
+                    {testingSync ? (
+                      <ActivityIndicator color={Colors.green} />
+                    ) : (
+                      <Text style={styles.secondaryBtnText}>{t('network.syncTestButton')}</Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.secondaryBtn} onPress={onOpenPairingQrPage}>
+                    <Text style={styles.secondaryBtnText}>{t('network.openPairPage')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.dangerOutline} disabled={saving} onPress={onReset}>
+                    <Text style={styles.dangerOutlineText}>{t('network.resetOverrides')}</Text>
+                  </TouchableOpacity>
+                </Card>
+              </>
+            ) : (
+              <>
+                <Card style={{ marginBottom: 14 }}>
+                  <Text style={styles.cardTitle}>{t('network.backendMode.sectionSupabase')}</Text>
+                  <Text style={styles.hintMuted}>{t('network.backendMode.supabaseDetail')}</Text>
+                </Card>
+                <NetworkSupabasePanel />
+              </>
+            )}
+
             <NetworkCloudSync />
             <NetworkAccueilProSync />
           </>
         ) : (
           <Card style={{ marginBottom: 14 }}>
-            <GuideReseauLocalContent />
+            {isLocalBackend ? <GuideReseauLocalContent /> : <GuideReseauSupabaseContent />}
           </Card>
         )}
       </ScrollView>

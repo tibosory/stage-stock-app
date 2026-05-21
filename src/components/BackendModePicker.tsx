@@ -13,7 +13,11 @@ import {
 } from '../lib/backendMode';
 import { useLanguage } from '../context/LanguageContext';
 
-export function BackendModePicker() {
+type BackendModePickerProps = {
+  onModeChange?: (mode: DataBackendMode) => void;
+};
+
+export function BackendModePicker({ onModeChange }: BackendModePickerProps = {}) {
   const { t } = useLanguage();
   const [mode, setMode] = useState<DataBackendMode>('local_server');
   const [hasApi, setHasApi] = useState(false);
@@ -22,9 +26,10 @@ export function BackendModePicker() {
   const refresh = useCallback(async () => {
     const [current, apiUrl] = await Promise.all([getDataBackendMode(), resolveApiUrlForSync()]);
     setMode(current);
+    onModeChange?.(current);
     setHasApi(Boolean(apiUrl));
     setHasSupabase(isSupabaseConfigured());
-  }, []);
+  }, [onModeChange]);
 
   useFocusEffect(
     useCallback(() => {
@@ -37,15 +42,6 @@ export function BackendModePicker() {
   const onSelect = (next: DataBackendMode) => {
     if (next === mode) return;
 
-    if (next === 'local_server' && !hasApi) {
-      Alert.alert(t('network.backendMode.title'), t('network.backendMode.needApiUrl'));
-      return;
-    }
-    if (next === 'supabase' && !hasSupabase) {
-      Alert.alert(t('network.backendMode.title'), t('network.backendMode.needSupabase'));
-      return;
-    }
-
     Alert.alert(t('network.backendMode.switchTitle'), t('network.backendMode.switchBody'), [
       { text: t('common.cancel'), style: 'cancel' },
       {
@@ -54,6 +50,7 @@ export function BackendModePicker() {
           void (async () => {
             await setDataBackendMode(next);
             setMode(next);
+            onModeChange?.(next);
           })();
         },
       },
@@ -62,23 +59,25 @@ export function BackendModePicker() {
 
   return (
     <Card style={{ marginBottom: 14 }}>
-      <Text style={styles.cardTitle}>{t('network.backendMode.title')}</Text>
+      <Text style={styles.cardTitle}>{t('network.backendMode.submenuTitle')}</Text>
       <Text style={styles.hint}>{t('network.backendMode.hint')}</Text>
-      <View style={styles.row}>
+      <View style={styles.submenuRow}>
         <TouchableOpacity
-          style={[styles.chip, mode === 'local_server' && styles.chipActive]}
+          style={[styles.submenuBtn, mode === 'local_server' && styles.submenuBtnActive]}
           onPress={() => onSelect('local_server')}
         >
-          <Text style={[styles.chipLabel, mode === 'local_server' && styles.chipLabelActive]}>
-            {t('network.backendMode.local')}
+          <Text style={styles.submenuEmoji}>🖥️</Text>
+          <Text style={[styles.submenuLabel, mode === 'local_server' && styles.submenuLabelActive]}>
+            {t('network.backendMode.workLocal')}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.chip, mode === 'supabase' && styles.chipActive]}
+          style={[styles.submenuBtn, mode === 'supabase' && styles.submenuBtnActive]}
           onPress={() => onSelect('supabase')}
         >
-          <Text style={[styles.chipLabel, mode === 'supabase' && styles.chipLabelActive]}>
-            {t('network.backendMode.supabase')}
+          <Text style={styles.submenuEmoji}>☁️</Text>
+          <Text style={[styles.submenuLabel, mode === 'supabase' && styles.submenuLabelActive]}>
+            {t('network.backendMode.workSupabase')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -87,8 +86,12 @@ export function BackendModePicker() {
           ? t('network.backendMode.localDetail')
           : t('network.backendMode.supabaseDetail')}
       </Text>
-      {!hasApi ? <Text style={styles.warn}>{t('network.backendMode.apiMissing')}</Text> : null}
-      {!hasSupabase ? <Text style={styles.warn}>{t('network.backendMode.supabaseMissing')}</Text> : null}
+      {!hasApi && mode === 'local_server' ? (
+        <Text style={styles.warn}>{t('network.backendMode.apiMissing')}</Text>
+      ) : null}
+      {!hasSupabase && mode === 'supabase' ? (
+        <Text style={styles.warn}>{t('network.backendMode.supabaseMissing')}</Text>
+      ) : null}
     </Card>
   );
 }
@@ -98,21 +101,23 @@ const styles = StyleSheet.create({
   hint: { color: Colors.textSecondary, fontSize: 13, lineHeight: 20, marginBottom: 12 },
   hintMuted: { color: Colors.textMuted, fontSize: 11, lineHeight: 17, marginTop: 10 },
   warn: { color: '#f59e0b', fontSize: 11, lineHeight: 16, marginTop: 6 },
-  row: { flexDirection: 'row', gap: 10 },
-  chip: {
-    flex: 1,
+  submenuRow: { flexDirection: 'column', gap: 10 },
+  submenuBtn: {
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
     backgroundColor: Colors.bgCard,
   },
-  chipActive: {
+  submenuBtnActive: {
     borderColor: Colors.green,
     backgroundColor: Colors.greenMuted,
   },
-  chipLabel: { color: Colors.textSecondary, fontWeight: '600', fontSize: 13, textAlign: 'center' },
-  chipLabelActive: { color: Colors.green, fontWeight: '800' },
+  submenuEmoji: { fontSize: 22 },
+  submenuLabel: { flex: 1, color: Colors.textSecondary, fontWeight: '600', fontSize: 14, lineHeight: 20 },
+  submenuLabelActive: { color: Colors.green, fontWeight: '800' },
 });

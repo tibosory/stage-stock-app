@@ -210,6 +210,85 @@ export function GuideReseauPublicContent() {
   );
 }
 
+const SECTIONS_SUPABASE_FR: { title: string; body: string }[] = [
+  {
+    title: '1. Principe',
+    body:
+      'En mode Supabase, inventaire, prêts et Accueil Pro transitent par votre projet cloud. ' +
+      'Aucun PC serveur n’est requis pour la synchronisation : seule une connexion Internet est nécessaire.',
+  },
+  {
+    title: '2. Configuration du projet',
+    body:
+      'Onglet Réseau → choisissez « Travailler avec Supabase » → renseignez l’URL du projet et la clé anon ' +
+      '(ou utilisez un build EAS déjà configuré). Enregistrez, puis connectez-vous sur l’écran Connexion.',
+  },
+  {
+    title: '3. Migration SQL',
+    body:
+      'Sur un projet neuf, exécutez les migrations Supabase du dépôt (inventaire + tables ap_* Accueil Pro). ' +
+      'Le bouton « Télécharger le schéma SQL » dans Réseau ou le profil utilisateur fournit un fichier prêt à coller dans le SQL Editor.',
+  },
+  {
+    title: '4. Synchronisation',
+    body:
+      'Cartes « Synchronisation inventaire » et « Accueil Pro » : ↑ envoie vos modifications locales, ↓ récupère le cloud. ' +
+      'Tous les appareils de l’équipe doivent être en mode Supabase (pas de mélange avec le serveur local).',
+  },
+  {
+    title: '5. Invitations portail',
+    body:
+      'Le staff peut inviter une association depuis Accueil Pro → fiche Organisation → Inviter au portail cloud. ' +
+      'L’invité saisit le code à la connexion, se connecte à Supabase avec le même e-mail, puis Finaliser.',
+  },
+];
+
+const SECTIONS_SUPABASE_EN: { title: string; body: string }[] = [
+  {
+    title: '1. Overview',
+    body:
+      'In Supabase mode, inventory, loans and Accueil Pro sync through your cloud project. ' +
+      'No local PC server is required — only an Internet connection.',
+  },
+  {
+    title: '2. Project setup',
+    body:
+      'Network tab → choose “Work with Supabase” → enter project URL and anon key (or use a preconfigured EAS build). Save, then sign in on the Connection screen.',
+  },
+  {
+    title: '3. SQL migration',
+    body:
+      'On a new project, run the repo Supabase migrations (inventory + ap_* Accueil Pro tables). ' +
+      'The “Download schema SQL” button in Network or User profile provides a file for the SQL Editor.',
+  },
+  {
+    title: '4. Sync',
+    body:
+      'Use the Inventory sync and Accueil Pro cards: ↑ pushes local changes, ↓ pulls from cloud. All team devices must use Supabase mode (do not mix with local server).',
+  },
+  {
+    title: '5. Portal invitations',
+    body:
+      'Staff can invite an association from Accueil Pro → Organization → Invite to cloud portal. ' +
+      'The invitee enters the code at sign-in, signs in to Supabase with the same email, then Finalizes.',
+  },
+];
+
+export function GuideReseauSupabaseContent() {
+  const { language } = useLanguage();
+  const sections = language === 'en' ? SECTIONS_SUPABASE_EN : SECTIONS_SUPABASE_FR;
+  return (
+    <View style={g.wrap}>
+      {sections.map((sec, i) => (
+        <View key={i} style={g.block}>
+          <Text style={g.title}>{sec.title}</Text>
+          <Text style={g.body}>{sec.body}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const g = StyleSheet.create({
   wrap: { paddingBottom: 24 },
   block: { marginBottom: 18 },

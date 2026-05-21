@@ -13,6 +13,10 @@ import { useLanguage } from '../../context/LanguageContext';
 import { generateApId, getApOrganization, saveOrganization } from '../../db/accueilProDb';
 import { OrganizationDocumentsSection } from '../../components/accueilpro/OrganizationDocumentsSection';
 import type { ApOrganizationDocument } from '../../types/accueilPro';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import { useSupabaseAuth } from '../../hooks/useAuth';
+import { isSupabaseStaffUser } from '../../lib/accueilProInvitationStaff';
+import { PermissionGuard } from '../../modules/accueilpro/components/PermissionGuard';
 
 export default function AccueilProOrganizationEditScreen() {
   const navigation = useNavigation<any>();
@@ -30,6 +34,8 @@ export default function AccueilProOrganizationEditScreen() {
   const [email, setEmail] = useState('');
   const [website, setWebsite] = useState('');
   const [notes, setNotes] = useState('');
+  const { user: sbUser } = useSupabaseAuth();
+  const canInviteCloud = isSupabaseConfigured() && isSupabaseStaffUser(sbUser);
   const [, setDocs] = useState<ApOrganizationDocument[]>([]);
 
   useEffect(() => {
@@ -105,6 +111,19 @@ export default function AccueilProOrganizationEditScreen() {
         <AccueilProFormCard style={{ marginTop: Spacing.md }}>
           <Text style={apStyles.sectionTitle}>{t('accueilpro.orgs.contacts')}</Text>
           <AccueilProLinkButton label={t('accueilpro.orgs.manageContacts')} onPress={() => navigation.navigate('AccueilProOrganizationContacts', { organizationId: resolvedId })} />
+          {canInviteCloud ? (
+            <PermissionGuard staffOnly>
+              <AccueilProLinkButton
+                label={t('accueilpro.invite.openFromOrg')}
+                onPress={() =>
+                  navigation.navigate('AccueilProInviteOrganization', {
+                    localOrganizationId: resolvedId,
+                    prefillEmail: email.trim() || undefined,
+                  })
+                }
+              />
+            </PermissionGuard>
+          ) : null}
           <OrganizationDocumentsSection
             organizationId={resolvedId}
             onEnsureOrganizationId={async () => resolvedId}

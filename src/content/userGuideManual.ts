@@ -18,7 +18,7 @@ export const USER_GUIDE_META = {
   subtitle: 'Guide complet avec exemples',
   /** Repère de fraîcheur du texte (à ajuster quand le manuel est réaligné sur l’app). */
   versionLabel:
-    '20 mai 2026 (v1.0.43 : Accueil Pro synchronisable via Supabase — tables ap_* + Storage)',
+    '21 mai 2026 (v1.0.45 : Réseau — sous-menu local/Tailscale vs Supabase, panneaux filtrés)',
 };
 
 export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
@@ -202,7 +202,7 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
       'Serveur local (Wi-Fi), HTTPS distant, ou tunnel : saisie d’URL, test ping et test synchro snapshot.',
       'Installations serveur officiellement supportées sans aide d’un informaticien : PC Windows 10/11 via l’installateur One-Click, ou Docker (Linux/macOS/Windows WSL2). Autres cas (NAS, ARM, Linux sans Docker) : nécessitent un accompagnement, demandez au support avant de promettre une mise en service rapide.',
       'En déploiement V1 LAN (APK client par défaut), la synchronisation ne cible que le PC serveur : boutons « Envoyer au PC » / « Recevoir du PC » dans Connexion/Réseau. Supabase et comptes cloud sont masqués. Un échec de sync affiche une alerte explicite.',
-      'En déploiement avancé, la carte **Backend de données** (Connexion/Réseau) permet de choisir exclusivement le serveur local + Tailscale **ou** Supabase. Les données ne sont pas copiées automatiquement d’un backend à l’autre : tous les téléphones de l’équipe doivent utiliser le même choix.',
+      'En déploiement avancé, l’onglet **Connexion/Réseau** commence par un sous-menu **Mode de synchronisation et stockage** : **Travailler en serveur local avec Tailscale** ou **Travailler avec Supabase**. Seules les cartes de connexion du mode choisi s’affichent en dessous (jumelage PC, URL LAN, QR /pair en local ; projet Supabase, compte cloud et schéma SQL en cloud). Les cartes de sync inventaire et Accueil Pro suivent le même backend.',
       'Mode serveur local : inventaire, prêts, comptes PIN et Accueil Pro (location de salle) transitent par le PC (Wi‑Fi ou Tailscale).',
       'Mode Supabase : inventaire, prêts et Accueil Pro transitent par le cloud. Exécutez la migration SQL `accueilpro_mobile_sync_tables` sur le projet Supabase (tables ap_* + bucket accueilpro-files pour PDF et photos). Les conventions PDF et documents d’organisation s’y téléversent automatiquement.',
       'Découverte automatique possible sur le LAN lorsque le backend local est sélectionné.',
@@ -344,6 +344,7 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
       '**État des lieux** : **Entrée** / **Sortie** par **espace** — depuis la fiche événement. Checklist par espace (points de contrôle / vigilance). Photos envoyées sur le **PC** (mode local) ou **Supabase Storage** (mode cloud) à l’enregistrement.',
       '**Contacts** : annuaire filtrable avec boutons **Appeler**, **SMS** et **Mail** (cibles larges, utilisables debout).',
       '**Organisations**, **demandes**, **événements**, **conventions** : création / édition sur mobile ; sync via Réseau → Accueil Pro (PC ou Supabase selon backend).',
+      '**Invitations portail cloud** (staff, backend Supabase) : fiche **Organisation** → **Inviter au portail cloud**. L’app génère un code valable 7 jours et peut ouvrir un e-mail pré-rempli. Côté invité : écran **Connexion** → section invitation → compte Supabase (même e-mail) → **Finaliser**.',
       '**Portail association** : fiche, checklist, **documents PDF** (assurance, programme…), **Nouvelle demande**. PDF stockés sur le PC (local) ou Supabase Storage (cloud). Compte **emprunteur** (PIN) : menu réduit ; **admin / technicien** : accès complet.',
       '**Demandes de location** : à la soumission, l’équipe reçoit une **notification push** (si configurée). Validation ou refus → notification locale + proposition **e-mail** vers l’organisation. La validation est **bloquée** si un **conflit de réservation** (même lieu, salle et créneau) est détecté.',
       '**Événements / demandes** : alerte avant enregistrement si chevauchement avec un autre événement confirmé ou une demande en cours (possibilité d’enregistrer quand même).',

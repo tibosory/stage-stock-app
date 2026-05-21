@@ -24,6 +24,7 @@ import AccueilProContactsScreen from '../screens/accueilpro/AccueilProContactsSc
 import AccueilProOrganizationsScreen from '../screens/accueilpro/AccueilProOrganizationsScreen';
 import AccueilProOrganizationEditScreen from '../screens/accueilpro/AccueilProOrganizationEditScreen';
 import AccueilProOrganizationContactsScreen from '../screens/accueilpro/AccueilProOrganizationContactsScreen';
+import AccueilProInviteOrganizationScreen from '../screens/accueilpro/AccueilProInviteOrganizationScreen';
 import AccueilProRentalRequestsScreen from '../screens/accueilpro/AccueilProRentalRequestsScreen';
 import AccueilProRentalRequestEditScreen from '../screens/accueilpro/AccueilProRentalRequestEditScreen';
 import AccueilProConflictsScreen from '../screens/accueilpro/AccueilProConflictsScreen';
@@ -55,6 +56,7 @@ export type AccueilProStackParamList = {
   AccueilProOrganizations: undefined;
   AccueilProOrganizationEdit: { id?: string };
   AccueilProOrganizationContacts: { organizationId: string };
+  AccueilProInviteOrganization: { localOrganizationId?: string; prefillEmail?: string };
   AccueilProRentalRequests: undefined;
   AccueilProRentalRequestEdit: { id?: string };
   AccueilProConflicts: undefined;
@@ -91,6 +93,7 @@ export function AccueilProStackNavigator() {
       <Stack.Screen name="AccueilProOrganizations" component={AccueilProOrganizationsScreen} />
       <Stack.Screen name="AccueilProOrganizationEdit" component={AccueilProOrganizationEditScreen} />
       <Stack.Screen name="AccueilProOrganizationContacts" component={AccueilProOrganizationContactsScreen} />
+      <Stack.Screen name="AccueilProInviteOrganization" component={AccueilProInviteOrganizationScreen} />
       <Stack.Screen name="AccueilProRentalRequests" component={AccueilProRentalRequestsScreen} />
       <Stack.Screen name="AccueilProRentalRequestEdit" component={AccueilProRentalRequestEditScreen} />
       <Stack.Screen name="AccueilProConflicts" component={AccueilProConflictsScreen} />
