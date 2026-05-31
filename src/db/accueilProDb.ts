@@ -19,6 +19,7 @@ import type {
   ApVenue,
 } from '../types/accueilPro';
 import { parseControlPointsJson, serializeControlPointsJson } from '../lib/inspectionChecklist';
+import { buildPersonnelDisplayName, personnelDisplayName } from '../lib/accueilProPersonnelHelpers';
 
 type AssociationPortalProfile = {
   name: string;
@@ -271,12 +272,16 @@ export async function ensureAccueilProSchema(database: SQLite.SQLiteDatabase): P
   await addCol('ap_team_members', 'organization_id', 'TEXT');
   await addCol('ap_team_members', 'role_permanent', 'INTEGER DEFAULT 0');
   await addCol('ap_team_members', 'notes', 'TEXT');
+  await addCol('ap_team_members', 'first_name', 'TEXT');
+  await addCol('ap_team_members', 'last_name', 'TEXT');
+  await addCol('ap_team_members', 'address', 'TEXT');
 
   await addCol('ap_event_personnel', 'day_mission', 'TEXT');
 
   await addCol('ap_events', 'spaces_mode', "TEXT DEFAULT 'all'");
   await addCol('ap_events', 'selected_space_ids_json', "TEXT DEFAULT '[]'");
   await addCol('ap_events', 'space_id', 'TEXT REFERENCES ap_spaces(id) ON DELETE SET NULL');
+  await addCol('ap_events', 'readiness_manual_json', "TEXT DEFAULT '{}'");
 
   await addCol('ap_rental_requests', 'space_id', 'TEXT');
   await addCol('ap_rental_requests', 'event_name', 'TEXT');
@@ -292,6 +297,7 @@ export async function ensureAccueilProSchema(database: SQLite.SQLiteDatabase): P
   await addCol('ap_conventions', 'document_local_uri', 'TEXT');
   await addCol('ap_conventions', 'document_storage_path', 'TEXT');
   await addCol('ap_conventions', 'document_filename', 'TEXT');
+  await addCol('ap_conventions', 'venue_id', 'TEXT REFERENCES ap_venues(id) ON DELETE SET NULL');
   await addCol('ap_spaces', 'control_points_json', "TEXT DEFAULT '[]'");
 
   await database.execAsync(`
@@ -462,6 +468,7 @@ function mapEventRow(r: any): ApEvent {
     spaces_mode: ((r.spaces_mode as ApSpacesMode) ?? 'all') as ApSpacesMode,
     selected_space_ids: parseJson<string[]>(r.selected_space_ids_json, []),
     space_id: r.space_id ?? null,
+    readiness_manual: parseJson<ApEvent['readiness_manual']>(r.readiness_manual_json, {}),
     created_at: r.created_at ?? null,
     updated_at: r.updated_at ?? null,
     synced: !!r.synced,
@@ -472,6 +479,7 @@ function mapConventionRow(r: any): ApConvention {
   return {
     id: r.id,
     event_id: r.event_id ?? null,
+    venue_id: r.venue_id ?? null,
     titre: r.titre,
     contenu: r.contenu ?? null,
     status: (r.status as ApConvention['status']) ?? 'brouillon',
@@ -511,6 +519,9 @@ function mapPersonnelRow(r: any): ApPersonnel {
     id: r.id,
     venue_id: r.venue_id,
     name: r.name,
+    first_name: r.first_name ?? null,
+    last_name: r.last_name ?? null,
+    address: r.address ?? null,
     role: r.role ?? null,
     mission: r.mission ?? null,
     phone: r.phone ?? null,
@@ -713,12 +724,15 @@ export async function applyAccueilProSnapshot(
       const r = row as Record<string, unknown>;
       await db.runAsync(
         `INSERT INTO ap_team_members (
-          id,venue_id,name,role,mission,phone,email,kind,organization_id,role_permanent,notes,updated_at,synced)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+          id,venue_id,name,first_name,last_name,address,role,mission,phone,email,kind,organization_id,role_permanent,notes,updated_at,synced)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
         [
           String(r.id),
           String(r.venue_id ?? ''),
           String(r.name ?? ''),
+          (r.first_name as string) ?? null,
+          (r.last_name as string) ?? null,
+          (r.address as string) ?? null,
           (r.role as string) ?? null,
           (r.mission as string) ?? null,
           (r.phone as string) ?? null,
@@ -854,11 +868,12 @@ export async function applyAccueilProSnapshot(
     for (const row of p.conventions ?? []) {
       const r = row as Record<string, unknown>;
       await db.runAsync(
-        `INSERT INTO ap_conventions (id,event_id,titre,contenu,status,signature_data,signed_at,signed_by,document_storage_path,document_filename,created_at,updated_at,synced)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+        `INSERT INTO ap_conventions (id,event_id,venue_id,titre,contenu,status,signature_data,signed_at,signed_by,document_storage_path,document_filename,created_at,updated_at,synced)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
         [
           String(r.id),
           r.event_id != null ? String(r.event_id) : null,
+          r.venue_id != null ? String(r.venue_id) : null,
           String(r.titre ?? ''),
           (r.contenu as string) ?? null,
           String(r.status ?? 'brouillon'),
@@ -1054,14 +1069,17 @@ export async function savePersonnel(row: ApPersonnel, database?: SQLite.SQLiteDa
   const n = nowIso();
   await db.runAsync(
     `INSERT OR REPLACE INTO ap_team_members (
-      id,venue_id,name,role,mission,phone,email,
+      id,venue_id,name,first_name,last_name,address,role,mission,phone,email,
       kind,organization_id,role_permanent,notes,
       updated_at,synced)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
     [
       row.id,
       row.venue_id,
       row.name,
+      row.first_name ?? null,
+      row.last_name ?? null,
+      row.address ?? null,
       row.role ?? null,
       row.mission ?? null,
       row.phone ?? null,
@@ -1264,7 +1282,7 @@ export async function deleteRentalRequest(id: string, database?: SQLite.SQLiteDa
 }
 
 export async function listEvents(
-  opts?: { venueId?: string; fromDate?: string },
+  opts?: { venueId?: string; organizationId?: string; fromDate?: string },
   database?: SQLite.SQLiteDatabase
 ): Promise<ApEvent[]> {
   const db = await resolveDb(database);
@@ -1273,6 +1291,10 @@ export async function listEvents(
   if (opts?.venueId) {
     sql += ' AND venue_id = ?';
     params.push(opts.venueId);
+  }
+  if (opts?.organizationId) {
+    sql += ' AND organization_id = ?';
+    params.push(opts.organizationId);
   }
   if (opts?.fromDate) {
     sql += ' AND (date_fin IS NULL OR date_fin >= ? OR date_debut >= ?)';
@@ -1293,8 +1315,8 @@ export async function saveEvent(row: ApEvent, database?: SQLite.SQLiteDatabase):
   await db.runAsync(
     `INSERT OR REPLACE INTO ap_events (
       id,venue_id,organization_id,name,type,organisateur,date_debut,date_fin,heure_debut,heure_fin,
-      participants,description,status,spaces_mode,selected_space_ids_json,space_id,created_at,updated_at,synced)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+      participants,description,status,spaces_mode,selected_space_ids_json,space_id,readiness_manual_json,created_at,updated_at,synced)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
     [
       row.id,
       row.venue_id ?? null,
@@ -1312,9 +1334,22 @@ export async function saveEvent(row: ApEvent, database?: SQLite.SQLiteDatabase):
       mode,
       sel,
       row.space_id ?? null,
+      JSON.stringify(row.readiness_manual ?? {}),
       created,
       updated,
     ]
+  );
+}
+
+export async function saveApEventReadinessManual(
+  eventId: string,
+  manual: import('../types/accueilPro').ApEventReadinessManual,
+  database?: SQLite.SQLiteDatabase
+): Promise<void> {
+  const db = await resolveDb(database);
+  await db.runAsync(
+    `UPDATE ap_events SET readiness_manual_json = ?, updated_at = ?, synced = 0 WHERE id = ?`,
+    [JSON.stringify(manual ?? {}), nowIso(), eventId]
   );
 }
 
@@ -1324,16 +1359,25 @@ export async function deleteEvent(id: string, database?: SQLite.SQLiteDatabase):
 }
 
 export async function listConventions(
-  eventId?: string,
+  eventIdOrOpts?: string | { eventId?: string; venueId?: string },
   database?: SQLite.SQLiteDatabase
 ): Promise<ApConvention[]> {
   const db = await resolveDb(database);
-  const rows =
-    eventId != null
-      ? await db.getAllAsync<any>('SELECT * FROM ap_conventions WHERE event_id = ? ORDER BY updated_at DESC', [
-          eventId,
-        ])
-      : await db.getAllAsync<any>('SELECT * FROM ap_conventions ORDER BY updated_at DESC');
+  const opts =
+    typeof eventIdOrOpts === 'string' ? { eventId: eventIdOrOpts }
+    : eventIdOrOpts ?? {};
+  let sql = 'SELECT * FROM ap_conventions WHERE 1=1';
+  const params: string[] = [];
+  if (opts.eventId) {
+    sql += ' AND event_id = ?';
+    params.push(opts.eventId);
+  }
+  if (opts.venueId) {
+    sql += ' AND venue_id = ?';
+    params.push(opts.venueId);
+  }
+  sql += ' ORDER BY updated_at DESC';
+  const rows = await db.getAllAsync<any>(sql, params);
   return rows.map(mapConventionRow);
 }
 
@@ -1344,13 +1388,14 @@ export async function saveConvention(row: ApConvention, database?: SQLite.SQLite
   const updated = row.updated_at ?? n;
   await db.runAsync(
     `INSERT OR REPLACE INTO ap_conventions (
-      id,event_id,titre,contenu,status,signature_data,signed_at,signed_by,
+      id,event_id,venue_id,titre,contenu,status,signature_data,signed_at,signed_by,
       document_local_uri,document_storage_path,document_filename,
       created_at,updated_at,synced)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
     [
       row.id,
       row.event_id ?? null,
+      row.venue_id ?? null,
       row.titre,
       row.contenu ?? null,
       row.status,
@@ -1655,6 +1700,13 @@ export const listApVenues = listVenues;
 export const listApSpaces = listSpaces;
 export const listApOrganizations = listOrganizations;
 export const listApEvents = listEvents;
+
+export async function listApEventsByOrganization(
+  organizationId: string,
+  database?: SQLite.SQLiteDatabase
+): Promise<ApEvent[]> {
+  return listEvents({ organizationId }, database);
+}
 export async function listApPersonnel(
   venueIdOrOpts?: string | { kind?: ApPersonnelKind; venueId?: string; organizationId?: string },
   database?: SQLite.SQLiteDatabase
@@ -1716,7 +1768,41 @@ export async function listApOrganizationDocuments(
   organizationId: string,
   database?: SQLite.SQLiteDatabase
 ): Promise<ApOrganizationDocument[]> {
-  return listDocuments(organizationId, database);
+  const db = await resolveDb(database);
+  const rows = await db.getAllAsync<any>(
+    `SELECT * FROM ap_organization_documents
+     WHERE organization_id = ? AND (event_id IS NULL OR event_id = '')
+     ORDER BY created_at DESC`,
+    [organizationId]
+  );
+  return rows.map(mapDocRow);
+}
+
+export async function listApOrganizationDocumentsByEvent(
+  eventId: string,
+  database?: SQLite.SQLiteDatabase
+): Promise<ApOrganizationDocument[]> {
+  const db = await resolveDb(database);
+  const rows = await db.getAllAsync<any>(
+    'SELECT * FROM ap_organization_documents WHERE event_id = ? ORDER BY created_at DESC',
+    [eventId]
+  );
+  return rows.map(mapDocRow);
+}
+
+export async function countApEventDocumentsByEventIds(
+  eventIds: string[],
+  database?: SQLite.SQLiteDatabase
+): Promise<Record<string, number>> {
+  if (eventIds.length === 0) return {};
+  const db = await resolveDb(database);
+  const placeholders = eventIds.map(() => '?').join(',');
+  const rows = await db.getAllAsync<{ event_id: string; n: number }>(
+    `SELECT event_id, COUNT(*) as n FROM ap_organization_documents
+     WHERE event_id IN (${placeholders}) GROUP BY event_id`,
+    eventIds
+  );
+  return Object.fromEntries(rows.map(r => [r.event_id, r.n]));
 }
 
 export async function listApContactsByOrganization(
@@ -1738,7 +1824,14 @@ export async function listApConventionsByEvent(
   eventId: string,
   database?: SQLite.SQLiteDatabase
 ): Promise<ApConvention[]> {
-  return listConventions(eventId, database);
+  return listConventions({ eventId }, database);
+}
+
+export async function listApConventionsByVenue(
+  venueId: string,
+  database?: SQLite.SQLiteDatabase
+): Promise<ApConvention[]> {
+  return listConventions({ venueId }, database);
 }
 
 export async function getApVenue(id: string, database?: SQLite.SQLiteDatabase): Promise<ApVenue | null> {
@@ -1916,7 +2009,7 @@ export async function addPersonnelToEventFromDirectory(
       event_id: eventId,
       source: 'directory',
       source_personnel_id: dir.id,
-      name: dir.name,
+      name: personnelDisplayName(dir),
       day_role: dayRole?.trim() || null,
       day_mission: dayRole?.trim() || null,
       phone: dir.phone ?? null,
@@ -1924,6 +2017,57 @@ export async function addPersonnelToEventFromDirectory(
     },
     database
   );
+}
+
+/** Crée une fiche annuaire + l’ajoute à l’équipe de l’événement. */
+export async function createDirectoryPersonnelForEvent(
+  input: {
+    eventId: string;
+    venueId: string;
+    first_name: string;
+    last_name: string;
+    phone?: string | null;
+    email?: string | null;
+    address?: string | null;
+    role?: string | null;
+    day_role?: string | null;
+  },
+  database?: SQLite.SQLiteDatabase
+): Promise<string> {
+  const personnelId = generateApId();
+  const displayName = buildPersonnelDisplayName({
+    first_name: input.first_name,
+    last_name: input.last_name,
+  });
+  await savePersonnel(
+    {
+      id: personnelId,
+      venue_id: input.venueId,
+      name: displayName,
+      first_name: input.first_name.trim() || null,
+      last_name: input.last_name.trim() || null,
+      address: input.address?.trim() || null,
+      role: input.role?.trim() || null,
+      phone: input.phone?.trim() || null,
+      email: input.email?.trim() || null,
+      kind: 'externe',
+    },
+    database
+  );
+  await saveApEventPersonnel(
+    {
+      event_id: input.eventId,
+      source: 'directory',
+      source_personnel_id: personnelId,
+      name: displayName,
+      day_role: input.day_role?.trim() || input.role?.trim() || null,
+      day_mission: input.day_role?.trim() || input.role?.trim() || null,
+      phone: input.phone?.trim() || null,
+      email: input.email?.trim() || null,
+    },
+    database
+  );
+  return personnelId;
 }
 
 export async function confirmRentalAsEvent(rentalId: string, database?: SQLite.SQLiteDatabase): Promise<string | null> {
@@ -2116,6 +2260,58 @@ export async function listApDayPlanItems(
     [planDate]
   );
   return rows.map(mapDayPlanItemRow);
+}
+
+export async function listApDayPlanItemsForEvent(
+  eventId: string,
+  planDate?: string,
+  database?: SQLite.SQLiteDatabase
+): Promise<ApDayPlanItem[]> {
+  const db = await resolveDb(database);
+  await ensureAccueilProSchema(db);
+  let date = planDate?.trim();
+  if (!date) {
+    const ev = await getApEvent(eventId, db);
+    date = (ev?.date_debut ?? '').slice(0, 10);
+  }
+  if (!date) return [];
+  const rows = await db.getAllAsync<any>(
+    `SELECT * FROM ap_day_plan_items WHERE event_id = ? AND plan_date = ?
+     ORDER BY COALESCE(time_start, '99:99'), sort_order, title`,
+    [eventId, date]
+  );
+  return rows.map(mapDayPlanItemRow);
+}
+
+/** Crée une première ligne de planning à partir des horaires de l’événement (si vide). */
+export async function seedApDayPlanFromSingleEvent(
+  eventId: string,
+  database?: SQLite.SQLiteDatabase
+): Promise<number> {
+  const db = await resolveDb(database);
+  const ev = await getApEvent(eventId, db);
+  if (!ev?.date_debut) return 0;
+  const planDate = ev.date_debut.slice(0, 10);
+  const existing = await listApDayPlanItemsForEvent(eventId, planDate, db);
+  if (existing.length > 0) return 0;
+  const team = await listApEventPersonnel(eventId, db);
+  const spaces = await resolveSpacesForEvent(ev, db);
+  await saveApDayPlanItem(
+    {
+      plan_date: planDate,
+      event_id: ev.id,
+      time_start: ev.heure_debut ?? null,
+      time_end: ev.heure_fin ?? null,
+      title: ev.name,
+      assignee_name: team.map(p => p.name).join(', ') || null,
+      space_id: spaces[0]?.id ?? ev.space_id ?? null,
+      venue_id: ev.venue_id ?? null,
+      notes: null,
+      sort_order: 0,
+    },
+    db
+  );
+  return 1;
 }
 
 export async function getApDayPlanItem(

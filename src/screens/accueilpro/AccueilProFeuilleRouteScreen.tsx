@@ -1,10 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Alert, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import {
   AccueilProEmpty,
   AccueilProLinkButton,
-  AccueilProListRow,
   AccueilProPrimaryButton,
   AccueilProScreenLayout,
   AccueilProSectionCard,
@@ -13,24 +12,148 @@ import {
   AccueilProColors,
 } from '../../components/accueilpro/AccueilProUI';
 import { useLanguage } from '../../context/LanguageContext';
+import { saveApDayNote } from '../../db/accueilProDb';
+import { formatDayPlanTimeRange } from '../../lib/accueilProDayPlanHelpers';
 import {
-  getApDayNote,
-  getApVenue,
-  listApConventions,
-  listApDayPlanItems,
-  listApEventPersonnel,
-  listApEvents,
-  listApInspections,
-  listApPersonnel,
-  listApVenues,
-  listSpaces,
-  saveApDayNote,
-} from '../../db/accueilProDb';
-import { formatDayPlanTimeRange, sortDayPlanItems } from '../../lib/accueilProDayPlanHelpers';
-import { eventsOnDate, shiftIsoDate } from '../../lib/accueilProFeuilleHelpers';
+  buildFeuilleRouteSnapshot,
+  type FeuilleEventSynthesis,
+  type FeuilleRouteSnapshot,
+} from '../../lib/accueilProFeuilleRouteBuilder';
+import { shiftIsoDate } from '../../lib/accueilProFeuilleHelpers';
 import { exportAccueilProFeuilleRoutePdf } from '../../lib/accueilProFeuilleRoutePdf';
-import type { ApDayPlanItem, ApEvent, ApEventPersonnel, ApRoomInspection, ApVenue } from '../../types/accueilPro';
 import { todayIsoDate } from './accueilProScreenCommon';
+
+function EventSynthesisCard({
+  block,
+  t,
+  spaceNames,
+}: {
+  block: FeuilleEventSynthesis;
+  t: (key: string) => string;
+  spaceNames: Record<string, string>;
+}) {
+  const ev = block.event;
+  const dates =
+    ev.date_fin && ev.date_fin !== ev.date_debut ?
+      `${ev.date_debut} → ${ev.date_fin}`
+    : ev.date_debut;
+
+  return (
+    <AccueilProSectionCard title={ev.name}>
+      <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+        <AccueilProStatusBadge status={ev.status} />
+        <AccueilProTypeBadge type={ev.type} />
+        <Text style={{ fontWeight: '700', color: AccueilProColors.gold, marginLeft: 'auto' }}>
+          {ev.heure_debut ?? '—'}
+          {ev.heure_fin ? ` → ${ev.heure_fin}` : ''}
+        </Text>
+      </View>
+
+      {[
+        [t('accueilpro.feuille.organization'), block.organizationName],
+        [t('accueilpro.feuille.venue'), block.venueName],
+        [t('accueilpro.feuille.spaces'), block.spacesLabel],
+        [t('accueilpro.feuille.dates'), dates],
+        [
+          t('accueilpro.feuille.participants'),
+          ev.participants != null ? String(ev.participants) : '—',
+        ],
+      ].map(([label, value]) => (
+        <Text key={String(label)} style={{ fontSize: 13, marginBottom: 4, color: AccueilProColors.textSecondary }}>
+          <Text style={{ fontWeight: '600', color: AccueilProColors.textPrimary }}>{label} : </Text>
+          {value}
+        </Text>
+      ))}
+
+      {ev.description?.trim() ?
+        <View
+          style={{
+            backgroundColor: AccueilProColors.cream,
+            borderRadius: 8,
+            padding: 10,
+            marginTop: 6,
+            marginBottom: 8,
+          }}
+        >
+          <Text style={{ fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{t('accueilpro.feuille.description')}</Text>
+          <Text style={{ fontSize: 13, color: AccueilProColors.textSecondary }}>{ev.description.trim()}</Text>
+        </View>
+      : null}
+
+      <Text style={{ fontWeight: '700', fontSize: 13, marginTop: 10, marginBottom: 6 }}>
+        {t('accueilpro.feuille.teamDay')}
+      </Text>
+      {block.personnel.length === 0 ?
+        <Text style={{ fontSize: 12, color: AccueilProColors.textMuted, marginBottom: 8 }}>
+          {t('accueilpro.feuille.noTeam')}
+        </Text>
+      : block.personnel.map(p => (
+          <View
+            key={`${p.name}-${p.role}`}
+            style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: AccueilProColors.borderSubtle }}
+          >
+            <Text style={{ fontWeight: '600' }}>{p.name}</Text>
+            {p.role ?
+              <Text style={{ fontSize: 12, color: AccueilProColors.gold, marginTop: 2 }}>{p.role}</Text>
+            : null}
+            {(p.phone || p.email) ?
+              <Text style={{ fontSize: 12, color: AccueilProColors.textMuted, marginTop: 2 }}>
+                {[p.phone, p.email].filter(Boolean).join(' · ')}
+              </Text>
+            : null}
+          </View>
+        ))}
+
+      {block.agenda.length > 0 ?
+        <>
+          <Text style={{ fontWeight: '700', fontSize: 13, marginTop: 12, marginBottom: 6 }}>
+            {t('accueilpro.feuille.eventAgenda')}
+          </Text>
+          {block.agenda.map(item => (
+            <View
+              key={item.id}
+              style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: AccueilProColors.borderSubtle }}
+            >
+              <Text style={{ fontWeight: '700', color: AccueilProColors.gold, fontSize: 12 }}>
+                {formatDayPlanTimeRange(item)}
+              </Text>
+              <Text style={{ fontWeight: '600', marginTop: 2 }}>{item.title}</Text>
+              <Text style={{ fontSize: 12, color: AccueilProColors.textMuted, marginTop: 2 }}>
+                {item.assignee_name ?? '—'} · {(item.space_id && spaceNames[item.space_id]) || '—'}
+              </Text>
+            </View>
+          ))}
+        </>
+      : null}
+
+      {block.conventions.length > 0 ?
+        <>
+          <Text style={{ fontWeight: '700', fontSize: 13, marginTop: 12, marginBottom: 6 }}>
+            {t('accueilpro.nav.conventions')}
+          </Text>
+          {block.conventions.map(c => (
+            <Text key={c.titre} style={{ fontSize: 13, marginBottom: 4 }}>
+              {c.titre} — <Text style={{ color: AccueilProColors.textMuted }}>{c.status}</Text>
+            </Text>
+          ))}
+        </>
+      : null}
+
+      {block.inspections.length > 0 ?
+        <>
+          <Text style={{ fontWeight: '700', fontSize: 13, marginTop: 12, marginBottom: 6 }}>
+            {t('accueilpro.nav.inspections')}
+          </Text>
+          {block.inspections.map((insp, idx) => (
+            <Text key={`${insp.spaceName}-${insp.type}-${idx}`} style={{ fontSize: 13, marginBottom: 4 }}>
+              {insp.spaceName} · EDL {insp.type} — {insp.status}
+            </Text>
+          ))}
+        </>
+      : null}
+    </AccueilProSectionCard>
+  );
+}
 
 export default function AccueilProFeuilleRouteScreen() {
   const navigation = useNavigation<any>();
@@ -38,45 +161,14 @@ export default function AccueilProFeuilleRouteScreen() {
   const { t } = useLanguage();
   const [date, setDate] = useState((route.params?.date as string | undefined) ?? todayIsoDate());
   const [note, setNote] = useState('');
-  const [events, setEvents] = useState<ApEvent[]>([]);
-  const [dayPlan, setDayPlan] = useState<ApDayPlanItem[]>([]);
-  const [venues, setVenues] = useState<ApVenue[]>([]);
-  const [spaceNames, setSpaceNames] = useState<Record<string, string>>({});
-  const [edl, setEdl] = useState<ApRoomInspection[]>([]);
-  const [conventions, setConventions] = useState<{ id: string; titre: string; status: string }[]>([]);
-  const [personnelByEvent, setPersonnelByEvent] = useState<Record<string, ApEventPersonnel[]>>({});
-  const [teamCount, setTeamCount] = useState(0);
+  const [snapshot, setSnapshot] = useState<FeuilleRouteSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
-    const [allEvents, allEdl, allConv, team, planRows, dayNote, venueList] = await Promise.all([
-      listApEvents(),
-      listApInspections(),
-      listApConventions(),
-      listApPersonnel({ kind: 'lieu' }),
-      listApDayPlanItems(date),
-      getApDayNote(date),
-      listApVenues(),
-    ]);
-    const dayEvents = eventsOnDate(allEvents, date);
-    const venueIds = [...new Set(dayEvents.map(e => e.venue_id).filter(Boolean))] as string[];
-    const venueRows = await Promise.all(venueIds.map(id => getApVenue(id)));
-    const persEntries = await Promise.all(dayEvents.map(async ev => [ev.id, await listApEventPersonnel(ev.id)] as const));
-    const spaces = await Promise.all(venueList.map(v => listSpaces(v.id)));
-    setEvents(dayEvents);
-    setDayPlan(sortDayPlanItems(planRows));
-    setVenues(venueRows.filter(Boolean) as ApVenue[]);
-    setSpaceNames(Object.fromEntries(spaces.flat().map(s => [s.id, s.name])));
-    setEdl(allEdl.filter(e => dayEvents.some(ev => ev.id === e.event_id)));
-    setConventions(
-      allConv
-        .filter(c => c.event_id && dayEvents.some(ev => ev.id === c.event_id))
-        .map(c => ({ id: c.id, titre: c.titre, status: c.status }))
-    );
-    setPersonnelByEvent(Object.fromEntries(persEntries));
-    setTeamCount(team.filter(m => venueIds.includes(m.venue_id)).length);
-    setNote(dayNote?.note ?? '');
+    const data = await buildFeuilleRouteSnapshot(date);
+    setSnapshot(data);
+    setNote(data.note);
   }, [date]);
 
   useFocusEffect(
@@ -86,35 +178,19 @@ export default function AccueilProFeuilleRouteScreen() {
     }, [load])
   );
 
-  const dateLabel = useMemo(() => {
-    try {
-      return new Date(date + 'T12:00:00').toLocaleDateString('fr-FR', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      });
-    } catch {
-      return date;
-    }
-  }, [date]);
+  const eventBlocks = snapshot?.eventBlocks ?? [];
+  const dayPlan = snapshot?.dayPlan ?? [];
+  const venues = snapshot?.venues ?? [];
+  const spaceNames = snapshot?.spaceNames ?? {};
+  const dateLabel = snapshot?.dateLabel ?? date;
+  const edlCount = eventBlocks.reduce((n, b) => n + b.inspections.length, 0);
+  const convCount = eventBlocks.reduce((n, b) => n + b.conventions.length, 0);
 
   const onExport = async () => {
+    if (!snapshot) return;
     setExporting(true);
     try {
-      await exportAccueilProFeuilleRoutePdf({
-        date,
-        dateLabel,
-        events,
-        venues,
-        edl,
-        conventions,
-        personnelByEvent,
-        note,
-        teamCount,
-        dayPlan,
-        spaceNames,
-      });
+      await exportAccueilProFeuilleRoutePdf({ ...snapshot, note });
     } catch (e) {
       Alert.alert(t('accueilpro.feuille.exportError'), e instanceof Error ? e.message : String(e));
     } finally {
@@ -159,11 +235,11 @@ export default function AccueilProFeuilleRouteScreen() {
         <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700', textTransform: 'capitalize', marginTop: 4 }}>{dateLabel}</Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: 14, gap: 8 }}>
           {[
-            { v: events.length, l: t('accueilpro.feuille.statEvents') },
+            { v: eventBlocks.length, l: t('accueilpro.feuille.statEvents') },
             { v: venues.length, l: t('accueilpro.feuille.statVenues') },
-            { v: teamCount, l: t('accueilpro.feuille.statTeam') },
-            { v: edl.length, l: 'EDL' },
-            { v: conventions.length, l: t('accueilpro.nav.conventions') },
+            { v: snapshot?.venueTeamCount ?? 0, l: t('accueilpro.feuille.statTeam') },
+            { v: edlCount, l: 'EDL' },
+            { v: convCount, l: t('accueilpro.nav.conventions') },
           ].map(s => (
             <View key={s.l} style={{ alignItems: 'center', minWidth: '18%' }}>
               <Text style={{ color: AccueilProColors.gold, fontSize: 24, fontWeight: '800' }}>{s.v}</Text>
@@ -173,7 +249,7 @@ export default function AccueilProFeuilleRouteScreen() {
         </View>
       </View>
 
-      {events.length === 0 && dayPlan.length === 0 ?
+      {eventBlocks.length === 0 && dayPlan.length === 0 ?
         <AccueilProEmpty message={t('accueilpro.feuille.empty')} />
       : <>
           {dayPlan.length > 0 ?
@@ -200,49 +276,35 @@ export default function AccueilProFeuilleRouteScreen() {
               />
             </View>}
 
-          {events.length > 0 ?
-          <AccueilProSectionCard title={t('accueilpro.feuille.events')}>
-            {events.map(ev => (
-              <View key={ev.id} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: AccueilProColors.borderSubtle }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-                      <AccueilProStatusBadge status={ev.status} />
-                      <AccueilProTypeBadge type={ev.type} />
-                    </View>
-                    <Text style={{ fontWeight: '700', fontSize: 15 }}>{ev.name}</Text>
-                    <Text style={{ color: AccueilProColors.textMuted, fontSize: 13 }}>{ev.organisateur ?? '—'}</Text>
-                    {(personnelByEvent[ev.id] ?? []).length > 0 ?
-                      <Text style={{ color: AccueilProColors.textSecondary, fontSize: 12, marginTop: 4 }}>
-                        {t('accueilpro.feuille.teamDay')}: {(personnelByEvent[ev.id] ?? []).map(p => p.name).join(', ')}
-                      </Text>
-                    : null}
-                  </View>
-                  <Text style={{ fontWeight: '700', color: AccueilProColors.gold, fontSize: 18 }}>{ev.heure_debut ?? '—'}</Text>
-                </View>
-              </View>
-            ))}
-          </AccueilProSectionCard>
-          : null}
-
-          {edl.length > 0 ?
-            <AccueilProSectionCard title={t('accueilpro.nav.inspections')}>
-              {edl.map(item => (
-                <AccueilProListRow
-                  key={item.id}
-                  title={`EDL ${item.type}`}
-                  meta={item.inspection_date ?? item.updated_at?.slice(0, 10) ?? '—'}
-                  rightAccessory={<AccueilProStatusBadge status={item.status} />}
-                  showChevron={false}
-                />
+          {eventBlocks.length > 0 ?
+            <>
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: '700',
+                  textTransform: 'uppercase',
+                  color: AccueilProColors.textMuted,
+                  marginBottom: 8,
+                  letterSpacing: 0.5,
+                }}
+              >
+                {t('accueilpro.feuille.synthesisByEvent')}
+              </Text>
+              {eventBlocks.map(block => (
+                <EventSynthesisCard key={block.event.id} block={block} t={t} spaceNames={spaceNames} />
               ))}
-            </AccueilProSectionCard>
+            </>
           : null}
 
-          {conventions.length > 0 ?
-            <AccueilProSectionCard title={t('accueilpro.nav.conventions')}>
-              {conventions.map(c => (
-                <AccueilProListRow key={c.id} title={c.titre} meta={c.status} showChevron={false} />
+          {venues.length > 0 ?
+            <AccueilProSectionCard title={t('accueilpro.feuille.venuesSecurity')}>
+              {venues.map(v => (
+                <View key={v.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: AccueilProColors.borderSubtle }}>
+                  <Text style={{ fontWeight: '700' }}>{v.name}</Text>
+                  <Text style={{ fontSize: 12, color: AccueilProColors.textMuted, marginTop: 4 }}>
+                    ERP {v.erp_type ?? '?'} · {v.fire_notes ?? '—'}
+                  </Text>
+                </View>
               ))}
             </AccueilProSectionCard>
           : null}

@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Text, FlatList, RefreshControl } from 'react-native';
+import { Text, FlatList, RefreshControl, View } from 'react-native';
+import { Spacing } from '../../theme/spacing';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { ContactActionRow } from '../../components/accueilpro/ContactActionRow';
 import {
@@ -11,6 +12,11 @@ import {
 } from '../../components/accueilpro/AccueilProUI';
 import { useLanguage } from '../../context/LanguageContext';
 import { listApPersonnel } from '../../db/accueilProDb';
+import {
+  isPersonnelPermanent,
+  partitionPersonnelForDirectory,
+  personnelDisplayName,
+} from '../../lib/accueilProPersonnelHelpers';
 import type { ApPersonnel, ApPersonnelKind } from '../../types/accueilPro';
 
 export default function AccueilProPersonnelScreen() {
@@ -27,7 +33,9 @@ export default function AccueilProPersonnelScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    setRows(await listApPersonnel({ kind: filterKind, venueId, organizationId }));
+    const list = await listApPersonnel({ kind: filterKind, venueId, organizationId });
+    const { permanent, others } = partitionPersonnelForDirectory(list);
+    setRows([...permanent, ...others]);
   }, [filterKind, venueId, organizationId]);
 
   useFocusEffect(
@@ -78,21 +86,51 @@ export default function AccueilProPersonnelScreen() {
           />
         }
         ListEmptyComponent={<AccueilProEmpty message={t('accueilpro.personnel.empty')} />}
-        renderItem={({ item }) => (
-          <AccueilProListRow
-            title={item.name}
-            meta={[item.role, item.mission].filter(Boolean).join(' · ') || '—'}
-            onPress={() =>
-              navigation.navigate('AccueilProPersonnelEdit', {
-                id: item.id,
-                kind: item.kind === 'organisation' ? 'association' : item.kind,
-                venueId: item.venue_id,
-                organizationId: item.organization_id,
-              })
-            }
-            rightAccessory={<ContactActionRow phone={item.phone} email={item.email} />}
-          />
-        )}
+        ListHeaderComponent={
+          rows.some(isPersonnelPermanent) ?
+            <Text style={[apStyles.hint, { marginBottom: Spacing.sm }]}>{t('accueilpro.personnel.permanentHint')}</Text>
+          : null
+        }
+        renderItem={({ item, index }) => {
+          const permanent = isPersonnelPermanent(item);
+          const showOthersHeader =
+            index > 0 && permanent !== isPersonnelPermanent(rows[index - 1]!) && !permanent;
+          return (
+            <View>
+              {showOthersHeader ?
+                <Text style={[apStyles.sectionTitle, { marginTop: Spacing.md, marginBottom: Spacing.xs }]}>
+                  {t('accueilpro.contacts.sectionOthers')}
+                </Text>
+              : index === 0 && permanent ?
+                <Text style={[apStyles.sectionTitle, { marginBottom: Spacing.xs, color: AccueilProColors.gold }]}>
+                  {t('accueilpro.contacts.sectionPermanent')}
+                </Text>
+              : null}
+              <AccueilProListRow
+                title={personnelDisplayName(item)}
+                meta={
+                  [
+                    permanent ? t('accueilpro.contacts.permanentBadge') : null,
+                    item.role,
+                    item.mission,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ') || '—'
+                }
+                variant={permanent ? 'permanentStaff' : 'default'}
+                onPress={() =>
+                  navigation.navigate('AccueilProPersonnelEdit', {
+                    id: item.id,
+                    kind: item.kind === 'organisation' ? 'association' : item.kind,
+                    venueId: item.venue_id,
+                    organizationId: item.organization_id,
+                  })
+                }
+                rightAccessory={<ContactActionRow phone={item.phone} email={item.email} />}
+              />
+            </View>
+          );
+        }}
       />
     </AccueilProScreenLayout>
   );

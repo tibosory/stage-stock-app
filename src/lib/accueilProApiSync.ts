@@ -22,6 +22,7 @@ import { getApiKeyOverride, looksLikeHttpUrl } from './apiEndpointStorage';
 import type { InventorySyncEndpoint } from './inventoryApiSync';
 import { inventoryApiFetch } from './inventoryApiSync';
 import { formatSyncHttpError, missingSyncApiKeyError } from './syncAuthErrors';
+import { syncSnapshotInvalidJsonMessage } from './syncSnapshotResponseHint';
 import { hasLocalSyncApiKey } from './serverAuthHeaders';
 import { isV1LanMode } from '../config/appMode';
 
@@ -89,11 +90,12 @@ export async function syncAccueilProFromApi(
   if (!res.ok) {
     throw summarizeHttpError(res.status, await res.text());
   }
+  const rawBody = await res.text();
   let json: Record<string, unknown>;
   try {
-    json = (await res.json()) as Record<string, unknown>;
+    json = JSON.parse(rawBody) as Record<string, unknown>;
   } catch {
-    throw new Error('AccueilPro snapshot : réponse JSON invalide.');
+    throw new Error(`AccueilPro snapshot : ${syncSnapshotInvalidJsonMessage(rawBody)}`);
   }
 
   const mergeResult = await mergeAccueilProSnapshot(json, db);

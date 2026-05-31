@@ -122,17 +122,27 @@ npx expo run:android
 
 ---
 
-## Build APK de production
+## Build APK de production (Windows, chemin court)
+
+Source canonique : **`C:\dev\SStock\StageStock`**. Le build compile via le miroir **`C:\SSBuild`** (évite la limite CMake 250 car.).
+
+```powershell
+cd C:\dev\SStock\StageStock
+npm run android:assemble-release
+```
+
+APK : `build-output\CATRACK-Pro-release.apk` + copie sur le Bureau.
+
+Build complet (changement natif / première fois) :
+
+```powershell
+npm run android:assemble-release:clean
+```
+
+Build cloud EAS (alternative) :
 
 ```bash
-# Configuration EAS
-eas build:configure
-
-# Build APK Android
 eas build --platform android --profile preview
-
-# Ou APK local (nécessite Android Studio)
-npx expo run:android --variant release
 ```
 
 ### Profil EAS (`eas.json`)

@@ -3,7 +3,7 @@ import * as Application from 'expo-application';
 
 const KEY = 'stagestock_workspace_onboarding_v1_done';
 const KEY_INSTALL_MARKER = 'stagestock_workspace_onboarding_v1_install_marker';
-/** Connexion serveur PC validée (ping OK ou jumelage QR). Requis avant usage normal. */
+/** Connexion serveur PC validée (ping OK ou jumelage QR). Recommandée, non bloquante pour l’accès à l’app. */
 const KEY_SERVER_PAIRING = 'stagestock_server_pairing_v1_verified';
 
 async function getCurrentInstallMarker(): Promise<string> {

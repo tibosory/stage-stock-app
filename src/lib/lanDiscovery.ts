@@ -1,5 +1,6 @@
 import { getBundledDefaultApiBase, getResolvedApiBase } from '../config/stageStockApi';
 import { fetchWithTimeout } from './fetchWithTimeout';
+import { isStageStockHealthJson } from './apiBaseResolution';
 
 type DiscoverResult = { baseUrl: string; healthUrl: string; note: string };
 
@@ -57,19 +58,14 @@ async function probe(baseUrl: string, timeoutMs: number): Promise<DiscoverResult
     const res = await fetchWithTimeout(healthUrl, { method: 'GET' }, timeoutMs);
     if (!res.ok) return null;
     const text = await res.text();
-    const low = text.toLowerCase();
-    if (low.includes('stagestock') || low.includes('"ok":true') || low.includes('"ok": true')) {
+    if (isStageStockHealthJson(text)) {
       return {
         baseUrl: stripTrailingSlash(baseUrl),
         healthUrl,
         note: text.slice(0, 140),
       };
     }
-    return {
-      baseUrl: stripTrailingSlash(baseUrl),
-      healthUrl,
-      note: 'health endpoint reachable',
-    };
+    return null;
   } catch {
     return null;
   }

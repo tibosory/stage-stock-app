@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useCallback, useMemo, useState, useEffect } from 'react';
 import { listApOrganizations, listApVenues } from '../../db/accueilProDb';
 
 export function todayIsoDate(): string {
@@ -11,13 +11,18 @@ export function useAccueilProReferenceData(): {
   orgOptions: AccueilProReferencePick[];
   venueOptions: AccueilProReferencePick[];
   loading: boolean;
+  reload: () => void;
 } {
   const [orgOptions, setOrgOptions] = useState<AccueilProReferencePick[]>([]);
   const [venueOptions, setVenueOptions] = useState<AccueilProReferencePick[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tick, setTick] = useState(0);
+
+  const reload = useCallback(() => setTick(n => n + 1), []);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
     void (async () => {
       try {
         const [orgs, venues] = await Promise.all([listApOrganizations(), listApVenues()]);
@@ -32,14 +37,15 @@ export function useAccueilProReferenceData(): {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [tick]);
 
   return useMemo(
     () => ({
       orgOptions,
       venueOptions,
       loading,
+      reload,
     }),
-    [orgOptions, venueOptions, loading]
+    [orgOptions, venueOptions, loading, reload]
   );
 }

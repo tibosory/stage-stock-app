@@ -20,16 +20,37 @@ export function parsePairingDeepLink(url: string): { baseUrl: string; apiKey: st
   return { baseUrl: stripStageStockServerRootSuffix(base.replace(/\/+$/, '')), apiKey: key || null };
 }
 
-/** QR ou URL http(s) affichée sur la page /pair du PC. */
+/** QR ou URL http(s) affichée sur la page /pair du PC (ex. http://192.168.0.5:8091/pair?key=…). */
 export function parseHttpPairingTarget(raw: string): { baseUrl: string; apiKey: string | null } | null {
   const t = raw.trim();
   if (!/^https?:\/\//i.test(t)) return null;
   try {
     const u = new URL(t);
-    const base = stripStageStockServerRootSuffix(`${u.protocol}//${u.host}`);
+    const baseParam = u.searchParams.get('base')?.trim() ?? '';
+    const baseFromQuery =
+      baseParam && looksLikeHttpUrl(baseParam)
+        ? stripStageStockServerRootSuffix(baseParam.replace(/\/+$/, ''))
+        : null;
+    const base =
+      baseFromQuery ?? stripStageStockServerRootSuffix(`${u.protocol}//${u.host}`);
     if (!looksLikeHttpUrl(base)) return null;
     const key = u.searchParams.get('key')?.trim();
     return { baseUrl: base, apiKey: key || null };
+  } catch {
+    return null;
+  }
+}
+
+export function isLoopbackHost(hostname: string): boolean {
+  const h = hostname.trim().toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]';
+}
+
+/** Retourne `loopback` si l’URL pointe vers le PC lui-même (inutilisable depuis le téléphone). */
+export function getPairingHostIssue(baseUrl: string): 'loopback' | null {
+  try {
+    const u = new URL(baseUrl.includes('://') ? baseUrl : `http://${baseUrl}`);
+    return isLoopbackHost(u.hostname) ? 'loopback' : null;
   } catch {
     return null;
   }

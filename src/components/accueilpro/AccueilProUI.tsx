@@ -1,6 +1,8 @@
-import React, { PropsWithChildren } from 'react';
+import React, { PropsWithChildren, useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -11,6 +13,8 @@ import {
   ViewStyle,
   type KeyboardTypeOptions,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { format, parse } from 'date-fns';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useConnection } from '../../context/ConnectionContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -556,18 +560,31 @@ export function AccueilProListRow(props: {
   onPress?: () => void;
   rightAccessory?: React.ReactNode;
   showChevron?: boolean;
+  /** Mise en avant équipe permanente du lieu (annuaire / menu Équipe). */
+  variant?: 'default' | 'permanentStaff';
 }) {
   const showChevron = props.showChevron ?? !!props.onPress;
+  const isPermanent = props.variant === 'permanentStaff';
   return (
     <TouchableOpacity
       accessibilityRole="button"
       activeOpacity={0.85}
       onPress={props.onPress}
-      style={apStyles.row}
+      style={[
+        apStyles.row,
+        isPermanent ?
+          {
+            backgroundColor: '#FBF6EA',
+            borderLeftWidth: 4,
+            borderLeftColor: AccueilProColors.gold,
+            paddingLeft: 12,
+          }
+        : null,
+      ]}
       disabled={!props.onPress}
     >
       <View style={{ flex: 1 }}>
-        <Text style={apStyles.rowTitle}>{props.title}</Text>
+        <Text style={[apStyles.rowTitle, isPermanent ? { color: AccueilProColors.navy } : null]}>{props.title}</Text>
         {props.meta ? <Text style={apStyles.rowMeta}>{props.meta}</Text> : null}
         {props.subtitle ? <Text style={[apStyles.rowMeta, { marginTop: 4 }]}>{props.subtitle}</Text> : null}
       </View>
@@ -770,4 +787,117 @@ export function AccueilProFormDateField(props: React.ComponentProps<typeof BaseD
 /** SelectPicker avec libellés Accueil Pro renforcés. */
 export function AccueilProFormSelectPicker(props: React.ComponentProps<typeof BaseSelectPicker>) {
   return <BaseSelectPicker {...props} labelStyle={apStyles.label} />;
+}
+
+function parseAccueilProTime(value: string): Date {
+  const t = value.trim();
+  if (/^\d{1,2}:\d{2}$/.test(t)) {
+    try {
+      return parse(t, 'HH:mm', new Date());
+    } catch {
+      /* fall through */
+    }
+  }
+  const d = new Date();
+  d.setHours(9, 0, 0, 0);
+  return d;
+}
+
+/** Sélecteur d’heure (format HH:mm). */
+export function AccueilProFormTimeField(props: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+}) {
+  const { label, value, onChange, required } = props;
+  const [androidOpen, setAndroidOpen] = useState(false);
+  const [iosOpen, setIosOpen] = useState(false);
+  const [iosDraft, setIosDraft] = useState(() => parseAccueilProTime(value));
+
+  const display = value.trim() || '—';
+
+  const open = () => {
+    setIosDraft(parseAccueilProTime(value));
+    if (Platform.OS === 'android') setAndroidOpen(true);
+    else setIosOpen(true);
+  };
+
+  return (
+    <View style={{ marginBottom: 14 }}>
+      <Text style={apStyles.label}>
+        {label}
+        {required ? <Text style={{ color: AccueilProColors.gold }}> *</Text> : null}
+      </Text>
+      <TouchableOpacity
+        accessibilityRole="button"
+        style={[apStyles.apInput, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+        onPress={open}
+        activeOpacity={0.85}
+      >
+        <Text style={{ color: value.trim() ? AccueilProColors.textPrimary : AccueilProColors.textMuted, fontSize: 15 }}>
+          {display}
+        </Text>
+        <Text style={{ fontSize: 18 }}>🕐</Text>
+      </TouchableOpacity>
+
+      {Platform.OS === 'android' && androidOpen ?
+        <DateTimePicker
+          value={parseAccueilProTime(value)}
+          mode="time"
+          is24Hour
+          display="default"
+          onChange={(event, date) => {
+            setAndroidOpen(false);
+            if (event.type === 'dismissed' || !date) return;
+            onChange(format(date, 'HH:mm'));
+          }}
+        />
+      : null}
+
+      {Platform.OS === 'ios' ?
+        <Modal visible={iosOpen} transparent animationType="slide" onRequestClose={() => setIosOpen(false)}>
+          <TouchableOpacity
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}
+            activeOpacity={1}
+            onPress={() => setIosOpen(false)}
+          >
+            <TouchableOpacity activeOpacity={1} onPress={e => e.stopPropagation()}>
+              <View
+                style={{
+                  backgroundColor: AccueilProColors.card,
+                  borderTopLeftRadius: 16,
+                  borderTopRightRadius: 16,
+                  paddingBottom: 20,
+                }}
+              >
+                <DateTimePicker
+                  value={iosDraft}
+                  mode="time"
+                  is24Hour
+                  display="spinner"
+                  onChange={(_, date) => {
+                    if (date) setIosDraft(date);
+                  }}
+                />
+                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12, paddingHorizontal: 16 }}>
+                  <TouchableOpacity onPress={() => setIosOpen(false)}>
+                    <Text style={{ color: AccueilProColors.textMuted, fontWeight: '600' }}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      onChange(format(iosDraft, 'HH:mm'));
+                      setIosOpen(false);
+                    }}
+                  >
+                    <Text style={{ color: AccueilProColors.navy, fontWeight: '800' }}>OK</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+      : null}
+    </View>
+  );
 }

@@ -18,9 +18,7 @@ import { getStats } from '../db/metadataDb';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 import { triggerScanMatchHaptic } from '../lib/scanHaptic';
 import { openMaterielFicheFromAlerte, openConsoFicheFromAlerte } from '../navigation/openFicheFromAlerte';
-import { tryApplyPairingFromScan } from '../lib/pairingDeepLink';
-import { pingStageStockApi, probeStageStockSyncApi } from '../config/stageStockApi';
-import { setServerPairingVerified } from '../lib/workspaceOnboardingStorage';
+import { completePairingFromScan } from '../lib/completePairingFromScan';
 import { useConnection } from '../context/ConnectionContext';
 import { useNfc } from '../hooks/useNfc';
 import { EtatBadge, Card, BottomModal, Input, TabScreenSafeArea } from '../components/UI';
@@ -225,23 +223,16 @@ export default function ScannerScreen() {
     setScanned(true);
     Vibration.vibrate(80);
 
-    const paired = await tryApplyPairingFromScan(result.data);
-    if (paired) {
+    const pairing = await completePairingFromScan(result.data, language);
+    if (pairing.kind !== 'not_pairing') {
       await refreshConnection();
-      const ping = await pingStageStockApi();
-      const sync = await probeStageStockSyncApi();
-      if (ping.ok && sync.ok) {
-        await setServerPairingVerified();
-      }
       Alert.alert(
         language === 'en' ? 'Pairing' : 'Jumelage',
-        ping.ok && sync.ok
+        pairing.kind === 'success'
           ? language === 'en'
             ? 'Server connected. Use Send / Receive in Menu to sync.'
             : 'Serveur connecté. Utilisez Envoyer / Recevoir dans le menu pour synchroniser.'
-          : language === 'en'
-            ? `Address saved.\n\n${sync.ok ? ping.message : sync.message}`
-            : `Adresse enregistrée.\n\n${sync.ok ? ping.message : sync.message}`,
+          : `${pairing.title}\n\n${pairing.message}`,
         [{ text: t('common.ok'), onPress: () => setScanned(false) }]
       );
       return;

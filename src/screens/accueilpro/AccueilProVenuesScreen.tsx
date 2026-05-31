@@ -1,22 +1,30 @@
 import React, { useCallback, useState } from 'react';
-import { Text, TouchableOpacity } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { AccueilProFormCard } from '../../components/accueilpro/AccueilProUI';
+import { Text } from 'react-native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { VenueSpaceBubblePicker } from '../../components/accueilpro/VenueSpaceBubblePicker';
 import {
   AccueilProEmpty,
+  AccueilProPrimaryButton,
   AccueilProScreenLayout,
-  apStyles,
 } from '../../components/accueilpro/AccueilProUI';
-import { Spacing } from '../../theme/spacing';
 import { useLanguage } from '../../context/LanguageContext';
 import { listApVenues, listApSpaces } from '../../db/accueilProDb';
 import type { ApSpace, ApVenue } from '../../types/accueilPro';
 
 export default function AccueilProVenuesScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
   const { t } = useLanguage();
+  const returnToEvent = route.params?.returnToEvent === true;
+  const eventEditId = route.params?.eventEditId as string | undefined;
   const [venues, setVenues] = useState<ApVenue[]>([]);
   const [spaces, setSpaces] = useState<ApSpace[]>([]);
+  const [selectedVenueId, setSelectedVenueId] = useState<string | null>(
+    (route.params?.venueId as string | undefined) ?? null
+  );
+  const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(
+    (route.params?.spaceId as string | undefined) ?? null
+  );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -24,7 +32,27 @@ export default function AccueilProVenuesScreen() {
     const [v, sp] = await Promise.all([listApVenues(), listApSpaces()]);
     setVenues(v);
     setSpaces(sp);
-  }, []);
+
+    const fromRouteVenue = route.params?.venueId as string | undefined;
+    const fromRouteSpace = route.params?.spaceId as string | undefined;
+
+    setSelectedVenueId(prev => {
+      const nextVenue =
+        (prev && v.some(x => x.id === prev) && prev) ||
+        (fromRouteVenue && v.some(x => x.id === fromRouteVenue) ? fromRouteVenue : null) ||
+        v[0]?.id ||
+        null;
+
+      const venueSpaces = nextVenue ? sp.filter(s => s.venue_id === nextVenue) : [];
+      setSelectedSpaceId(prevSpace => {
+        if (fromRouteSpace && venueSpaces.some(s => s.id === fromRouteSpace)) return fromRouteSpace;
+        if (prevSpace && venueSpaces.some(s => s.id === prevSpace)) return prevSpace;
+        return venueSpaces[0]?.id ?? null;
+      });
+
+      return nextVenue;
+    });
+  }, [route.params?.spaceId, route.params?.venueId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -39,6 +67,23 @@ export default function AccueilProVenuesScreen() {
     setRefreshing(false);
   };
 
+  const labels = {
+    venuesSection: t('accueilpro.venues.bubbleVenues'),
+    spacesSection: t('accueilpro.venues.bubbleSpaces', { n: '{n}' }),
+    addVenue: t('accueilpro.venues.new'),
+    addSpace: t('accueilpro.venues.newSpace'),
+    noVenues: t('accueilpro.venues.empty'),
+    noSpaces: t('accueilpro.venues.noSpacesTapAdd'),
+    selectVenueHint: t('accueilpro.venues.selectVenueHint'),
+    spaceType: t('accueilpro.venues.fieldSpaceType'),
+    spaceCapacity: t('accueilpro.venues.fieldCapacity'),
+    spaceDescription: t('accueilpro.events.fieldDesc'),
+    controlPoints: t('accueilpro.venues.controlPointsCount', { n: '{n}' }),
+    editSpace: t('accueilpro.venues.editSpace'),
+    editVenue: t('accueilpro.venues.edit'),
+    venueDetail: t('accueilpro.venues.fullDetail'),
+  };
+
   return (
     <AccueilProScreenLayout
       backLabel={t('accueilpro.back')}
@@ -50,32 +95,43 @@ export default function AccueilProVenuesScreen() {
       loading={loading}
       refreshing={refreshing}
       onRefresh={() => void onRefresh()}
+      footer={
+        returnToEvent ?
+          <AccueilProPrimaryButton
+            label={t('accueilpro.events.backToEvent')}
+            onPress={() =>
+              navigation.navigate('AccueilProEventEdit', {
+                ...(eventEditId ? { id: eventEditId } : {}),
+                selectVenueId: selectedVenueId ?? undefined,
+              })
+            }
+          />
+        : undefined
+      }
     >
-      {venues.length === 0 ? (
-        <AccueilProEmpty message={t('accueilpro.venues.empty')} />
-      ) : (
-        venues.map(v => (
-          <TouchableOpacity
-            key={v.id}
-            activeOpacity={0.85}
-            onPress={() => navigation.navigate('AccueilProVenueEdit', { id: v.id })}
-          >
-            <AccueilProFormCard style={{ marginBottom: Spacing.sm }}>
-              <Text style={apStyles.rowTitle}>{v.name}</Text>
-              <Text style={apStyles.rowMeta}>
-                {[v.address, v.cp, v.city].filter(Boolean).join(', ') || '—'}
-              </Text>
-              {spaces
-                .filter(sp => sp.venue_id === v.id)
-                .map(sp => (
-                  <Text key={sp.id} style={[apStyles.rowMeta, { marginTop: Spacing.sm }]}>
-                    · {sp.name}
-                    {sp.capacity ? ` (${sp.capacity} places)` : ''}
-                  </Text>
-                ))}
-            </AccueilProFormCard>
-          </TouchableOpacity>
-        ))
+      {venues.length === 0 ?
+        <AccueilProEmpty message={t('accueilpro.venues.empty')} emoji="🏛" />
+      : (
+        <VenueSpaceBubblePicker
+          venues={venues}
+          spaces={spaces}
+          selectedVenueId={selectedVenueId}
+          selectedSpaceId={selectedSpaceId}
+          onSelectVenue={id => {
+            setSelectedVenueId(id);
+            const first = spaces.find(s => s.venue_id === id);
+            setSelectedSpaceId(first?.id ?? null);
+          }}
+          onSelectSpace={setSelectedSpaceId}
+          onAddVenue={() => navigation.navigate('AccueilProVenueEdit')}
+          onAddSpace={venueId => navigation.navigate('AccueilProSpaceEdit', { venueId })}
+          onEditVenue={id => navigation.navigate('AccueilProVenueEdit', { id })}
+          onEditSpace={(venueId, spaceId) =>
+            navigation.navigate('AccueilProSpaceEdit', { venueId, id: spaceId })
+          }
+          onOpenVenueDetail={id => navigation.navigate('AccueilProVenueDetail', { id })}
+          labels={labels}
+        />
       )}
     </AccueilProScreenLayout>
   );

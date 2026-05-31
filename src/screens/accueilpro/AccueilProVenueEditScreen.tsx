@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Text, Alert } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { Text, Alert, TouchableOpacity } from 'react-native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { AccueilProFormCard, AccueilProInput } from '../../components/accueilpro/AccueilProUI';
 import {
   AccueilProLinkButton,
@@ -10,14 +10,23 @@ import {
 } from '../../components/accueilpro/AccueilProUI';
 import { Spacing } from '../../theme/spacing';
 import { useLanguage } from '../../context/LanguageContext';
-import { generateApId, getApVenue, listApSpaces, saveApVenue } from '../../db/accueilProDb';
+import {
+  generateApId,
+  getApVenue,
+  listApConventionsByVenue,
+  listApSpaces,
+  saveApVenue,
+} from '../../db/accueilProDb';
 import { ERP_CATS, ERP_TYPES } from '../../lib/inspectionChecklist';
+import type { ApConvention } from '../../types/accueilPro';
 
 export default function AccueilProVenueEditScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { t } = useLanguage();
   const venueId = route.params?.id as string | undefined;
+  const returnToEvent = route.params?.returnToEvent === true;
+  const eventEditId = route.params?.eventEditId as string | undefined;
   const [loading, setLoading] = useState(!!venueId);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
@@ -32,29 +41,39 @@ export default function AccueilProVenueEditScreen() {
   const [fireNotes, setFireNotes] = useState('');
   const [safetyRules, setSafetyRules] = useState('');
   const [spaceCount, setSpaceCount] = useState(0);
+  const [conventions, setConventions] = useState<ApConvention[]>([]);
+
+  const loadVenue = useCallback(async (id: string) => {
+    const v = await getApVenue(id);
+    if (v) {
+      setName(v.name);
+      setAddress(v.address ?? '');
+      setCp(v.cp ?? '');
+      setCity(v.city ?? '');
+      setPhone(v.phone ?? '');
+      setEmail(v.email ?? '');
+      setErpType(v.erp_type ?? '');
+      setErpCategory(v.erp_category ?? '');
+      setCapacity(v.capacity != null ? String(v.capacity) : '');
+      setFireNotes(v.fire_notes ?? '');
+      setSafetyRules(v.safety_rules ?? '');
+      const [sp, conv] = await Promise.all([listApSpaces(id), listApConventionsByVenue(id)]);
+      setSpaceCount(sp.length);
+      setConventions(conv);
+    }
+  }, []);
 
   useEffect(() => {
     if (!venueId) return;
-    void (async () => {
-      const v = await getApVenue(venueId);
-      if (v) {
-        setName(v.name);
-        setAddress(v.address ?? '');
-        setCp(v.cp ?? '');
-        setCity(v.city ?? '');
-        setPhone(v.phone ?? '');
-        setEmail(v.email ?? '');
-        setErpType(v.erp_type ?? '');
-        setErpCategory(v.erp_category ?? '');
-        setCapacity(v.capacity != null ? String(v.capacity) : '');
-        setFireNotes(v.fire_notes ?? '');
-        setSafetyRules(v.safety_rules ?? '');
-        const sp = await listApSpaces(venueId);
-        setSpaceCount(sp.length);
-      }
-      setLoading(false);
-    })();
-  }, [venueId]);
+    void loadVenue(venueId).finally(() => setLoading(false));
+  }, [venueId, loadVenue]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!venueId) return;
+      void loadVenue(venueId);
+    }, [venueId, loadVenue])
+  );
 
   const onSave = useCallback(async () => {
     if (!name.trim()) {
@@ -63,8 +82,9 @@ export default function AccueilProVenueEditScreen() {
     }
     setSaving(true);
     try {
+      const id = venueId ?? generateApId();
       await saveApVenue({
-        id: venueId ?? generateApId(),
+        id,
         name: name.trim(),
         address: address.trim() || null,
         cp: cp.trim() || null,
@@ -77,11 +97,38 @@ export default function AccueilProVenueEditScreen() {
         fire_notes: fireNotes.trim() || null,
         safety_rules: safetyRules.trim() || null,
       });
-      navigation.goBack();
+      if (venueId) {
+        navigation.goBack();
+      } else if (returnToEvent) {
+        navigation.replace('AccueilProVenueEdit', {
+          id,
+          returnToEvent: true,
+          eventEditId: eventEditId ?? undefined,
+        });
+      } else {
+        navigation.replace('AccueilProVenueEdit', { id });
+      }
     } finally {
       setSaving(false);
     }
-  }, [venueId, name, address, cp, city, phone, email, navigation, t]);
+  }, [
+    venueId,
+    name,
+    address,
+    cp,
+    city,
+    phone,
+    email,
+    erpType,
+    erpCategory,
+    capacity,
+    fireNotes,
+    safetyRules,
+    navigation,
+    t,
+    returnToEvent,
+    eventEditId,
+  ]);
 
   return (
     <AccueilProScreenLayout
@@ -111,26 +158,52 @@ export default function AccueilProVenueEditScreen() {
         <AccueilProInput label={t('accueilpro.venueTab.fireNotes')} value={fireNotes} onChangeText={setFireNotes} multiline />
         <AccueilProInput label={t('accueilpro.venueTab.safetyRules')} value={safetyRules} onChangeText={setSafetyRules} multiline />
       </AccueilProFormCard>
+
       {venueId ?
-        <AccueilProFormCard style={{ marginTop: Spacing.md }}>
-          <Text style={apStyles.sectionTitle}>
-            {t('accueilpro.venues.spacesSection', { n: String(spaceCount) })}
-          </Text>
-          <AccueilProLinkButton
-            label={`+ ${t('accueilpro.venues.addSpace')}`}
-            onPress={() => navigation.navigate('AccueilProSpaceEdit', { venueId })}
-          />
-          <AccueilProLinkButton
-            label={t('accueilpro.venues.manageSpaces')}
-            onPress={() => navigation.navigate('AccueilProVenueSpaces', { venueId })}
-            style={{ marginTop: Spacing.sm }}
-          />
-          <AccueilProLinkButton
-            label={t('accueilpro.personnel.venueStaff')}
-            onPress={() => navigation.navigate('AccueilProPersonnel', { kind: 'lieu', venueId })}
-            style={{ marginTop: Spacing.sm }}
-          />
-        </AccueilProFormCard>
+        <>
+          <AccueilProFormCard style={{ marginTop: Spacing.md }}>
+            <Text style={apStyles.sectionTitle}>{t('accueilpro.venues.conventionSection')}</Text>
+            <Text style={[apStyles.hint, { marginBottom: Spacing.sm }]}>{t('accueilpro.venues.conventionHint')}</Text>
+            {conventions.length === 0 ?
+              <Text style={apStyles.empty}>{t('accueilpro.venues.conventionEmpty')}</Text>
+            : conventions.map(c => (
+                <TouchableOpacity
+                  key={c.id}
+                  style={[apStyles.row, { marginBottom: Spacing.xs }]}
+                  onPress={() => navigation.navigate('AccueilProConventionEdit', { id: c.id, venueId })}
+                >
+                  <Text style={apStyles.rowTitle}>{c.titre}</Text>
+                  <Text style={apStyles.rowMeta}>{c.status}{c.document_filename ? ` · PDF` : ''}</Text>
+                </TouchableOpacity>
+              ))
+            }
+            <AccueilProLinkButton
+              label={`+ ${t('accueilpro.venues.addConvention')}`}
+              onPress={() => navigation.navigate('AccueilProConventionEdit', { venueId })}
+              style={{ marginTop: Spacing.sm }}
+            />
+          </AccueilProFormCard>
+
+          <AccueilProFormCard style={{ marginTop: Spacing.md }}>
+            <Text style={apStyles.sectionTitle}>
+              {t('accueilpro.venues.spacesSection', { n: String(spaceCount) })}
+            </Text>
+            <AccueilProLinkButton
+              label={`+ ${t('accueilpro.venues.addSpace')}`}
+              onPress={() => navigation.navigate('AccueilProSpaceEdit', { venueId })}
+            />
+            <AccueilProLinkButton
+              label={t('accueilpro.venues.manageSpaces')}
+              onPress={() => navigation.navigate('AccueilProVenueSpaces', { venueId })}
+              style={{ marginTop: Spacing.sm }}
+            />
+            <AccueilProLinkButton
+              label={t('accueilpro.personnel.venueStaff')}
+              onPress={() => navigation.navigate('AccueilProPersonnel', { kind: 'lieu', venueId })}
+              style={{ marginTop: Spacing.sm }}
+            />
+          </AccueilProFormCard>
+        </>
       : <Text style={[apStyles.hint, { marginTop: Spacing.md }]}>{t('accueilpro.venues.saveFirstSpaces')}</Text>}
     </AccueilProScreenLayout>
   );

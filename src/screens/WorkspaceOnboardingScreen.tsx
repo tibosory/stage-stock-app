@@ -1,4 +1,4 @@
-// Assistant de premier lancement — jumelage serveur PC obligatoire avant usage.
+// Assistant de premier lancement — connexion serveur recommandée, jamais bloquante.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
@@ -22,18 +22,11 @@ import { useAppAuth } from '../context/AuthContext';
 import { setWorkspaceOnboardingCompleted, setServerPairingVerified, hasVerifiedServerPairing, hasCompletedWorkspaceOnboarding } from '../lib/workspaceOnboardingStorage';
 import { loadTheatreBranding, saveTheatreIdentity } from '../lib/theatreBranding';
 import { loadUserProfile, saveUserProfile, type UserProfile } from '../lib/userProfileStorage';
-import {
-  getApiBaseOverride,
-  getApiKeyOverride,
-  looksLikeHttpUrl,
-  setApiBaseOverride,
-  setApiKeyOverride,
-} from '../lib/apiEndpointStorage';
-import { getBundledDefaultApiBase, getResolvedApiBase, pingStageStockApi } from '../config/stageStockApi';
+import { getResolvedApiBase, pingStageStockApi } from '../config/stageStockApi';
 import { getWindowsServerInstallerUrl } from '../config/installerUrls';
-import { useConnection } from '../context/ConnectionContext';
 import { isConsumerApp } from '../config/appMode';
 import { WindowsInstallerCard } from '../components/WindowsInstallerCard';
+import { PairingQrScannerModal } from '../components/PairingQrScannerModal';
 import { requestNotificationPermission, reschedulePretReturnReminders } from '../lib/pretNotifications';
 import { rescheduleVgpDueReminders } from '../lib/vgpNotifications';
 import { rescheduleSeuilBasReminders } from '../lib/seuilNotifications';
@@ -59,7 +52,6 @@ export default function WorkspaceOnboardingScreen() {
   const navigation = useNavigation();
   const { user } = useAppAuth();
   const { language, setLanguage, t } = useLanguage();
-  const { refresh: refreshConnection } = useConnection();
   const isEmp = user?.role === 'emprunteur';
   const steps = useSteps(isEmp);
 
@@ -67,14 +59,11 @@ export default function WorkspaceOnboardingScreen() {
   const [saving, setSaving] = useState(false);
   const [theatreName, setTheatreName] = useState('');
   const [theatreAddress, setTheatreAddress] = useState('');
-  const [baseUrl, setBaseUrl] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [bundled, setBundled] = useState('');
   const [resolved, setResolved] = useState('');
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  /** true = dernier test ping API réussi (étape serveur) */
+  /** true = jumelage QR réussi (étape serveur) */
   const [serverVerified, setServerVerified] = useState(false);
-  const [serverVerifyBusy, setServerVerifyBusy] = useState(false);
+  const [pairingScanOpen, setPairingScanOpen] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<AppLanguage>(language);
 
   const step = steps[ix] ?? 'done';
@@ -90,40 +79,31 @@ export default function WorkspaceOnboardingScreen() {
     );
   }, [navigation]);
 
-  const markServerVerified = useCallback(async () => {
-    setServerVerified(true);
-    await setServerPairingVerified();
-    await refreshConnection();
-  }, [refreshConnection]);
-
-  const requireServerVerified = useCallback(async (): Promise<boolean> => {
-    if (serverVerified) return true;
-    const ping = await pingStageStockApi();
-    if (ping.ok) {
-      await markServerVerified();
-      return true;
-    }
-    Alert.alert(t('onboarding.serverRequiredTitle'), t('onboarding.serverRequiredBody'), [{ text: t('common.ok') }]);
-    return false;
-  }, [markServerVerified, serverVerified, t]);
+  const onContinueOffline = useCallback(() => {
+    Alert.alert(
+      t('onboarding.offlineModeTitle'),
+      t('onboarding.offlineModeBody'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('onboarding.offlineModeConfirm'),
+          onPress: () => setIx(i => Math.min(i + 1, steps.length - 1)),
+        },
+      ]
+    );
+  }, [steps.length, t]);
 
   useEffect(() => {
     void (async () => {
-      const b = getBundledDefaultApiBase();
-      const [r, p, base, key, brand] = await Promise.all([
+      const [r, p, brand] = await Promise.all([
         getResolvedApiBase(),
         loadUserProfile(),
-        getApiBaseOverride(),
-        getApiKeyOverride(),
         loadTheatreBranding(),
       ]);
-      setBundled(b);
       setResolved(r);
       setProfile(p);
       setTheatreName(brand.theatreName);
       setTheatreAddress(brand.theatreAddress);
-      setBaseUrl(base ?? '');
-      setApiKey(key ?? '');
 
       if (r) {
         const ping = await pingStageStockApi();
@@ -134,10 +114,6 @@ export default function WorkspaceOnboardingScreen() {
       }
     })();
   }, []);
-
-  useEffect(() => {
-    setServerVerified(false);
-  }, [baseUrl, apiKey]);
 
   useEffect(() => {
     void (async () => {
@@ -169,51 +145,15 @@ export default function WorkspaceOnboardingScreen() {
     }
   }, [t]);
 
-  const advanceFromServer = useCallback(async () => {
-    const urlTrim = baseUrl.trim();
-    if (urlTrim && !looksLikeHttpUrl(urlTrim)) {
-      Alert.alert(t('network.invalidUrlTitle'), t('onboarding.invalidUrlBody'));
-      return;
-    }
-    setSaving(true);
-    try {
-      await setApiBaseOverride(urlTrim || null);
-      await setApiKeyOverride(apiKey.trim() || null);
-      const r = await getResolvedApiBase();
-      setResolved(r);
-      setIx(i => i + 1);
-    } finally {
-      setSaving(false);
-    }
-  }, [apiKey, baseUrl, t]);
-
-  const handleVerifyServer = useCallback(async () => {
-    const urlTrim = baseUrl.trim();
-    if (urlTrim && !looksLikeHttpUrl(urlTrim)) {
-      Alert.alert(t('network.invalidUrlTitle'), t('onboarding.invalidUrlExpectedBody'), [{ text: t('common.ok') }]);
-      return;
-    }
-    setServerVerifyBusy(true);
-    try {
-      await setApiBaseOverride(urlTrim || null);
-      await setApiKeyOverride(apiKey.trim() || null);
-      const r = await getResolvedApiBase();
-      setResolved(r);
-      const ping = await pingStageStockApi();
-      if (ping.ok) {
-        await markServerVerified();
-        Alert.alert(t('network.testOk'), t('onboarding.connectionOkBody'));
-      } else {
-        setServerVerified(false);
-        Alert.alert(t('onboarding.connectionFailedTitle'), ping.message, [{ text: t('common.ok') }]);
-      }
-    } catch (e) {
-      setServerVerified(false);
-      Alert.alert(t('scanner.error'), e instanceof Error ? e.message : String(e));
-    } finally {
-      setServerVerifyBusy(false);
-    }
-  }, [apiKey, baseUrl, markServerVerified, t]);
+  const handlePairingSuccess = useCallback(
+    (baseUrl: string) => {
+      setResolved(baseUrl);
+      setServerVerified(true);
+      setPairingScanOpen(false);
+      setIx(i => Math.min(i + 1, steps.length - 1));
+    },
+    [steps.length]
+  );
 
   const onNext = useCallback(async () => {
     if (step === 'language') {
@@ -241,13 +181,7 @@ export default function WorkspaceOnboardingScreen() {
       return;
     }
     if (step === 'server') {
-      const urlTrim = baseUrl.trim();
-      if (urlTrim && !looksLikeHttpUrl(urlTrim)) {
-        Alert.alert(t('network.invalidUrlTitle'), t('onboarding.invalidUrlBody'));
-        return;
-      }
-      if (!(await requireServerVerified())) return;
-      await advanceFromServer();
+      setIx(i => i + 1);
       return;
     }
     if (step === 'profile' && profile) {
@@ -261,7 +195,6 @@ export default function WorkspaceOnboardingScreen() {
       return;
     }
     if (step === 'done') {
-      if (!(await requireServerVerified())) return;
       setSaving(true);
       try {
         const ok = await requestNotificationPermission();
@@ -281,16 +214,18 @@ export default function WorkspaceOnboardingScreen() {
         setSaving(false);
       }
     }
-  }, [advanceFromServer, apiKey, baseUrl, goApp, profile, requireServerVerified, selectedLanguage, setLanguage, step, steps.length, t, theatreAddress, theatreName]);
+  }, [goApp, profile, selectedLanguage, setLanguage, step, steps.length, t, theatreAddress, theatreName]);
 
   const onSkipStep = useCallback(() => {
-    if (step === 'server') return;
+    if (step === 'server') {
+      onContinueOffline();
+      return;
+    }
     if (ix >= steps.length - 1) return;
     setIx(i => i + 1);
-  }, [ix, step, steps.length]);
+  }, [ix, onContinueOffline, step, steps.length]);
 
-  const primaryDisabled =
-    saving || serverVerifyBusy || (step === 'server' && !serverVerified) || (step === 'done' && !serverVerified);
+  const primaryDisabled = saving;
 
   if (!profile) {
     return (
@@ -378,7 +313,7 @@ export default function WorkspaceOnboardingScreen() {
         {step === 'server' && (
           <>
             <Text style={styles.title}>{t('onboarding.serverTitle')}</Text>
-            <Text style={styles.lead}>{t('onboarding.serverLead')}</Text>
+            <Text style={styles.lead}>{t('onboarding.serverLeadSimple')}</Text>
 
             {Platform.OS === 'android' && (
               <View style={styles.installerBlock}>
@@ -400,97 +335,31 @@ export default function WorkspaceOnboardingScreen() {
 
             <Card style={styles.recipeCard}>
               <Text style={styles.recipeTitle}>{t('onboarding.pcStepsTitle')}</Text>
-              <View style={styles.stepLine}>
-                <View style={styles.stepBadge}>
-                  <Text style={styles.stepBadgeText}>1</Text>
-                </View>
-                <Text style={styles.stepText}>{t('onboarding.pcStep1')}</Text>
-              </View>
-              <View style={styles.stepLine}>
-                <View style={styles.stepBadge}>
-                  <Text style={styles.stepBadgeText}>2</Text>
-                </View>
-                <Text style={styles.stepText}>{t('onboarding.pcStep2')}</Text>
-              </View>
-              <View style={styles.stepLine}>
-                <View style={styles.stepBadge}>
-                  <Text style={styles.stepBadgeText}>3</Text>
-                </View>
-                <Text style={styles.stepText}>{t('onboarding.pcStep3')}</Text>
-              </View>
+              <Text style={styles.stepText}>{t('onboarding.pcInstallBody')}</Text>
             </Card>
 
-            <Card style={styles.recipeCard}>
-              <Text style={styles.recipeTitle}>{t('onboarding.pairingTitle')}</Text>
-              <View style={styles.stepLine}>
-                <View style={styles.stepBadge}>
-                  <Text style={styles.stepBadgeText}>4</Text>
-                </View>
-                <Text style={styles.stepText}>{t('onboarding.pairingStep4')}</Text>
-              </View>
-              <View style={styles.stepLine}>
-                <View style={styles.stepBadge}>
-                  <Text style={styles.stepBadgeText}>5</Text>
-                </View>
-                <Text style={styles.stepText}>{t('onboarding.pairingStep5')}</Text>
-              </View>
-              <View style={styles.stepLine}>
-                <View style={styles.stepBadge}>
-                  <Text style={styles.stepBadgeText}>6</Text>
-                </View>
-                <Text style={styles.stepText}>{t('onboarding.pairingStep6')}</Text>
-              </View>
-            </Card>
-
-            {!!bundled && (
-              <Text style={styles.hintBox}>
-                {t('onboarding.hintBuildUrlPrefix')}
-                {bundled || '—'}
-              </Text>
-            )}
-            {!!resolved && (
-              <Text style={styles.hintBox}>
-                {t('onboarding.hintEffectiveUrlPrefix')}
-                {resolved}
-              </Text>
-            )}
-
-            <Card style={{ marginTop: 8 }}>
-              <Text style={styles.subCardTitle}>{t('onboarding.apiAccessTitle')}</Text>
-              <Text style={styles.mutedBottom}>{t('onboarding.apiAccessLead')}</Text>
-              <Input
-                label={t('onboarding.apiBaseLabel')}
-                value={baseUrl}
-                onChangeText={setBaseUrl}
-                autoCapitalize="none"
-                placeholder={t('onboarding.apiBasePlaceholder')}
-                keyboardType="url"
-              />
-              <Input
-                label={t('network.field.apiKeyOptional')}
-                value={apiKey}
-                onChangeText={setApiKey}
-                autoCapitalize="none"
-                placeholder={t('onboarding.apiKeyPlaceholder')}
-              />
-              {serverVerified ? (
-                <View style={styles.verifiedRow}>
-                  <Text style={styles.verifiedText}>{t('onboarding.lastVerifyOk')}</Text>
-                </View>
-              ) : null}
-              <TouchableOpacity
-                style={[styles.verifyBtn, (serverVerifyBusy || saving) && { opacity: 0.6 }]}
-                onPress={() => void handleVerifyServer()}
-                disabled={serverVerifyBusy || saving}
-                accessibilityLabel={t('onboarding.verifyServerA11y')}
-              >
-                {serverVerifyBusy ? (
-                  <ActivityIndicator color={Colors.white} />
-                ) : (
-                  <Text style={styles.verifyBtnText}>{t('onboarding.verifyServer')}</Text>
+            {serverVerified ? (
+              <View style={styles.verifiedRow}>
+                <Text style={styles.verifiedText}>{t('onboarding.pairingSuccess')}</Text>
+                {!!resolved && (
+                  <Text style={[styles.muted, { marginTop: 6 }]}>{resolved}</Text>
                 )}
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.scanPairBtn}
+                onPress={() => setPairingScanOpen(true)}
+                accessibilityLabel={t('onboarding.scanPairingQr')}
+              >
+                <Text style={styles.scanPairBtnText}>{t('onboarding.scanPairingQr')}</Text>
               </TouchableOpacity>
-            </Card>
+            )}
+
+            <PairingQrScannerModal
+              visible={pairingScanOpen}
+              onClose={() => setPairingScanOpen(false)}
+              onSuccess={handlePairingSuccess}
+            />
           </>
         )}
 
@@ -556,9 +425,9 @@ export default function WorkspaceOnboardingScreen() {
                 </Text>
               </View>
             )}
-            {!serverVerified && !!baseUrl.trim() && (
+            {!serverVerified && (
               <Card style={styles.tipNote}>
-                <Text style={styles.muted}>{t('onboarding.doneUnverifiedUrlHint')}</Text>
+                <Text style={styles.muted}>{t('onboarding.doneUnverifiedHint')}</Text>
               </Card>
             )}
             <Card style={{ marginTop: 12 }}>
@@ -575,6 +444,16 @@ export default function WorkspaceOnboardingScreen() {
               disabled={saving}
             >
               <Text style={styles.btnSecondaryText}>{t('onboarding.skipStep')}</Text>
+            </TouchableOpacity>
+          )}
+
+          {step === 'server' && !serverVerified && (
+            <TouchableOpacity
+              style={[styles.btnSecondary, saving && { opacity: 0.5 }]}
+              onPress={onContinueOffline}
+              disabled={saving}
+            >
+              <Text style={styles.btnSecondaryText}>{t('onboarding.continueOffline')}</Text>
             </TouchableOpacity>
           )}
 
@@ -672,6 +551,24 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(52, 211, 153, 0.3)',
   },
   verifiedText: { color: Colors.green, fontSize: 14, lineHeight: 20, fontWeight: '600' },
+  scanPairBtn: {
+    marginTop: 20,
+    backgroundColor: Colors.green,
+    borderRadius: 16,
+    paddingVertical: 18,
+    alignItems: 'center',
+    minHeight: 56,
+  },
+  scanPairBtnText: { color: Colors.white, fontWeight: '800', fontSize: 17 },
+  offlineBtn: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  offlineBtnText: { color: Colors.textSecondary, fontWeight: '700', fontSize: 14 },
   verifyBtn: {
     marginTop: 12,
     backgroundColor: Colors.green,

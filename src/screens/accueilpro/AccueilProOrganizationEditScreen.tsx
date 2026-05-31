@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Text } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { Alert, Text, TouchableOpacity } from 'react-native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { AccueilProFormCard, AccueilProInput } from '../../components/accueilpro/AccueilProUI';
 import {
   AccueilProLinkButton,
@@ -10,9 +10,9 @@ import {
 } from '../../components/accueilpro/AccueilProUI';
 import { Spacing } from '../../theme/spacing';
 import { useLanguage } from '../../context/LanguageContext';
-import { generateApId, getApOrganization, saveOrganization } from '../../db/accueilProDb';
+import { generateApId, getApOrganization, listApEventsByOrganization, saveOrganization } from '../../db/accueilProDb';
 import { OrganizationDocumentsSection } from '../../components/accueilpro/OrganizationDocumentsSection';
-import type { ApOrganizationDocument } from '../../types/accueilPro';
+import type { ApEvent, ApOrganizationDocument } from '../../types/accueilPro';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { useSupabaseAuth } from '../../hooks/useAuth';
 import { isSupabaseStaffUser } from '../../lib/accueilProInvitationStaff';
@@ -23,6 +23,8 @@ export default function AccueilProOrganizationEditScreen() {
   const route = useRoute<any>();
   const { t } = useLanguage();
   const orgId = route.params?.id as string | undefined;
+  const returnToEvent = route.params?.returnToEvent === true;
+  const eventEditId = route.params?.eventEditId as string | undefined;
   const [loading, setLoading] = useState(!!orgId);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
@@ -37,6 +39,11 @@ export default function AccueilProOrganizationEditScreen() {
   const { user: sbUser } = useSupabaseAuth();
   const canInviteCloud = isSupabaseConfigured() && isSupabaseStaffUser(sbUser);
   const [, setDocs] = useState<ApOrganizationDocument[]>([]);
+  const [orgEvents, setOrgEvents] = useState<ApEvent[]>([]);
+
+  const loadOrgEvents = useCallback(async (id: string) => {
+    setOrgEvents(await listApEventsByOrganization(id));
+  }, []);
 
   useEffect(() => {
     if (!orgId) return;
@@ -56,6 +63,21 @@ export default function AccueilProOrganizationEditScreen() {
       setLoading(false);
     })();
   }, [orgId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!orgId) return;
+      void loadOrgEvents(orgId);
+    }, [orgId, loadOrgEvents])
+  );
+
+  const onCreateEvent = () => {
+    if (!orgId) return;
+    navigation.navigate('AccueilProEventEdit', {
+      selectOrganizationId: orgId,
+      selectOrganizationName: name.trim() || undefined,
+    });
+  };
 
   const onSave = useCallback(async () => {
     if (!name.trim()) {
@@ -78,12 +100,19 @@ export default function AccueilProOrganizationEditScreen() {
         notes_internes: notes.trim() || null,
         status: 'actif',
       });
+      if (returnToEvent) {
+        navigation.navigate('AccueilProEventEdit', {
+          ...(eventEditId ? { id: eventEditId } : {}),
+          selectOrganizationId: id,
+        });
+        return;
+      }
       if (!orgId) navigation.replace('AccueilProOrganizationEdit', { id });
       else navigation.goBack();
     } finally {
       setSaving(false);
     }
-  }, [orgId, name, type, address, cp, city, phone, email, website, notes, navigation, t]);
+  }, [orgId, name, type, address, cp, city, phone, email, website, notes, navigation, t, returnToEvent, eventEditId]);
 
   const resolvedId = orgId;
 
@@ -108,8 +137,32 @@ export default function AccueilProOrganizationEditScreen() {
         <AccueilProInput label={t('accueilpro.orgs.fieldNotes')} value={notes} onChangeText={setNotes} multiline />
       </AccueilProFormCard>
       {resolvedId ?
-        <AccueilProFormCard style={{ marginTop: Spacing.md }}>
-          <Text style={apStyles.sectionTitle}>{t('accueilpro.orgs.contacts')}</Text>
+        <>
+          <AccueilProFormCard style={{ marginTop: Spacing.md }}>
+            <Text style={apStyles.sectionTitle}>{t('accueilpro.orgs.eventsSection')}</Text>
+            <Text style={[apStyles.hint, { marginBottom: Spacing.sm }]}>{t('accueilpro.orgs.eventsHint')}</Text>
+            <AccueilProPrimaryButton
+              label={t('accueilpro.orgs.createEvent')}
+              onPress={onCreateEvent}
+              style={{ marginBottom: Spacing.sm }}
+            />
+            {orgEvents.length === 0 ?
+              <Text style={apStyles.empty}>{t('accueilpro.orgs.eventsEmpty')}</Text>
+            : orgEvents.slice(0, 8).map(ev => (
+                <TouchableOpacity
+                  key={ev.id}
+                  style={[apStyles.row, { marginBottom: Spacing.xs }]}
+                  onPress={() => navigation.navigate('AccueilProEventDetail', { id: ev.id })}
+                >
+                  <Text style={apStyles.rowTitle}>{ev.name}</Text>
+                  <Text style={apStyles.rowMeta}>{ev.date_debut}</Text>
+                </TouchableOpacity>
+              ))
+            }
+          </AccueilProFormCard>
+
+          <AccueilProFormCard style={{ marginTop: Spacing.md }}>
+            <Text style={apStyles.sectionTitle}>{t('accueilpro.orgs.contacts')}</Text>
           <AccueilProLinkButton label={t('accueilpro.orgs.manageContacts')} onPress={() => navigation.navigate('AccueilProOrganizationContacts', { organizationId: resolvedId })} />
           {canInviteCloud ? (
             <PermissionGuard staffOnly>
@@ -130,6 +183,7 @@ export default function AccueilProOrganizationEditScreen() {
             onDocumentsChange={setDocs}
           />
         </AccueilProFormCard>
+        </>
       : <Text style={[apStyles.hint, { marginTop: Spacing.md }]}>{t('accueilpro.orgs.saveFirstDocs')}</Text>}
     </AccueilProScreenLayout>
   );

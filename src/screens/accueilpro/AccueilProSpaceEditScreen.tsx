@@ -18,6 +18,7 @@ export default function AccueilProSpaceEditScreen() {
   const { t } = useLanguage();
   const venueId = route.params?.venueId as string;
   const spaceId = route.params?.id as string | undefined;
+  const returnToEvent = route.params?.returnToEvent === true;
   const [loading, setLoading] = useState(!!spaceId);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
@@ -56,11 +57,18 @@ export default function AccueilProSpaceEditScreen() {
         description: description.trim() || null,
         control_points: controlPoints,
       });
+      if (returnToEvent) {
+        navigation.navigate('AccueilProEventEdit', {
+          ...(route.params?.eventEditId ? { id: route.params.eventEditId as string } : {}),
+          selectVenueId: venueId,
+        });
+        return;
+      }
       navigation.goBack();
     } finally {
       setSaving(false);
     }
-  }, [spaceId, venueId, name, type, capacity, description, controlPoints, navigation, t]);
+  }, [spaceId, venueId, name, type, capacity, description, controlPoints, navigation, t, returnToEvent, route.params?.eventEditId]);
 
   return (
     <AccueilProScreenLayout

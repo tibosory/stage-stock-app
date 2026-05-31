@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { VenueSpaceBubblePicker } from '../../components/accueilpro/VenueSpaceBubblePicker';
 import {
   AccueilProChip,
   AccueilProEmpty,
@@ -15,11 +16,12 @@ import { useLanguage } from '../../context/LanguageContext';
 import { ERP_CATS, ERP_TYPES } from '../../lib/inspectionChecklist';
 import {
   getApVenue,
+  listApConventionsByVenue,
   listApEvents,
   listApPersonnel,
   listApSpaces,
 } from '../../db/accueilProDb';
-import type { ApEvent, ApPersonnel, ApSpace, ApVenue } from '../../types/accueilPro';
+import type { ApConvention, ApEvent, ApPersonnel, ApSpace, ApVenue } from '../../types/accueilPro';
 
 type TabId = 'espaces' | 'equipe' | 'reglementation' | 'evenements';
 
@@ -33,6 +35,8 @@ export default function AccueilProVenueDetailScreen() {
   const [spaces, setSpaces] = useState<ApSpace[]>([]);
   const [team, setTeam] = useState<ApPersonnel[]>([]);
   const [events, setEvents] = useState<ApEvent[]>([]);
+  const [conventions, setConventions] = useState<ApConvention[]>([]);
+  const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -42,14 +46,17 @@ export default function AccueilProVenueDetailScreen() {
       return;
     }
     setVenue(v);
-    const [sp, tm, ev] = await Promise.all([
+    const [sp, tm, ev, conv] = await Promise.all([
       listApSpaces(venueId),
       listApPersonnel({ kind: 'lieu', venueId }),
       listApEvents(),
+      listApConventionsByVenue(venueId),
     ]);
     setSpaces(sp);
     setTeam(tm);
     setEvents(ev.filter(e => e.venue_id === venueId));
+    setConventions(conv);
+    setSelectedSpaceId(prev => (prev && sp.some(s => s.id === prev) ? prev : sp[0]?.id ?? null));
   }, [venueId]);
 
   useFocusEffect(
@@ -95,25 +102,35 @@ export default function AccueilProVenueDetailScreen() {
       </View>
 
       {tab === 'espaces' && (
-        <View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
-            <Text style={apStyles.sectionTitle}>{t('accueilpro.venueTab.spacesCount', { n: String(spaces.length) })}</Text>
-            <Text style={{ color: AccueilProColors.gold, fontWeight: '700' }} onPress={() => navigation.navigate('AccueilProSpaceEdit', { venueId })}>
-              + {t('accueilpro.add')}
-            </Text>
-          </View>
-          {spaces.length === 0 ?
-            <AccueilProEmpty message={t('accueilpro.venues.noSpaces')} />
-          : spaces.map(s => (
-            <AccueilProListRow
-              key={s.id}
-              title={s.name}
-              meta={`${s.type ?? '—'} · ${s.capacity ?? 0} pers.`}
-              subtitle={s.description ?? undefined}
-              onPress={() => navigation.navigate('AccueilProSpaceEdit', { venueId, id: s.id })}
-            />
-          ))}
-        </View>
+        <VenueSpaceBubblePicker
+          venues={venue ? [venue] : []}
+          spaces={spaces}
+          selectedVenueId={venueId}
+          selectedSpaceId={selectedSpaceId}
+          onSelectVenue={() => {}}
+          onSelectSpace={setSelectedSpaceId}
+          onAddVenue={() => navigation.navigate('AccueilProVenueEdit', { id: venueId })}
+          onAddSpace={() => navigation.navigate('AccueilProSpaceEdit', { venueId })}
+          onEditVenue={() => navigation.navigate('AccueilProVenueEdit', { id: venueId })}
+          onEditSpace={(vId, sId) => navigation.navigate('AccueilProSpaceEdit', { venueId: vId, id: sId })}
+          singleVenueMode
+          labels={{
+            venuesSection: t('accueilpro.venueTab.spaces'),
+            spacesSection: t('accueilpro.venues.bubbleSpaces', { n: '{n}' }),
+            addVenue: t('accueilpro.venues.edit'),
+            addSpace: t('accueilpro.venues.newSpace'),
+            noVenues: t('accueilpro.venues.notFound'),
+            noSpaces: t('accueilpro.venues.noSpacesTapAdd'),
+            selectVenueHint: '',
+            spaceType: t('accueilpro.venues.fieldSpaceType'),
+            spaceCapacity: t('accueilpro.venues.fieldCapacity'),
+            spaceDescription: t('accueilpro.events.fieldDesc'),
+            controlPoints: t('accueilpro.venues.controlPointsCount', { n: '{n}' }),
+            editSpace: t('accueilpro.venues.editSpace'),
+            editVenue: t('accueilpro.venues.edit'),
+            venueDetail: '',
+          }}
+        />
       )}
 
       {tab === 'equipe' && (
@@ -162,6 +179,28 @@ export default function AccueilProVenueDetailScreen() {
           <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: AccueilProColors.borderSubtle }}>
             <Text style={apStyles.sectionTitle}>⚠️ {t('accueilpro.venueTab.safetyRules')}</Text>
             <Text style={{ marginTop: 6, lineHeight: 20 }}>{venue.safety_rules?.trim() || t('accueilpro.venueTab.notSet')}</Text>
+          </View>
+          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: AccueilProColors.borderSubtle }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={apStyles.sectionTitle}>{t('accueilpro.venues.conventionSection')}</Text>
+              <Text
+                style={{ color: AccueilProColors.gold, fontWeight: '700' }}
+                onPress={() => navigation.navigate('AccueilProConventionEdit', { venueId })}
+              >
+                + {t('accueilpro.add')}
+              </Text>
+            </View>
+            {conventions.length === 0 ?
+              <Text style={{ color: AccueilProColors.textMuted }}>{t('accueilpro.venues.conventionEmpty')}</Text>
+            : conventions.map(c => (
+                <AccueilProListRow
+                  key={c.id}
+                  title={c.titre}
+                  meta={[c.status, c.document_filename ? 'PDF' : null].filter(Boolean).join(' · ')}
+                  onPress={() => navigation.navigate('AccueilProConventionEdit', { id: c.id, venueId })}
+                />
+              ))
+            }
           </View>
         </View>
       )}

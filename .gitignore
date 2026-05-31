@@ -13,5 +13,6 @@ web-build/
 # Artifacts / natif généré
 android/
 ios/
+build-output/
 *.apk
 *.aab

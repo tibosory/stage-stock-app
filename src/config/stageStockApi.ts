@@ -8,6 +8,8 @@ import {
 import { buildServerAuthHeaders } from '../lib/serverAuthHeaders';
 import { formatSyncHttpError } from '../lib/syncAuthErrors';
 import { fetchWithTimeout } from '../lib/fetchWithTimeout';
+import { syncSnapshotInvalidJsonMessage } from '../lib/syncSnapshotResponseHint';
+import { isStageStockHealthJson } from '../lib/apiBaseResolution';
 import {
   getCachedQuickReachable,
   setCachedQuickReachable,
@@ -124,7 +126,16 @@ export async function checkServerReachableQuick(): Promise<boolean> {
         { method: 'GET', headers },
         QUICK_PING_PER_URL_MS
       );
-      if (res.ok || REACHABLE_HTTP_STATUSES.has(res.status)) {
+      if (res.ok) {
+        const text = await res.text();
+        const isHealthProbe = /\/health(\?|$)/i.test(url) || url.endsWith('/health');
+        if (isHealthProbe && !isStageStockHealthJson(text)) {
+          continue;
+        }
+        setCachedQuickReachable(true);
+        return true;
+      }
+      if (REACHABLE_HTTP_STATUSES.has(res.status)) {
         setCachedQuickReachable(true);
         return true;
       }
@@ -223,6 +234,11 @@ export async function probeStageStockSyncApi(): Promise<{ ok: boolean; message: 
           `Le backend doit exposer GET /api/sync/snapshot pour les mises à jour de base.`,
       };
     }
+    try {
+      JSON.parse(text);
+    } catch {
+      return { ok: false, message: syncSnapshotInvalidJsonMessage(text) };
+    }
     return {
       ok: true,
       message:
@@ -272,6 +288,11 @@ export async function probeAccueilProSyncApi(): Promise<{ ok: boolean; message: 
           `${text.slice(0, 500)}\n\n` +
           `Le backend doit exposer GET /api/accueilpro/snapshot.`,
       };
+    }
+    try {
+      JSON.parse(text);
+    } catch {
+      return { ok: false, message: syncSnapshotInvalidJsonMessage(text) };
     }
     return {
       ok: true,

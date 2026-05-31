@@ -8,6 +8,20 @@ export type InspectionVerifications = Record<string, InspectionTriState>;
 export type VerificationStatus = 'conforme' | 'non-conforme' | 'n/a' | InspectionTriState;
 
 export type ApEventStatus = 'brouillon' | 'confirmé' | 'annulé' | 'terminé';
+
+/** Case cochée manuellement dans la checklist « Prêt à accueillir ». */
+export type ApEventReadinessManualItem = {
+  checked: boolean;
+  at?: string | null;
+  by?: string | null;
+};
+
+export type ApEventReadinessManual = {
+  briefing_done?: ApEventReadinessManualItem;
+  access_ok?: ApEventReadinessManualItem;
+};
+
+export const AP_EVENT_ACTIVE_STATUSES: ApEventStatus[] = ['brouillon', 'confirmé', 'terminé'];
 export type ApConventionStatus = 'brouillon' | 'signé';
 /** @alias */
 export type ApInspectionFlowStatus = 'en cours' | 'terminé';
@@ -155,6 +169,8 @@ export interface ApEvent {
   selected_space_ids?: string[] | null;
   /** Espace principal (sélection simple, hors mode multi). */
   space_id?: string | null;
+  /** Checklist manuelle « prêt à accueillir » (JSON local). */
+  readiness_manual?: ApEventReadinessManual | null;
   created_at?: string | null;
   updated_at?: string | null;
   synced?: boolean;
@@ -163,6 +179,8 @@ export interface ApEvent {
 export interface ApConvention {
   id: string;
   event_id?: string | null;
+  /** Modèle ou convention rattachée au lieu (sans événement). */
+  venue_id?: string | null;
   titre: string;
   contenu?: string | null;
   status: ApConventionStatus;
@@ -221,6 +239,9 @@ export interface ApPersonnel {
   id: string;
   venue_id: string;
   name: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  address?: string | null;
   role?: string | null;
   mission?: string | null;
   phone?: string | null;

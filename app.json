@@ -55,6 +55,22 @@
           "category": ["BROWSABLE", "DEFAULT"]
         }
       ],
+      "queries": [
+        {
+          "intent": {
+            "action": "VIEW",
+            "category": ["BROWSABLE"],
+            "data": { "scheme": "https" }
+          }
+        },
+        {
+          "intent": {
+            "action": "VIEW",
+            "category": ["BROWSABLE"],
+            "data": { "scheme": "http" }
+          }
+        }
+      ],
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.NFC",
@@ -95,7 +111,13 @@
           "android": {
             "usesCleartextTraffic": true,
             "enableProguardInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "gradleProperties": {
+              "reactNativeArchitectures": "arm64-v8a",
+              "org.gradle.parallel": "true",
+              "org.gradle.caching": "true",
+              "org.gradle.jvmargs": "-Xmx4096m -XX:MaxMetaspaceSize=512m"
+            }
           }
         }
       ]

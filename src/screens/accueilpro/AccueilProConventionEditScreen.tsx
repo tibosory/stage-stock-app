@@ -17,7 +17,7 @@ import {
 import { useLanguage } from '../../context/LanguageContext';
 import { useAppAuth } from '../../context/AuthContext';
 import { useConnection } from '../../context/ConnectionContext';
-import { generateApId, getApConvention, getApEvent, saveApConvention } from '../../db/accueilProDb';
+import { generateApId, getApConvention, getApEvent, getApVenue, saveApConvention } from '../../db/accueilProDb';
 import { uploadAccueilProConventionPdf } from '../../lib/accueilProConventionDocumentUpload';
 import { persistConventionPdfCopy, removeConventionPdfLocal } from '../../lib/accueilProConventionPdfStorage';
 import { logAccueilProAction } from '../../lib/accueilProActivityLog';
@@ -40,8 +40,10 @@ export default function AccueilProConventionEditScreen() {
   const { user } = useAppAuth();
   const { status: connStatus } = useConnection();
   const eventId = route.params?.eventId as string | undefined;
+  const venueId = route.params?.venueId as string | undefined;
   const conventionId = route.params?.id as string | undefined;
   const signNow = route.params?.signNow as boolean | undefined;
+  const [resolvedVenueId, setResolvedVenueId] = useState<string | undefined>(venueId);
   const [loading, setLoading] = useState(!!conventionId);
   const [saving, setSaving] = useState(false);
   const [titre, setTitre] = useState('');
@@ -58,6 +60,21 @@ export default function AccueilProConventionEditScreen() {
   const [showSignPad, setShowSignPad] = useState(!!signNow);
 
   useEffect(() => {
+    setResolvedVenueId(venueId);
+  }, [venueId]);
+
+  useEffect(() => {
+    if (conventionId || !resolvedVenueId) return;
+    void getApVenue(resolvedVenueId).then(v => {
+      if (v) {
+        setTitre(prev =>
+          prev.trim() ? prev : `${t('accueilpro.venues.conventionDefaultTitle')} — ${v.name}`
+        );
+      }
+    });
+  }, [conventionId, resolvedVenueId, t]);
+
+  useEffect(() => {
     if (!conventionId) return;
     void getApConvention(conventionId).then(c => {
       if (c) {
@@ -71,6 +88,7 @@ export default function AccueilProConventionEditScreen() {
         setDocumentFilename(c.document_filename ?? null);
         setDocumentStoragePath(c.document_storage_path ?? null);
         setPdfPreviewed(!!c.document_local_uri);
+        if (c.venue_id) setResolvedVenueId(c.venue_id);
       }
       setLoading(false);
     });
@@ -174,6 +192,7 @@ export default function AccueilProConventionEditScreen() {
         const row = {
           id,
           event_id: eventId ?? null,
+          venue_id: resolvedVenueId ?? null,
           titre: titre.trim(),
           contenu: contenu.trim() || null,
           status: (opts?.sign ? 'signé' : status) as ApConventionStatus,
@@ -215,6 +234,8 @@ export default function AccueilProConventionEditScreen() {
       signedBy,
       conventionId,
       eventId,
+      venueId,
+      resolvedVenueId,
       user?.nom,
       t,
       documentLocalUri,

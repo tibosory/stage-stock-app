@@ -21,6 +21,7 @@ import {
   countInspections,
   countUpcomingEvents,
   countVenues,
+  listApEvents,
   listApVenues,
   recentInspections,
   upcomingEvents,
@@ -30,6 +31,9 @@ import { syncAccueilProBidirectional } from '../../lib/accueilProApiSync';
 import { useAccueilProRole } from '../../modules/accueilpro/hooks/useAccueilProRole';
 import { todayIsoDate } from './accueilProScreenCommon';
 import type { ApEvent, ApRoomInspection, ApVenue } from '../../types/accueilPro';
+import { eventsOnDate } from '../../lib/accueilProFeuilleHelpers';
+import { buildEventReadinessSnapshots, type EventReadinessSnapshot } from '../../lib/accueilProEventReadiness';
+import { EventDayReadinessCard } from '../../components/accueilpro/EventReadinessChecklist';
 
 function formatShortDate(iso?: string | null): string {
   if (!iso) return '—';
@@ -61,10 +65,11 @@ export default function AccueilProHomeScreen() {
   const [venues, setVenues] = useState<ApVenue[]>([]);
   const [events, setEvents] = useState<ApEvent[]>([]);
   const [edl, setEdl] = useState<ApRoomInspection[]>([]);
+  const [todayReadiness, setTodayReadiness] = useState<EventReadinessSnapshot[]>([]);
 
   const load = useCallback(async () => {
     const today = todayIsoLocal();
-    const [vCount, eCount, iCount, cCount, vList, evList, edlList] = await Promise.all([
+    const [vCount, eCount, iCount, cCount, vList, evList, edlList, allEvents] = await Promise.all([
       countVenues(),
       countUpcomingEvents(),
       countInspections(),
@@ -72,12 +77,18 @@ export default function AccueilProHomeScreen() {
       listApVenues(),
       upcomingEvents({ limit: 12 }),
       recentInspections({ limit: 4 }),
+      listApEvents(),
     ]);
-    const confirmed = evList.filter(e => e.status === 'confirmé');
     setStats({ venues: vCount, events: eCount, edl: iCount, conventions: cCount });
-    setTodayEvents(confirmed.filter(e => (e.date_debut ?? '').slice(0, 10) === today).length);
+    const todayList = eventsOnDate(allEvents, today);
+    setTodayEvents(todayList.length);
+    if (todayList.length > 0) {
+      setTodayReadiness(await buildEventReadinessSnapshots(todayList.map(e => e.id)));
+    } else {
+      setTodayReadiness([]);
+    }
     setVenues(vList.slice(0, 4));
-    setEvents(confirmed.slice(0, 3));
+    setEvents(evList.slice(0, 3));
     setEdl(edlList);
     setConflictCount(await countAccueilProConflicts());
   }, []);
@@ -123,14 +134,12 @@ export default function AccueilProHomeScreen() {
       ? [
           { key: 'AccueilAssociation', label: t('accueilpro.nav.portal'), icon: '🤝' },
           { key: 'AccueilProPlanning', label: t('accueilpro.nav.planning'), icon: '📆' },
-          { key: 'AccueilProRentalRequestEdit', label: t('accueilpro.nav.requests'), icon: '📝' },
         ]
       : [
           { key: 'AccueilProPlanning', label: t('accueilpro.nav.planning'), icon: '📆' },
           { key: 'AccueilProDayPlan', label: t('accueilpro.nav.dayPlan'), icon: '🗓' },
           { key: 'AccueilProFeuilleRoute', label: t('accueilpro.nav.feuille'), icon: '🗒' },
           { key: 'AccueilProOrganizations', label: t('accueilpro.nav.organizations'), icon: '🏢' },
-          { key: 'AccueilProRentalRequests', label: t('accueilpro.nav.requests'), icon: '📝' },
           { key: 'AccueilProContacts', label: t('accueilpro.nav.contacts'), icon: '📇' },
           { key: 'AccueilProPersonnel', label: t('accueilpro.nav.team'), icon: '👥' },
           { key: 'AccueilProActivityLog', label: t('accueilpro.nav.activity'), icon: '📜' },
@@ -164,8 +173,25 @@ export default function AccueilProHomeScreen() {
         count={todayEvents}
         title={t('accueilpro.home.todayLabel')}
         subtitle={t('accueilpro.home.todayEvents', { count: String(todayEvents) })}
-        onPress={() => nav('AccueilProEvents')}
+        onPress={() => nav('AccueilProEvents', { filter: 'today' })}
       />
+
+      {isStaff && todayReadiness.length > 0 ?
+        <AccueilProSectionCard
+          title={t('accueilpro.home.myDay')}
+          actionLabel={t('accueilpro.home.myDayFeuille')}
+          onAction={() => nav('AccueilProFeuilleRoute', { date: todayIsoDate() })}
+        >
+          {todayReadiness.map(snap => (
+            <EventDayReadinessCard
+              key={snap.event.id}
+              snap={snap}
+              t={t}
+              onPress={() => nav('AccueilProEventDetail', { id: snap.event.id })}
+            />
+          ))}
+        </AccueilProSectionCard>
+      : null}
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
         <AccueilProStatTile icon="🏛" value={stats.venues} label={t('accueilpro.nav.venues')} color={AccueilProColors.gold} onPress={() => nav('AccueilProVenues')} />
@@ -187,7 +213,6 @@ export default function AccueilProHomeScreen() {
                 ]
               : [
                   { label: t('accueilpro.nav.portal'), icon: '🤝', color: AccueilProColors.gold, onPress: () => nav('AccueilAssociation') },
-                  { label: t('accueilpro.nav.requests'), icon: '📝', color: AccueilProColors.navy, onPress: () => nav('AccueilProRentalRequestEdit', {}) },
                   { label: t('accueilpro.nav.planning'), icon: '📆', color: AccueilProColors.eventSpectacle, onPress: () => nav('AccueilProPlanning') },
                 ]
           }

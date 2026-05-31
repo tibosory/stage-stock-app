@@ -57,7 +57,18 @@ export function WindowsInstallerCard() {
     }
     const target = `${cacheBase}Stagestock-Installer.exe`;
     await FileSystem.deleteAsync(target, { idempotent: true });
-    const dl = await FileSystem.downloadAsync(resolved.url, target);
+    let dl: FileSystem.FileSystemDownloadResult;
+    try {
+      dl = await FileSystem.downloadAsync(resolved.url, target);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(
+        tr(
+          `Impossible de télécharger l’installateur (réseau ou DNS). Vérifiez le Wi‑Fi / Internet du téléphone, puis réessayez.\n\n${msg}`,
+          `Cannot download the installer (network or DNS). Check phone Wi‑Fi / Internet, then retry.\n\n${msg}`
+        )
+      );
+    }
     if (dl.status < 200 || dl.status >= 300) {
       if (dl.status === 404) {
         throw new Error(

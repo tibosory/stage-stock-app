@@ -87,7 +87,7 @@ import DemandePretScreen from './src/screens/DemandePretScreen';
 import MenuHubScreen from './src/screens/MenuHubScreen';
 import ActivityHomeScreen from './src/screens/ActivityHomeScreen';
 import WorkspaceOnboardingScreen from './src/screens/WorkspaceOnboardingScreen';
-import { hasCompletedWorkspaceOnboarding, hasVerifiedServerPairing } from './src/lib/workspaceOnboardingStorage';
+import { hasCompletedWorkspaceOnboarding } from './src/lib/workspaceOnboardingStorage';
 import { StockStackNavigator, VgpStackNavigator } from './src/navigation/screenStacks';
 import {
   WorkspaceStock,
@@ -399,12 +399,9 @@ function LoggedInNavigator() {
   useEffect(() => {
     let cancel = false;
     void (async () => {
-      const [done, paired] = await Promise.all([
-        hasCompletedWorkspaceOnboarding(),
-        hasVerifiedServerPairing(),
-      ]);
+      const done = await hasCompletedWorkspaceOnboarding();
       if (!cancel) {
-        setOnboardingInit(!paired || !done ? 'onboarding' : 'main');
+        setOnboardingInit(!done ? 'onboarding' : 'main');
       }
     })();
     return () => {

@@ -289,8 +289,8 @@ async function upsertRemoteRow(
       await db.runAsync(
         `INSERT OR REPLACE INTO ap_events (
           id,venue_id,organization_id,name,type,organisateur,date_debut,date_fin,heure_debut,heure_fin,
-          participants,description,status,spaces_mode,selected_space_ids_json,space_id,created_at,updated_at,synced)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+          participants,description,status,spaces_mode,selected_space_ids_json,space_id,readiness_manual_json,created_at,updated_at,synced)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
         [
           String(r.id),
           r.venue_id != null ? String(r.venue_id) : null,
@@ -308,6 +308,9 @@ async function upsertRemoteRow(
           String(r.spaces_mode ?? 'all'),
           sel,
           r.space_id != null ? String(r.space_id) : null,
+          typeof r.readiness_manual_json === 'string'
+            ? r.readiness_manual_json
+            : JSON.stringify(r.readiness_manual ?? r.readiness_manual_json ?? {}),
           (r.created_at as string) ?? now,
           (r.updated_at as string) ?? now,
         ]

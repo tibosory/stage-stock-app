@@ -4,6 +4,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import {
   AccueilProFormCard,
   AccueilProFormSelectPicker,
+  AccueilProFormTimeField,
   AccueilProInput,
   AccueilProPrimaryButton,
   AccueilProScreenLayout,
@@ -179,8 +180,8 @@ export default function AccueilProDayPlanEditScreen() {
     >
       <AccueilProFormCard>
         <Text style={apStyles.sectionTitle}>{t('accueilpro.dayPlan.colWhen')}</Text>
-        <AccueilProInput label={t('accueilpro.requests.fieldTimeStart')} value={timeStart} onChangeText={setTimeStart} placeholder="09:00" />
-        <AccueilProInput label={t('accueilpro.requests.fieldTimeEnd')} value={timeEnd} onChangeText={setTimeEnd} placeholder="18:00" />
+        <AccueilProFormTimeField label={t('accueilpro.requests.fieldTimeStart')} value={timeStart} onChange={setTimeStart} />
+        <AccueilProFormTimeField label={t('accueilpro.requests.fieldTimeEnd')} value={timeEnd} onChange={setTimeEnd} />
 
         <Text style={[apStyles.sectionTitle, { marginTop: 12 }]}>{t('accueilpro.dayPlan.colWhat')}</Text>
         <AccueilProInput label={t('accueilpro.dayPlan.fieldActivity')} value={title} onChangeText={setTitle} required />

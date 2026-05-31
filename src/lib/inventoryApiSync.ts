@@ -16,6 +16,7 @@ import { invalidateInventorySnapshotCache } from '../db/materialRepository';
 import { getSessionAppUserRole } from '../db/userDb';
 import { canCallApiSync, isLocalBackendDisabledReason } from './syncGuards';
 import { mergeMaterielLocalMedia, filterSnapshotRowsByUnsyncedIds, type MaterielLocalMedia } from './inventorySnapshotMerge';
+import { syncSnapshotInvalidJsonMessage } from './syncSnapshotResponseHint';
 
 const MSG_NO_API =
   'Aucune URL d’API CATRACK Pro configurée (onglet Réseau ou EXPO_PUBLIC_API_URL au build).';
@@ -437,7 +438,7 @@ export async function syncFromInventoryApi(
     try {
       snap = JSON.parse(text) as Snapshot;
     } catch {
-      return { ok: false, error: 'Réponse snapshot invalide (JSON attendu).' };
+      return { ok: false, error: syncSnapshotInvalidJsonMessage(text) };
     }
 
     const database = await getDB();

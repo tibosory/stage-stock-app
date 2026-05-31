@@ -1,12 +1,15 @@
 import React, { useCallback, useState } from 'react';
-import { Alert, Text } from 'react-native';
+import { Alert, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import {
   AccueilProChecklistCard,
+  AccueilProEmpty,
   AccueilProFormCard,
   AccueilProInput,
+  AccueilProListRow,
   AccueilProPrimaryButton,
   AccueilProScreenLayout,
+  AccueilProSectionCard,
 } from '../components/accueilpro/AccueilProUI';
 import {
   CLIENT_PORTAL_CHECKLIST,
@@ -15,15 +18,22 @@ import {
 import { OrganizationDocumentsSection } from '../components/accueilpro/OrganizationDocumentsSection';
 import { useLanguage } from '../context/LanguageContext';
 import { loadAssociationProfileLocal, saveAssociationProfileLocal } from '../lib/associationProfileStorage';
-import { importAssociationProfileAsOrganization, listApOrganizationDocuments, listApOrganizations } from '../db/accueilProDb';
+import {
+  importAssociationProfileAsOrganization,
+  listApOrganizationDocuments,
+  listApOrganizations,
+} from '../db/accueilProDb';
 import type { ApOrganizationDocument } from '../types/accueilPro';
 import { syncAccueilProBidirectional } from '../lib/accueilProApiSync';
 import { useConnection } from '../context/ConnectionContext';
+import { useAccueilProRole } from '../modules/accueilpro/hooks/useAccueilProRole';
+import { formatPortalEventMeta, listPortalOrganizationBlocks, type PortalOrganizationBlock } from '../lib/accueilProPortalHelpers';
 
 export default function AccueilAssociationScreen() {
   const navigation = useNavigation<any>();
   const { t } = useLanguage();
   const { status: connStatus } = useConnection();
+  const { isClientPortal } = useAccueilProRole();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
@@ -36,6 +46,7 @@ export default function AccueilAssociationScreen() {
   const [contactName, setContactName] = useState('');
   const [linkedOrgId, setLinkedOrgId] = useState<string | null>(null);
   const [docs, setDocs] = useState<ApOrganizationDocument[]>([]);
+  const [orgBlocks, setOrgBlocks] = useState<PortalOrganizationBlock[]>([]);
 
   const load = useCallback(async () => {
     const profile = await loadAssociationProfileLocal();
@@ -47,16 +58,23 @@ export default function AccueilAssociationScreen() {
     setEmail(profile.email);
     setPhone(profile.phone);
     setContactName(profile.contactName);
-    setLinkedOrgId(profile.linkedOrganizationId ?? null);
-    if (!profile.linkedOrganizationId) {
+
+    let orgId = profile.linkedOrganizationId ?? null;
+    if (!orgId) {
       const orgs = await listApOrganizations();
-      if (orgs.length === 1) setLinkedOrgId(orgs[0].id);
+      if (orgs.length === 1) orgId = orgs[0].id;
     }
-    const orgId = profile.linkedOrganizationId ?? (await listApOrganizations())[0]?.id ?? null;
+    setLinkedOrgId(orgId);
+
+    const blocks = await listPortalOrganizationBlocks(
+      isClientPortal && orgId ? { organizationId: orgId } : undefined
+    );
+    setOrgBlocks(blocks);
+
     if (orgId) {
       setDocs(await listApOrganizationDocuments(orgId));
     }
-  }, []);
+  }, [isClientPortal]);
 
   useFocusEffect(
     useCallback(() => {
@@ -110,12 +128,22 @@ export default function AccueilAssociationScreen() {
       if (connStatus === 'ok') {
         await syncAccueilProBidirectional(null);
       }
+      await load();
       Alert.alert(t('accueilpro.portal.savedTitle'), t('accueilpro.portal.savedBody'));
     } catch (e) {
       Alert.alert(t('accueilpro.portal.errorTitle'), e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
+  };
+
+  const openEventDocs = (block: PortalOrganizationBlock, eventId: string, eventName: string) => {
+    navigation.navigate('AccueilProPortalEventDocuments', {
+      eventId,
+      organizationId: block.organization.id,
+      eventName,
+      organizationName: block.organization.name,
+    });
   };
 
   return (
@@ -127,36 +155,64 @@ export default function AccueilAssociationScreen() {
       headerSubtitle={t('accueilpro.portal.subtitle')}
       loading={loading}
       showFieldStrip
-      footer={<AccueilProPrimaryButton label={t('accueilpro.save')} onPress={() => void onSave()} loading={saving} />}
+      footer={
+        isClientPortal ?
+          <AccueilProPrimaryButton label={t('accueilpro.save')} onPress={() => void onSave()} loading={saving} />
+        : undefined
+      }
     >
-      <AccueilProChecklistCard
-        title={t('accueilpro.portal.checklist')}
-        progressLabel={t('accueilpro.portal.checklistProgress', {
-          done: String(progress.requiredDone),
-          total: String(progress.requiredTotal),
-        })}
-        items={CLIENT_PORTAL_CHECKLIST.map(item => ({
-          id: item.id,
-          label: item.label,
-          done: item.isComplete(checklistCtx),
-        }))}
-      />
-      <AccueilProFormCard>
-        <AccueilProInput label={t('accueilpro.portal.fieldName')} value={name} onChangeText={setName} required />
-        <AccueilProInput label={t('accueilpro.portal.fieldType')} value={type} onChangeText={setType} />
-        <AccueilProInput label={t('accueilpro.portal.fieldAddress')} value={address} onChangeText={setAddress} />
-        <AccueilProInput label={t('accueilpro.field.cp')} value={cp} onChangeText={setCp} keyboardType="number-pad" />
-        <AccueilProInput label={t('accueilpro.field.city')} value={city} onChangeText={setCity} />
-        <AccueilProInput label={t('accueilpro.portal.contactName')} value={contactName} onChangeText={setContactName} />
-        <AccueilProInput label={t('accueilpro.field.phone')} value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
-        <AccueilProInput label={t('accueilpro.field.email')} value={email} onChangeText={setEmail} keyboardType="email-address" />
-      </AccueilProFormCard>
-      {linkedOrgId ?
-        <OrganizationDocumentsSection
-          organizationId={linkedOrgId}
-          onEnsureOrganizationId={async () => linkedOrgId}
-          onDocumentsChange={setDocs}
-        />
+      <AccueilProSectionCard title={t('accueilpro.portal.eventsByOrg')}>
+        {orgBlocks.length === 0 ?
+          <AccueilProEmpty message={t('accueilpro.portal.noEvents')} />
+        : orgBlocks.map(block => (
+            <View key={block.organization.id} style={{ marginBottom: 4 }}>
+              <Text style={{ fontWeight: '800', fontSize: 16, marginBottom: 6, marginTop: 8 }}>
+                {block.organization.name}
+              </Text>
+              {block.events.map(ev => (
+                <AccueilProListRow
+                  key={ev.id}
+                  title={ev.name}
+                  meta={formatPortalEventMeta(ev, block.docCounts[ev.id] ?? 0)}
+                  onPress={() => openEventDocs(block, ev.id, ev.name)}
+                />
+              ))}
+            </View>
+          ))}
+      </AccueilProSectionCard>
+
+      {isClientPortal ?
+        <>
+          <AccueilProChecklistCard
+            title={t('accueilpro.portal.checklist')}
+            progressLabel={t('accueilpro.portal.checklistProgress', {
+              done: String(progress.requiredDone),
+              total: String(progress.requiredTotal),
+            })}
+            items={CLIENT_PORTAL_CHECKLIST.map(item => ({
+              id: item.id,
+              label: item.label,
+              done: item.isComplete(checklistCtx),
+            }))}
+          />
+          <AccueilProFormCard>
+            <AccueilProInput label={t('accueilpro.portal.fieldName')} value={name} onChangeText={setName} required />
+            <AccueilProInput label={t('accueilpro.portal.fieldType')} value={type} onChangeText={setType} />
+            <AccueilProInput label={t('accueilpro.portal.fieldAddress')} value={address} onChangeText={setAddress} />
+            <AccueilProInput label={t('accueilpro.field.cp')} value={cp} onChangeText={setCp} keyboardType="number-pad" />
+            <AccueilProInput label={t('accueilpro.field.city')} value={city} onChangeText={setCity} />
+            <AccueilProInput label={t('accueilpro.portal.contactName')} value={contactName} onChangeText={setContactName} />
+            <AccueilProInput label={t('accueilpro.field.phone')} value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+            <AccueilProInput label={t('accueilpro.field.email')} value={email} onChangeText={setEmail} keyboardType="email-address" />
+          </AccueilProFormCard>
+          {linkedOrgId ?
+            <OrganizationDocumentsSection
+              organizationId={linkedOrgId}
+              onEnsureOrganizationId={async () => linkedOrgId}
+              onDocumentsChange={setDocs}
+            />
+          : null}
+        </>
       : null}
     </AccueilProScreenLayout>
   );

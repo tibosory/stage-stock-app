@@ -28,13 +28,29 @@ const HOST_WITH_OPTIONAL_PORT_RE =
  * (ex. `http://192.168.1.20:8091`). Si l’utilisateur saisit `http://…/api`, sans correction on obtient `/api/ask` → 404.
  */
 export function stripStageStockServerRootSuffix(url: string): string {
-  let t = url.trim().replace(/\/+$/, '');
+  const t = url.trim();
   if (!t) return '';
-  if (/\/api$/i.test(t)) {
-    t = t.replace(/\/api$/i, '').replace(/\/+$/, '');
+  const candidate = ABSOLUTE_SCHEME_RE.test(t) ? t : `http://${t}`;
+  try {
+    const u = new URL(candidate);
+    let path = u.pathname.replace(/\/+$/, '') || '/';
+    if (/^\/api$/i.test(path)) {
+      path = '/';
+    } else if (/^\/(pair\.html|pair|serveur\.html|diagnostic)$/i.test(path)) {
+      path = '/';
+    }
+    const port = u.port ? `:${u.port}` : '';
+    const root = `${u.protocol}//${u.hostname}${port}`;
+    if (path === '/') return root;
+    return trimSlash(`${root}${path}`);
+  } catch {
+    let legacy = t.replace(/\/+$/, '');
+    if (/\/api$/i.test(legacy)) {
+      legacy = legacy.replace(/\/api$/i, '').replace(/\/+$/, '');
+    }
+    legacy = legacy.replace(/\/(pair\.html|pair|serveur\.html|diagnostic)$/i, '').replace(/\/+$/, '');
+    return legacy;
   }
-  t = t.replace(/\/(pair\.html|pair|serveur\.html|diagnostic)$/i, '').replace(/\/+$/, '');
-  return t;
 }
 
 export function normalizeHttpBaseUrl(input: string): string | null {
@@ -49,7 +65,7 @@ export function normalizeHttpBaseUrl(input: string): string | null {
     const u = new URL(candidate);
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
     if (!u.hostname) return null;
-    return trimSlash(u.toString());
+    return stripStageStockServerRootSuffix(trimSlash(u.toString()));
   } catch {
     return null;
   }
@@ -146,6 +162,14 @@ export async function setSecondaryApiKey(key: string | null): Promise<void> {
     return;
   }
   await AsyncStorage.setItem(K_SECONDARY_KEY, key.trim());
+}
+
+/** Re-normalise l’URL enregistrée (supprime /pair, /api, etc.) après jumelage ou saisie manuelle. */
+export async function reconcileStoredApiBaseUrl(): Promise<void> {
+  const base = await getApiBaseOverride();
+  if (base) {
+    await setApiBaseOverride(base);
+  }
 }
 
 /** Validation minimale : schéma http(s) et au moins une autorité. */

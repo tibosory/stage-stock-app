@@ -4,6 +4,7 @@
  */
 import { AppState, type AppStateStatus } from 'react-native';
 import { runAutoLanDiscoveryWhenUnreachable } from './consumerAutoConnect';
+import { isPairingInProgress } from './pairingSessionGuard';
 import { getPrets } from '../db/loanDb';
 import { getMateriel, getConsommablesAlerte } from '../db/inventoryDb';
 import { reschedulePretReturnReminders } from './pretNotifications';
@@ -14,6 +15,8 @@ import { recordSyncTelemetry } from './syncTelemetry';
 import { notifyForegroundSyncIssue } from './syncUserFeedback';
 import { getDataBackendMode } from './backendMode';
 import { runInventorySync } from './inventorySyncOrchestrator';
+import { hasCompletedWorkspaceOnboarding } from './workspaceOnboardingStorage';
+import { isInvalidSnapshotJsonError } from './syncSnapshotResponseHint';
 
 let lastRunAt = 0;
 const MIN_MS_BETWEEN_RUNS = 4_000;
@@ -40,7 +43,9 @@ export async function runForegroundInventorySync(): Promise<void> {
   try {
     const backendMode = await getDataBackendMode();
     if (backendMode === 'local_server') {
-      await runAutoLanDiscoveryWhenUnreachable();
+      if (!isPairingInProgress()) {
+        await runAutoLanDiscoveryWhenUnreachable();
+      }
     }
 
     const result = await runInventorySync({
@@ -49,9 +54,17 @@ export async function runForegroundInventorySync(): Promise<void> {
     });
 
     if (!result.ok) {
+      const onboardingDone = await hasCompletedWorkspaceOnboarding();
+      const suppressAlert = isPairingInProgress() || !onboardingDone;
+      if (suppressAlert) {
+        return;
+      }
       if (backendMode === 'local_server') {
+        const title = isInvalidSnapshotJsonError(result.error)
+          ? 'Réponse serveur incorrecte'
+          : 'PC non joignable';
         notifyForegroundSyncIssue(
-          'PC non joignable',
+          title,
           result.error ??
             'Le serveur local ne répond pas. Vérifiez que le PC est allumé, sur le même Wi‑Fi ou Tailscale, puis ouvrez Connexion pour tester.'
         );

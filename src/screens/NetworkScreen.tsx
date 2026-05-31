@@ -43,13 +43,15 @@ import { NetworkAccueilProSync } from '../components/NetworkAccueilProSync';
 import { BackendModePicker } from '../components/BackendModePicker';
 import { NetworkSupabasePanel } from '../components/NetworkSupabasePanel';
 import { WindowsInstallerCard } from '../components/WindowsInstallerCard';
+import { ConnectionDiagnosticPanel } from '../components/ConnectionDiagnosticPanel';
 import { useLanguage } from '../context/LanguageContext';
+import { toUserFriendlyNetworkMessage } from '../lib/userFriendlyNetworkError';
 import { getDataBackendMode, type DataBackendMode } from '../lib/backendMode';
 
-type Segment = 'config' | 'guide';
+type Segment = 'config' | 'guide' | 'diagnostic';
 
 export default function NetworkScreen() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const insets = useSafeAreaInsets();
   const { status, refresh } = useConnection();
   const [segment, setSegment] = useState<Segment>('config');
@@ -143,7 +145,10 @@ export default function NetworkScreen() {
     setTesting(true);
     try {
       const r = await pingStageStockApi();
-      Alert.alert(r.ok ? t('network.testOk') : t('network.testFail'), r.message);
+      Alert.alert(
+        r.ok ? t('network.testOk') : t('network.testFail'),
+        r.ok ? t('network.testOkBody') : toUserFriendlyNetworkMessage(r.message, language)
+      );
     } finally {
       setTesting(false);
     }
@@ -153,7 +158,10 @@ export default function NetworkScreen() {
     setTestingSync(true);
     try {
       const r = await probeStageStockSyncApi();
-      Alert.alert(r.ok ? t('network.syncOk') : t('network.syncFail'), r.message);
+      Alert.alert(
+        r.ok ? t('network.syncOk') : t('network.syncFail'),
+        r.ok ? t('network.syncOkBody') : toUserFriendlyNetworkMessage(r.message, language)
+      );
     } finally {
       setTestingSync(false);
     }
@@ -293,10 +301,13 @@ export default function NetworkScreen() {
 
     try {
       const pairUrl = await firstReachablePairUrl();
-      const ok = await Linking.canOpenURL(pairUrl);
-      if (!ok) {
-        Alert.alert(t('network.openError'), pairUrl);
-        return;
+      // http:// LAN : canOpenURL renvoie souvent false sur Android 11+ même si le navigateur peut ouvrir l’URL.
+      if (/^https:\/\//i.test(pairUrl)) {
+        const ok = await Linking.canOpenURL(pairUrl);
+        if (!ok) {
+          Alert.alert(t('network.openError'), pairUrl);
+          return;
+        }
       }
       await Linking.openURL(pairUrl);
     } catch (e) {
@@ -332,6 +343,12 @@ export default function NetworkScreen() {
               onPress={() => setSegment('guide')}
             >
               <Text style={[styles.segmentLabel, segment === 'guide' && styles.segmentLabelActive]}>{t('network.segment.help')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.segmentBtn, segment === 'diagnostic' && styles.segmentBtnActive]}
+              onPress={() => setSegment('diagnostic')}
+            >
+              <Text style={[styles.segmentLabel, segment === 'diagnostic' && styles.segmentLabelActive]}>{t('network.segment.diagnostic')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -464,6 +481,8 @@ export default function NetworkScreen() {
               <NetworkCloudSync />
               <NetworkAccueilProSync />
             </>
+          ) : segment === 'diagnostic' ? (
+            <ConnectionDiagnosticPanel />
           ) : (
             <Card style={{ marginBottom: 14 }}>
               {isLocalBackend ? <GuideReseauPublicContent /> : <GuideReseauSupabaseContent />}
@@ -498,6 +517,14 @@ export default function NetworkScreen() {
           >
             <Text style={[styles.segmentLabel, segment === 'guide' && styles.segmentLabelActive]}>
               {t('network.segment.howto')}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.segmentBtn, segment === 'diagnostic' && styles.segmentBtnActive]}
+            onPress={() => setSegment('diagnostic')}
+          >
+            <Text style={[styles.segmentLabel, segment === 'diagnostic' && styles.segmentLabelActive]}>
+              {t('network.segment.diagnostic')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -605,6 +632,8 @@ export default function NetworkScreen() {
             <NetworkCloudSync />
             <NetworkAccueilProSync />
           </>
+        ) : segment === 'diagnostic' ? (
+          <ConnectionDiagnosticPanel />
         ) : (
           <Card style={{ marginBottom: 14 }}>
             {isLocalBackend ? <GuideReseauLocalContent /> : <GuideReseauSupabaseContent />}

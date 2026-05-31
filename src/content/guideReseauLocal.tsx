@@ -5,23 +5,19 @@ import { useLanguage } from '../context/LanguageContext';
 
 const SECTIONS_FR: { title: string; body: string }[] = [
   {
-    title: '0. Installation facile (comme une recette)',
+    title: 'Installation en 4 étapes (débutant)',
     body:
-      'Objectif: installer le serveur local sans connaissance informatique.\n\n' +
-      'Etape A: sur le telephone, appuyez "Installer le serveur sur PC".\n' +
-      'Etape B: sur le PC, ouvrez le fichier telecharge puis cliquez "Suivant", "Installer", "Terminer".\n' +
-      'Etape C: lancez "StageStock Local" depuis le bureau du PC.\n' +
-      'Etape D: sur le telephone, scannez le QR affiche par le PC.\n' +
-      'Etape E: appuyez sur "Tester la connexion".\n\n' +
-      'Si vous etes perdu, retenez juste ceci: 1) installer l EXE, 2) ouvrir StageStock Local, 3) scanner le QR.',
+      '1) Sur le téléphone : téléchargez l’installateur serveur Windows.\n' +
+      '2) Transférez-le sur le PC et double-cliquez : Suivant → Installer → Terminer.\n' +
+      '3) Lancez « StageStock Local » depuis le bureau du PC.\n' +
+      '4) Sur le téléphone : dans l’assistant (ou Réseau), appuyez sur « Scanner le QR d’appairage » et visez le QR du PC.\n\n' +
+      'En résumé : télécharger → installer sur le PC → ouvrir StageStock Local → scanner le QR. C’est tout.',
   },
   {
-    title: '1. Principe',
+    title: 'Principe',
     body:
-      'Sur le Wi‑Fi du théâtre (ou tout réseau local), un PC ou un mini‑serveur peut héberger l’API CATRACK Pro. ' +
-      'Les téléphones sur le même Wi‑Fi utilisent alors l’adresse locale (ex. http://192.168.1.20:3000). ' +
-      'Les données inventaire restent surtout dans l’app (SQLite) ; l’API sert aux synchronisations ' +
-      'ou services que vous branchez côté serveur.',
+      'CATRACK Pro enregistre d’abord vos données sur le téléphone. Pour les partager avec l’équipe, un PC serveur ' +
+      'doit tourner dans votre organisation. Le téléphone et le PC se connectent sur le même Wi‑Fi (ou via Tailscale à distance).',
   },
   {
     title: '2. Prérequis réseau',
@@ -59,9 +55,7 @@ const SECTIONS_FR: { title: string; body: string }[] = [
   {
     title: '6. Validation complète app ↔ backend',
     body:
-      'Dans l’app : onglet Réseau → Enregistrer l’URL locale → Tester la connexion → Tester endpoint sync. ' +
-      'Puis onglet Paramètres → Synchronisation cloud (API) → faire un test Envoyer et Recevoir. ' +
-      'Si ces quatre étapes passent, l’accès backend et la mise à jour de base sont opérationnels sur le Wi‑Fi local.',
+      'Dans l’app : assistant ou onglet Réseau → « Scanner le QR d’appairage » (ou scan depuis l’onglet Scanner) → Envoyer ↑ / Recevoir ↓ pour synchroniser.',
   },
   {
     title: '7. Configuration dans CATRACK Pro',
@@ -116,9 +110,8 @@ const SECTIONS_EN: { title: string; body: string }[] = [
       'Step A: on phone, tap "Install server on PC".\n' +
       'Step B: on PC, open the downloaded file and click "Next", "Install", "Finish".\n' +
       'Step C: launch "StageStock" from the PC desktop.\n' +
-      'Step D: on phone, scan the QR shown by the PC.\n' +
-      'Step E: tap "Test connection".\n\n' +
-      'If unsure, remember this: 1) install EXE, 2) open StageStock, 3) scan QR.',
+      'Step D: on phone, tap "Scan pairing QR code" in setup (or scan from Scanner tab).\n\n' +
+      'If unsure, remember this: 1) install EXE, 2) open StageStock Local, 3) scan pairing QR.',
   },
   {
     title: '1. Principle',
@@ -178,8 +171,8 @@ export function GuideReseauPublicContent() {
         </Text>
         <Text style={g.body}>
           {isEn
-            ? '1) On phone, open Connection then tap "Install server on PC".\n2) On PC, open the downloaded file and click "Next", "Install", "Finish".\n3) On PC, open StageStock from the desktop.\n4) On phone, scan the QR shown by PC.\n5) Tap "Test connection". Done.'
-            : '1) Sur le telephone, ouvrez Connexion puis touchez "Installer le serveur sur PC".\n2) Sur le PC, ouvrez le fichier telecharge et cliquez "Suivant", "Installer", "Terminer".\n3) Sur le PC, ouvrez StageStock depuis le bureau.\n4) Sur le telephone, scannez le QR affiche par le PC.\n5) Touchez "Tester la connexion". C est fini.'}
+            ? '1) On your phone, open Network and download the Windows server.\n2) On the PC, run the installer: Next → Install → Finish.\n3) Open StageStock Local from the desktop.\n4) Tap Scan pairing QR code in setup and point at the PC QR. Done.'
+            : '1) Sur le téléphone : ouvrez Réseau et téléchargez le serveur Windows.\n2) Sur le PC : lancez l’installateur → Suivant → Installer → Terminer.\n3) Ouvrez StageStock Local depuis le bureau.\n4) Appuyez sur « Scanner le QR d’appairage » et visez le QR du PC. C’est terminé.'}
         </Text>
       </View>
       <View style={g.block}>
@@ -212,65 +205,54 @@ export function GuideReseauPublicContent() {
 
 const SECTIONS_SUPABASE_FR: { title: string; body: string }[] = [
   {
-    title: '1. Principe',
+    title: 'Principe',
     body:
-      'En mode Supabase, inventaire, prêts et Accueil Pro transitent par votre projet cloud. ' +
-      'Aucun PC serveur n’est requis pour la synchronisation : seule une connexion Internet est nécessaire.',
+      'En mode Supabase, inventaire, prêts et Accueil Pro sont synchronisés via Internet. ' +
+      'Aucun PC serveur n’est nécessaire : il vous faut une connexion Internet et un projet Supabase configuré.',
   },
   {
-    title: '2. Configuration du projet',
+    title: 'Configuration',
     body:
-      'Onglet Réseau → choisissez « Travailler avec Supabase » → renseignez l’URL du projet et la clé anon ' +
-      '(ou utilisez un build EAS déjà configuré). Enregistrez, puis connectez-vous sur l’écran Connexion.',
+      'Onglet Réseau → choisissez « Cloud Supabase » → renseignez l’URL du projet et la clé anon → enregistrez. ' +
+      'Connectez-vous sur l’écran Connexion avec votre compte Supabase.',
   },
   {
-    title: '3. Migration SQL',
+    title: 'Première synchronisation',
     body:
-      'Sur un projet neuf, exécutez les migrations Supabase du dépôt (inventaire + tables ap_* Accueil Pro). ' +
-      'Le bouton « Télécharger le schéma SQL » dans Réseau ou le profil utilisateur fournit un fichier prêt à coller dans le SQL Editor.',
+      'Cartes « Synchronisation inventaire » et « Accueil Pro » : Envoyer ↑ pousse vos modifications, Recevoir ↓ récupère le cloud. ' +
+      'Tous les téléphones de l’équipe doivent être en mode Supabase.',
   },
   {
-    title: '4. Synchronisation',
-    body:
-      'Cartes « Synchronisation inventaire » et « Accueil Pro » : ↑ envoie vos modifications locales, ↓ récupère le cloud. ' +
-      'Tous les appareils de l’équipe doivent être en mode Supabase (pas de mélange avec le serveur local).',
-  },
-  {
-    title: '5. Invitations portail',
+    title: 'Invitations portail (Accueil Pro)',
     body:
       'Le staff peut inviter une association depuis Accueil Pro → fiche Organisation → Inviter au portail cloud. ' +
-      'L’invité saisit le code à la connexion, se connecte à Supabase avec le même e-mail, puis Finaliser.',
+      'L’invité saisit le code à la connexion, se connecte avec le même e-mail, puis appuie sur Finaliser.',
   },
 ];
 
 const SECTIONS_SUPABASE_EN: { title: string; body: string }[] = [
   {
-    title: '1. Overview',
+    title: 'Overview',
     body:
-      'In Supabase mode, inventory, loans and Accueil Pro sync through your cloud project. ' +
-      'No local PC server is required — only an Internet connection.',
+      'In Supabase mode, inventory, loans and Accueil Pro sync over the Internet. ' +
+      'No PC server is needed — only an Internet connection and a configured Supabase project.',
   },
   {
-    title: '2. Project setup',
+    title: 'Setup',
     body:
-      'Network tab → choose “Work with Supabase” → enter project URL and anon key (or use a preconfigured EAS build). Save, then sign in on the Connection screen.',
+      'Network tab → choose “Supabase cloud” → enter the project URL and anon key → save. ' +
+      'Sign in on the Connection screen with your Supabase account.',
   },
   {
-    title: '3. SQL migration',
+    title: 'First sync',
     body:
-      'On a new project, run the repo Supabase migrations (inventory + ap_* Accueil Pro tables). ' +
-      'The “Download schema SQL” button in Network or User profile provides a file for the SQL Editor.',
+      'Use the Inventory sync and Accueil Pro cards: Push ↑ sends your changes, Pull ↓ receives from the cloud. All team phones must use Supabase mode.',
   },
   {
-    title: '4. Sync',
-    body:
-      'Use the Inventory sync and Accueil Pro cards: ↑ pushes local changes, ↓ pulls from cloud. All team devices must use Supabase mode (do not mix with local server).',
-  },
-  {
-    title: '5. Portal invitations',
+    title: 'Portal invitations (Accueil Pro)',
     body:
       'Staff can invite an association from Accueil Pro → Organization → Invite to cloud portal. ' +
-      'The invitee enters the code at sign-in, signs in to Supabase with the same email, then Finalizes.',
+      'The invitee enters the code at sign-in, signs in with the same e-mail, then taps Finalize.',
   },
 ];
 

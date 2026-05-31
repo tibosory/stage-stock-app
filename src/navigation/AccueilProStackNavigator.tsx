@@ -25,28 +25,28 @@ import AccueilProOrganizationsScreen from '../screens/accueilpro/AccueilProOrgan
 import AccueilProOrganizationEditScreen from '../screens/accueilpro/AccueilProOrganizationEditScreen';
 import AccueilProOrganizationContactsScreen from '../screens/accueilpro/AccueilProOrganizationContactsScreen';
 import AccueilProInviteOrganizationScreen from '../screens/accueilpro/AccueilProInviteOrganizationScreen';
-import AccueilProRentalRequestsScreen from '../screens/accueilpro/AccueilProRentalRequestsScreen';
-import AccueilProRentalRequestEditScreen from '../screens/accueilpro/AccueilProRentalRequestEditScreen';
 import AccueilProConflictsScreen from '../screens/accueilpro/AccueilProConflictsScreen';
 import AccueilProActivityLogScreen from '../screens/accueilpro/AccueilProActivityLogScreen';
+import AccueilProPortalEventDocumentsScreen from '../screens/accueilpro/AccueilProPortalEventDocumentsScreen';
+import AccueilProEventInspectionCompareScreen from '../screens/accueilpro/AccueilProEventInspectionCompareScreen';
 import AccueilAssociationScreen from '../screens/AccueilAssociationScreen';
 
 export type AccueilProStackParamList = {
   AccueilProHome: undefined;
-  AccueilProVenues: undefined;
+  AccueilProVenues: { venueId?: string; spaceId?: string; returnToEvent?: boolean; eventEditId?: string };
   AccueilProVenueDetail: { id: string };
-  AccueilProVenueEdit: { id?: string };
+  AccueilProVenueEdit: { id?: string; returnToEvent?: boolean; eventEditId?: string };
   AccueilProVenueSpaces: { venueId: string };
-  AccueilProSpaceEdit: { venueId: string; id?: string };
-  AccueilProEvents: undefined;
-  AccueilProEventEdit: { id?: string };
+  AccueilProSpaceEdit: { venueId: string; id?: string; returnToEvent?: boolean; eventEditId?: string };
+  AccueilProEvents: { filter?: 'today' | 'week' | 'all' };
+  AccueilProEventEdit: { id?: string; selectOrganizationId?: string; selectOrganizationName?: string; selectVenueId?: string };
   AccueilProEventDetail: { id: string };
   AccueilProEventPersonnel: { eventId: string };
   AccueilProInspections: undefined;
   AccueilProInspectionEdit: { id?: string; eventId?: string; spaceId?: string; type?: string };
   AccueilProPlanning: undefined;
   AccueilProConventions: undefined;
-  AccueilProConventionEdit: { id?: string; eventId?: string; signNow?: boolean };
+  AccueilProConventionEdit: { id?: string; eventId?: string; venueId?: string; signNow?: boolean };
   AccueilProFeuilleRoute: { date?: string };
   AccueilProDayPlan: { date?: string };
   AccueilProDayPlanEdit: { id?: string; date: string; eventId?: string };
@@ -54,14 +54,19 @@ export type AccueilProStackParamList = {
   AccueilProPersonnelEdit: { id?: string; kind?: string; venueId?: string; organizationId?: string };
   AccueilProContacts: undefined;
   AccueilProOrganizations: undefined;
-  AccueilProOrganizationEdit: { id?: string };
+  AccueilProOrganizationEdit: { id?: string; returnToEvent?: boolean; eventEditId?: string };
   AccueilProOrganizationContacts: { organizationId: string };
   AccueilProInviteOrganization: { localOrganizationId?: string; prefillEmail?: string };
-  AccueilProRentalRequests: undefined;
-  AccueilProRentalRequestEdit: { id?: string };
   AccueilProConflicts: undefined;
   AccueilProActivityLog: undefined;
   AccueilAssociation: undefined;
+  AccueilProPortalEventDocuments: {
+    eventId: string;
+    organizationId: string;
+    eventName?: string;
+    organizationName?: string;
+  };
+  AccueilProEventInspectionCompare: { eventId: string };
 };
 
 const Stack = createStackNavigator<AccueilProStackParamList>();
@@ -94,11 +99,11 @@ export function AccueilProStackNavigator() {
       <Stack.Screen name="AccueilProOrganizationEdit" component={AccueilProOrganizationEditScreen} />
       <Stack.Screen name="AccueilProOrganizationContacts" component={AccueilProOrganizationContactsScreen} />
       <Stack.Screen name="AccueilProInviteOrganization" component={AccueilProInviteOrganizationScreen} />
-      <Stack.Screen name="AccueilProRentalRequests" component={AccueilProRentalRequestsScreen} />
-      <Stack.Screen name="AccueilProRentalRequestEdit" component={AccueilProRentalRequestEditScreen} />
       <Stack.Screen name="AccueilProConflicts" component={AccueilProConflictsScreen} />
       <Stack.Screen name="AccueilProActivityLog" component={AccueilProActivityLogScreen} />
       <Stack.Screen name="AccueilAssociation" component={AccueilAssociationScreen} />
+      <Stack.Screen name="AccueilProPortalEventDocuments" component={AccueilProPortalEventDocumentsScreen} />
+      <Stack.Screen name="AccueilProEventInspectionCompare" component={AccueilProEventInspectionCompareScreen} />
     </Stack.Navigator>
   );
 }

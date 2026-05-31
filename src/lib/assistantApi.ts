@@ -1,5 +1,7 @@
 import { getResolvedApiBase, stageStockApiHeadersAsync } from '../config/stageStockApi';
-import { setAccessToken } from './apiEndpointStorage';
+import { setAccessToken, stripStageStockServerRootSuffix } from './apiEndpointStorage';
+import { fetchWithTimeout } from './fetchWithTimeout';
+import { describeInvalidAssistantResponse } from './assistantResponseHint';
 
 export type AssistantJsonPayload = {
   version: number;
@@ -43,7 +45,16 @@ export async function postAssistantAsk(
   message: string,
   opts?: { userId?: string | null; context?: string }
 ): Promise<{ ok: true; data: AssistantAskSuccess } | { ok: false; status: number; body: AssistantAskError | string }> {
-  const base = await getResolvedApiBase();
+  const baseRaw = await getResolvedApiBase();
+  const base = stripStageStockServerRootSuffix(baseRaw.trim());
+  if (!base || base.length < 8 || !/^https?:\/\//i.test(base)) {
+    return {
+      ok: false,
+      status: 0,
+      body:
+        'Aucune URL serveur configurée. Ouvrez Réseau, scannez le QR d’appairage ou saisissez http://IP:PORT du PC.',
+    };
+  }
   const headers = await stageStockApiHeadersAsync();
   headers['Content-Type'] = 'application/json';
   if (opts?.userId) {
@@ -70,12 +81,16 @@ export async function postAssistantAsk(
   });
 
   const doFetch = (h: Record<string, string>) =>
-    fetch(url, {
-      method: 'POST',
-      headers: h,
-      body: JSON.stringify(body),
-      signal: ac.signal,
-    });
+    fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: h,
+        body: JSON.stringify(body),
+        signal: ac.signal,
+      },
+      ASSISTANT_FETCH_TIMEOUT_MS
+    );
 
   const raceFetch = (h: Record<string, string>) => Promise.race([doFetch(h), hardTimeoutPromise]);
 
@@ -121,8 +136,13 @@ export async function postAssistantAsk(
     return { ok: false, status: res.status, body: err?.error ? err : (parsed as string) };
   }
   const data = parsed as AssistantAskSuccess;
-  if (!data?.response || typeof data.response !== 'object') {
-    return { ok: false, status: res.status, body: 'Réponse serveur invalide' };
+  const response = data?.response;
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    return {
+      ok: false,
+      status: res.status,
+      body: describeInvalidAssistantResponse(parsed, text, url),
+    };
   }
   return { ok: true, data };
 }

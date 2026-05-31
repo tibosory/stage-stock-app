@@ -33,7 +33,7 @@ export function PairingDeepLinkSubscriber() {
               : 'Server address saved. Check Wi‑Fi and tap Verify connection in setup.'
             : ping.ok
               ? 'Serveur local connecté. Vous pouvez continuer dans l’app.'
-              : 'Adresse enregistrée. Vérifiez le Wi‑Fi puis « Vérifier la connexion » dans l’assistant.'
+              : 'Adresse enregistrée. Vérifiez le Wi‑Fi puis « Scanner le QR d’appairage » dans l’assistant.'
         );
       } else {
         seen.current.delete(url);

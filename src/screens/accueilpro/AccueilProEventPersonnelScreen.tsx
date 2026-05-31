@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, FlatList, Alert } from 'react-native';
+import { View, Text, FlatList, Alert, TouchableOpacity } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { ContactActionRow } from '../../components/accueilpro/ContactActionRow';
 import {
@@ -14,34 +14,47 @@ import { Spacing } from '../../theme/spacing';
 import { useLanguage } from '../../context/LanguageContext';
 import {
   addPersonnelToEventFromDirectory,
+  createDirectoryPersonnelForEvent,
+  getApEvent,
   listApEventPersonnel,
   listApPersonnel,
-  saveApEventPersonnel,
 } from '../../db/accueilProDb';
-import type { ApEventPersonnel } from '../../types/accueilPro';
+import { personnelDisplayName } from '../../lib/accueilProPersonnelHelpers';
+import type { ApEvent, ApEventPersonnel } from '../../types/accueilPro';
 
 export default function AccueilProEventPersonnelScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { t } = useLanguage();
   const eventId = route.params?.eventId as string;
+  const [event, setEvent] = useState<ApEvent | null>(null);
   const [rows, setRows] = useState<ApEventPersonnel[]>([]);
   const [loading, setLoading] = useState(true);
   const [directory, setDirectory] = useState<{ label: string; value: string }[]>([]);
   const [pickId, setPickId] = useState('');
   const [dayRole, setDayRole] = useState('');
-  const [adhocName, setAdhocName] = useState('');
-  const [adhocPhone, setAdhocPhone] = useState('');
-  const [adhocEmail, setAdhocEmail] = useState('');
-  const [adhocRole, setAdhocRole] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [address, setAddress] = useState('');
+  const [role, setRole] = useState('');
 
   const load = useCallback(async () => {
     try {
-      const [evp, pers] = await Promise.all([listApEventPersonnel(eventId), listApPersonnel()]);
+      const [ev, evp, pers] = await Promise.all([
+        getApEvent(eventId),
+        listApEventPersonnel(eventId),
+        listApPersonnel(),
+      ]);
+      setEvent(ev);
       setRows(evp);
       setDirectory([
         { label: '—', value: '' },
-        ...pers.map(p => ({ label: `${p.name} (${p.kind})`, value: p.id })),
+        ...pers.map(p => ({
+          label: `${personnelDisplayName(p)} (${p.kind})`,
+          value: p.id,
+        })),
       ]);
     } finally {
       setLoading(false);
@@ -66,24 +79,33 @@ export default function AccueilProEventPersonnelScreen() {
     await load();
   };
 
-  const onAddAdhoc = async () => {
-    if (!adhocName.trim()) {
-      Alert.alert(t('accueilpro.orgs.errTitle'), t('accueilpro.contacts.errName'));
+  const onCreateCard = async () => {
+    if (!firstName.trim() && !lastName.trim()) {
+      Alert.alert(t('accueilpro.orgs.errTitle'), t('accueilpro.personnel.errNameParts'));
       return;
     }
-    await saveApEventPersonnel({
-      event_id: eventId,
-      source: 'jour',
-      name: adhocName.trim(),
-      day_role: adhocRole.trim() || null,
-      day_mission: adhocRole.trim() || null,
-      phone: adhocPhone.trim() || null,
-      email: adhocEmail.trim() || null,
+    const venueId = event?.venue_id;
+    if (!venueId) {
+      Alert.alert(t('accueilpro.orgs.errTitle'), t('accueilpro.eventTeam.errVenue'));
+      return;
+    }
+    await createDirectoryPersonnelForEvent({
+      eventId,
+      venueId,
+      first_name: firstName,
+      last_name: lastName,
+      phone: phone.trim() || null,
+      email: email.trim() || null,
+      address: address.trim() || null,
+      role: role.trim() || null,
+      day_role: role.trim() || null,
     });
-    setAdhocName('');
-    setAdhocPhone('');
-    setAdhocEmail('');
-    setAdhocRole('');
+    setFirstName('');
+    setLastName('');
+    setPhone('');
+    setEmail('');
+    setAddress('');
+    setRole('');
     await load();
   };
 
@@ -93,6 +115,8 @@ export default function AccueilProEventPersonnelScreen() {
       onBack={() => navigation.goBack()}
       headerIcon={<Text style={{ fontSize: 22 }}>👥</Text>}
       headerTitle={t('accueilpro.eventTeam.title')}
+      headerRightLabel={t('accueilpro.contacts.title')}
+      onHeaderRight={() => navigation.navigate('AccueilProContacts')}
       loading={loading}
       scroll={false}
     >
@@ -105,7 +129,7 @@ export default function AccueilProEventPersonnelScreen() {
           <>
             <AccueilProFormCard style={{ marginBottom: Spacing.md }}>
               <Text style={apStyles.sectionTitle}>{t('accueilpro.eventTeam.fromDirectory')}</Text>
-<AccueilProFormSelectPicker 
+              <AccueilProFormSelectPicker
                 label={t('accueilpro.personnel.pick')}
                 value={pickId}
                 options={directory}
@@ -122,19 +146,49 @@ export default function AccueilProEventPersonnelScreen() {
                 onPress={() => void onAddFromDirectory()}
                 style={{ marginTop: Spacing.sm }}
               />
+              <TouchableOpacity
+                onPress={() => navigation.navigate('AccueilProContacts')}
+                style={{ marginTop: Spacing.sm }}
+              >
+                <Text style={apStyles.sectionLink}>{t('accueilpro.eventTeam.openDirectory')}</Text>
+              </TouchableOpacity>
             </AccueilProFormCard>
+
             <AccueilProFormCard style={{ marginBottom: Spacing.md }}>
-              <Text style={apStyles.sectionTitle}>{t('accueilpro.eventTeam.adhoc')}</Text>
-              <AccueilProInput label={t('accueilpro.contacts.fieldName')} value={adhocName} onChangeText={setAdhocName} />
-              <AccueilProInput label={t('accueilpro.eventTeam.dayRole')} value={adhocRole} onChangeText={setAdhocRole} />
-              <AccueilProInput label={t('accueilpro.field.phone')} value={adhocPhone} onChangeText={setAdhocPhone} />
-              <AccueilProInput label={t('accueilpro.field.email')} value={adhocEmail} onChangeText={setAdhocEmail} />
+              <Text style={apStyles.sectionTitle}>{t('accueilpro.eventTeam.newCard')}</Text>
+              <Text style={[apStyles.rowMeta, { marginBottom: Spacing.sm }]}>
+                {t('accueilpro.eventTeam.directoryHint')}
+              </Text>
+              <AccueilProInput
+                label={t('accueilpro.personnel.fieldFirstName')}
+                value={firstName}
+                onChangeText={setFirstName}
+              />
+              <AccueilProInput
+                label={t('accueilpro.personnel.fieldLastName')}
+                value={lastName}
+                onChangeText={setLastName}
+              />
+              <AccueilProInput label={t('accueilpro.field.phone')} value={phone} onChangeText={setPhone} />
+              <AccueilProInput label={t('accueilpro.field.email')} value={email} onChangeText={setEmail} />
+              <AccueilProInput
+                label={t('accueilpro.field.address')}
+                value={address}
+                onChangeText={setAddress}
+                multiline
+              />
+              <AccueilProInput
+                label={t('accueilpro.contacts.fieldRole')}
+                value={role}
+                onChangeText={setRole}
+              />
               <AccueilProPrimaryButton
                 label={t('accueilpro.eventTeam.addAdhoc')}
-                onPress={() => void onAddAdhoc()}
+                onPress={() => void onCreateCard()}
                 style={{ marginTop: Spacing.sm }}
               />
             </AccueilProFormCard>
+
             <Text style={apStyles.sectionTitle}>{t('accueilpro.eventTeam.list')}</Text>
           </>
         }

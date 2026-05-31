@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Text, Alert, Switch, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import {
@@ -7,10 +7,18 @@ import {
   AccueilProInput,
   AccueilProPrimaryButton,
   AccueilProScreenLayout,
+  apStyles,
 } from '../../components/accueilpro/AccueilProUI';
 import { Spacing } from '../../theme/spacing';
 import { useLanguage } from '../../context/LanguageContext';
-import { generateApId, getApPersonnel, saveApPersonnel } from '../../db/accueilProDb';
+import {
+  addPersonnelToEventFromDirectory,
+  generateApId,
+  getApPersonnel,
+  listApEvents,
+  saveApPersonnel,
+} from '../../db/accueilProDb';
+import { buildPersonnelDisplayName } from '../../lib/accueilProPersonnelHelpers';
 import { useAccueilProReferenceData } from './accueilProScreenCommon';
 import type { ApPersonnelKind } from '../../types/accueilPro';
 
@@ -18,7 +26,7 @@ import type { ApPersonnelKind } from '../../types/accueilPro';
 type PersonnelKindUi = 'lieu' | 'association' | 'externe';
 
 export default function AccueilProPersonnelEditScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { t } = useLanguage();
   const personnelId = route.params?.id as string | undefined;
@@ -34,13 +42,27 @@ export default function AccueilProPersonnelEditScreen() {
   const [venueId, setVenueId] = useState(route.params?.venueId ?? '');
   const [associationVenueId, setAssociationVenueId] = useState('');
   const [organizationId, setOrganizationId] = useState(route.params?.organizationId ?? '');
-  const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [address, setAddress] = useState('');
   const [role, setRole] = useState('');
   const [rolePermanent, setRolePermanent] = useState(false);
   const [mission, setMission] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [notes, setNotes] = useState('');
+  const [assignEventId, setAssignEventId] = useState('');
+  const [assignDayRole, setAssignDayRole] = useState('');
+  const [eventOptions, setEventOptions] = useState<{ label: string; value: string }[]>([]);
+
+  useEffect(() => {
+    void listApEvents().then(events => {
+      setEventOptions([
+        { label: '—', value: '' },
+        ...events.map(e => ({ label: `${e.name} (${e.date_debut})`, value: e.id })),
+      ]);
+    });
+  }, []);
 
   useEffect(() => {
     if (!personnelId) {
@@ -55,7 +77,18 @@ export default function AccueilProPersonnelEditScreen() {
         setVenueId(p.kind === 'lieu' ? (p.venue_id ?? '') : '');
         setAssociationVenueId(p.kind !== 'lieu' ? (p.venue_id ?? '') : '');
         setOrganizationId(p.organization_id ?? '');
-        setName(p.name);
+        setFirstName(p.first_name ?? '');
+        setLastName(p.last_name ?? '');
+        if (!p.first_name && !p.last_name && p.name) {
+          const parts = p.name.trim().split(/\s+/);
+          if (parts.length > 1) {
+            setFirstName(parts.slice(0, -1).join(' '));
+            setLastName(parts[parts.length - 1] ?? '');
+          } else {
+            setLastName(p.name);
+          }
+        }
+        setAddress(p.address ?? '');
         setRole(p.role ?? '');
         setMission(p.mission ?? '');
         setPhone(p.phone ?? '');
@@ -67,9 +100,14 @@ export default function AccueilProPersonnelEditScreen() {
     });
   }, [personnelId]);
 
+  const displayName = useMemo(
+    () => buildPersonnelDisplayName({ first_name: firstName, last_name: lastName }),
+    [firstName, lastName]
+  );
+
   const onSave = useCallback(async () => {
-    if (!name.trim()) {
-      Alert.alert(t('accueilpro.orgs.errTitle'), t('accueilpro.contacts.errName'));
+    if (!displayName.trim()) {
+      Alert.alert(t('accueilpro.orgs.errTitle'), t('accueilpro.personnel.errNameParts'));
       return;
     }
     const effectiveVenueId = kind === 'lieu' ? venueId : associationVenueId;
@@ -84,12 +122,16 @@ export default function AccueilProPersonnelEditScreen() {
     setSaving(true);
     try {
       const persistedKind: ApPersonnelKind = kind === 'association' ? 'organisation' : kind;
+      const id = personnelId ?? generateApId();
       await saveApPersonnel({
-        id: personnelId ?? generateApId(),
+        id,
         kind: persistedKind,
         venue_id: effectiveVenueId,
         organization_id: kind === 'association' ? organizationId || null : null,
-        name: name.trim(),
+        name: displayName.trim(),
+        first_name: firstName.trim() || null,
+        last_name: lastName.trim() || null,
+        address: address.trim() || null,
         role: role.trim() || null,
         role_permanent: rolePermanent,
         mission: mission.trim() || null,
@@ -107,7 +149,10 @@ export default function AccueilProPersonnelEditScreen() {
     venueId,
     associationVenueId,
     organizationId,
-    name,
+    displayName,
+    firstName,
+    lastName,
+    address,
     role,
     rolePermanent,
     mission,
@@ -117,6 +162,18 @@ export default function AccueilProPersonnelEditScreen() {
     navigation,
     t,
   ]);
+
+  const onAssignToEvent = async () => {
+    if (!personnelId) return;
+    if (!assignEventId) {
+      Alert.alert(t('accueilpro.orgs.errTitle'), t('accueilpro.personnel.pickEvent'));
+      return;
+    }
+    await addPersonnelToEventFromDirectory(assignEventId, personnelId, assignDayRole);
+    Alert.alert(t('accueilpro.save'), t('accueilpro.personnel.addedToEvent'));
+    setAssignEventId('');
+    setAssignDayRole('');
+  };
 
   return (
     <AccueilProScreenLayout
@@ -134,18 +191,18 @@ export default function AccueilProPersonnelEditScreen() {
       }
     >
       <AccueilProFormCard>
-<AccueilProFormSelectPicker 
+        <AccueilProFormSelectPicker
           label={t('accueilpro.personnel.kind')}
           value={kind}
           options={[
             { label: t('accueilpro.personnel.kindVenue'), value: 'lieu' },
             { label: t('accueilpro.personnel.kindOrg'), value: 'association' },
-            { label: 'Externe', value: 'externe' },
+            { label: t('accueilpro.personnel.kindExternal'), value: 'externe' },
           ]}
           onChange={v => setKind(v as PersonnelKindUi)}
         />
         {kind === 'lieu' ?
-<AccueilProFormSelectPicker 
+          <AccueilProFormSelectPicker
             label={t('accueilpro.requests.fieldVenue')}
             value={venueId}
             options={venueOptions}
@@ -154,7 +211,7 @@ export default function AccueilProPersonnelEditScreen() {
           />
         : <>
             {kind === 'association' ?
-<AccueilProFormSelectPicker 
+              <AccueilProFormSelectPicker
                 label={t('accueilpro.requests.fieldOrg')}
                 value={organizationId}
                 options={orgOptions}
@@ -162,7 +219,7 @@ export default function AccueilProPersonnelEditScreen() {
                 required
               />
             : null}
-<AccueilProFormSelectPicker 
+            <AccueilProFormSelectPicker
               label={t('accueilpro.requests.fieldVenue')}
               value={associationVenueId}
               options={venueOptions}
@@ -171,7 +228,17 @@ export default function AccueilProPersonnelEditScreen() {
             />
           </>
         }
-        <AccueilProInput label={t('accueilpro.contacts.fieldName')} value={name} onChangeText={setName} required />
+        <AccueilProInput
+          label={t('accueilpro.personnel.fieldFirstName')}
+          value={firstName}
+          onChangeText={setFirstName}
+        />
+        <AccueilProInput
+          label={t('accueilpro.personnel.fieldLastName')}
+          value={lastName}
+          onChangeText={setLastName}
+          required
+        />
         <AccueilProInput label={t('accueilpro.contacts.fieldRole')} value={role} onChangeText={setRole} />
         <View
           style={{
@@ -187,8 +254,37 @@ export default function AccueilProPersonnelEditScreen() {
         <AccueilProInput label={t('accueilpro.events.fieldDesc')} value={mission} onChangeText={setMission} />
         <AccueilProInput label={t('accueilpro.field.phone')} value={phone} onChangeText={setPhone} />
         <AccueilProInput label={t('accueilpro.field.email')} value={email} onChangeText={setEmail} />
+        <AccueilProInput
+          label={t('accueilpro.field.address')}
+          value={address}
+          onChangeText={setAddress}
+          multiline
+        />
         <AccueilProInput label={t('accueilpro.field.notes')} value={notes} onChangeText={setNotes} multiline />
       </AccueilProFormCard>
+
+      {personnelId ?
+        <AccueilProFormCard style={{ marginTop: Spacing.md }}>
+          <Text style={apStyles.sectionTitle}>{t('accueilpro.personnel.addToEvent')}</Text>
+          <AccueilProFormSelectPicker
+            label={t('accueilpro.events.fieldName')}
+            value={assignEventId}
+            options={eventOptions}
+            onChange={setAssignEventId}
+          />
+          <AccueilProInput
+            label={t('accueilpro.eventTeam.dayRole')}
+            value={assignDayRole}
+            onChangeText={setAssignDayRole}
+            placeholder={t('accueilpro.eventTeam.dayRolePh')}
+          />
+          <AccueilProPrimaryButton
+            label={t('accueilpro.personnel.addToEventBtn')}
+            onPress={() => void onAssignToEvent()}
+            style={{ marginTop: Spacing.sm }}
+          />
+        </AccueilProFormCard>
+      : null}
     </AccueilProScreenLayout>
   );
 }

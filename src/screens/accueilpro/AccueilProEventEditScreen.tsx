@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Text, Alert } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { Text, Alert, View } from 'react-native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import {
-  AccueilProChip,
   AccueilProFormCard,
   AccueilProFormDateField,
   AccueilProFormSelectPicker,
+  AccueilProFormTimeField,
   AccueilProInput,
+  AccueilProLinkButton,
   AccueilProPrimaryButton,
   AccueilProScreenLayout,
   apStyles,
@@ -19,7 +20,7 @@ import {
   saveApEvent,
   setEventSpaces,
 } from '../../db/accueilProDb';
-import type { ApEventStatus, ApSpacesMode } from '../../types/accueilPro';
+import type { ApSpacesMode, ApEventStatus } from '../../types/accueilPro';
 import { SpaceSelectionEditor } from '../../components/accueilpro/SpaceSelectionEditor';
 import { todayIsoDate, useAccueilProReferenceData } from './accueilProScreenCommon';
 import {
@@ -27,6 +28,7 @@ import {
   formatBookingConflictLine,
 } from '../../lib/accueilProBookingConflicts';
 import { logAccueilProAction } from '../../lib/accueilProActivityLog';
+import { AP_EVENT_STATUS_OPTIONS } from '../../lib/accueilProEventFilters';
 import { useAppAuth } from '../../context/AuthContext';
 
 export default function AccueilProEventEditScreen() {
@@ -35,7 +37,7 @@ export default function AccueilProEventEditScreen() {
   const { t } = useLanguage();
   const { user } = useAppAuth();
   const eventId = route.params?.id as string | undefined;
-  const { orgOptions, venueOptions, loading: refLoading } = useAccueilProReferenceData();
+  const { orgOptions, venueOptions, loading: refLoading, reload: reloadRefs } = useAccueilProReferenceData();
   const [loading, setLoading] = useState(!!eventId);
   const [saving, setSaving] = useState(false);
   const [organizationId, setOrganizationId] = useState('');
@@ -45,13 +47,13 @@ export default function AccueilProEventEditScreen() {
   const [type, setType] = useState('');
   const [dateDebut, setDateDebut] = useState(todayIsoDate());
   const [dateFin, setDateFin] = useState('');
-  const [heureDebut, setHeureDebut] = useState('');
-  const [heureFin, setHeureFin] = useState('');
+  const [heureDebut, setHeureDebut] = useState('09:00');
+  const [heureFin, setHeureFin] = useState('18:00');
   const [participants, setParticipants] = useState('0');
   const [description, setDescription] = useState('');
-  const [status, setStatus] = useState<ApEventStatus>('brouillon');
   const [spacesMode, setSpacesMode] = useState<ApSpacesMode>('all');
   const [selectedSpaceIds, setSelectedSpaceIds] = useState<string[]>([]);
+  const [status, setStatus] = useState<ApEventStatus>('confirmé');
 
   useEffect(() => {
     if (!eventId) {
@@ -68,20 +70,38 @@ export default function AccueilProEventEditScreen() {
         setType(ev.type ?? '');
         setDateDebut(ev.date_debut);
         setDateFin(ev.date_fin ?? '');
-        setHeureDebut(ev.heure_debut ?? '');
-        setHeureFin(ev.heure_fin ?? '');
+        setHeureDebut(ev.heure_debut ?? '09:00');
+        setHeureFin(ev.heure_fin ?? '18:00');
         setParticipants(String(ev.participants ?? 0));
         setDescription(ev.description ?? '');
-        setStatus(ev.status);
         setSpacesMode(ev.spaces_mode ?? 'all');
         setSelectedSpaceIds(await listEventSpaceIds(eventId));
+        setStatus(ev.status ?? 'confirmé');
       }
       setLoading(false);
     })();
   }, [eventId]);
 
+  useFocusEffect(
+    useCallback(() => {
+      reloadRefs();
+      const selectOrg = route.params?.selectOrganizationId as string | undefined;
+      const selectOrgName = route.params?.selectOrganizationName as string | undefined;
+      const selectVenue = route.params?.selectVenueId as string | undefined;
+      if (selectOrg) setOrganizationId(selectOrg);
+      if (selectOrgName && !eventId) {
+        setName(prev => (prev.trim() ? prev : selectOrgName));
+      }
+      if (selectVenue) {
+        setVenueId(selectVenue);
+        setSpaceId('');
+      }
+    }, [reloadRefs, route.params?.selectOrganizationId, route.params?.selectOrganizationName, route.params?.selectVenueId, eventId])
+  );
+
   const persistEvent = useCallback(async () => {
     const id = eventId ?? generateApId();
+    const existing = eventId ? await getApEvent(eventId) : null;
     await saveApEvent({
       id,
       organization_id: organizationId || null,
@@ -98,6 +118,7 @@ export default function AccueilProEventEditScreen() {
       status,
       spaces_mode: spacesMode,
       selected_space_ids: selectedSpaceIds,
+      readiness_manual: existing?.readiness_manual ?? {},
     });
     await setEventSpaces(id, selectedSpaceIds, spacesMode);
     void logAccueilProAction({
@@ -125,9 +146,9 @@ export default function AccueilProEventEditScreen() {
     heureFin,
     participants,
     description,
-    status,
     spacesMode,
     selectedSpaceIds,
+    status,
     navigation,
     user?.nom,
   ]);
@@ -182,7 +203,7 @@ export default function AccueilProEventEditScreen() {
     persistEvent,
   ]);
 
-  const statuses: ApEventStatus[] = ['brouillon', 'confirmé', 'annulé', 'terminé'];
+  const eventReturnParams = eventId ? { eventEditId: eventId } : {};
 
   return (
     <AccueilProScreenLayout
@@ -201,13 +222,51 @@ export default function AccueilProEventEditScreen() {
     >
       <AccueilProFormCard>
         <AccueilProInput label={t('accueilpro.events.fieldName')} value={name} onChangeText={setName} required />
-<AccueilProFormSelectPicker 
+        <AccueilProInput label={t('accueilpro.events.fieldType')} value={type} onChangeText={setType} />
+        <AccueilProInput
+          label={t('accueilpro.events.fieldParticipants')}
+          value={participants}
+          onChangeText={setParticipants}
+          keyboardType="number-pad"
+        />
+        <AccueilProInput label={t('accueilpro.events.fieldDesc')} value={description} onChangeText={setDescription} multiline />
+        <AccueilProFormSelectPicker
+          label={t('accueilpro.events.fieldStatus')}
+          value={status}
+          options={AP_EVENT_STATUS_OPTIONS.map(s => ({ value: s, label: t(`accueilpro.events.status.${s}`) }))}
+          onChange={v => setStatus(v as ApEventStatus)}
+        />
+      </AccueilProFormCard>
+
+      <AccueilProFormCard>
+        <Text style={apStyles.sectionTitle}>{t('accueilpro.events.sectionSchedule')}</Text>
+        <AccueilProFormDateField label={t('accueilpro.requests.fieldDateStart')} value={dateDebut} onChange={setDateDebut} required />
+        <AccueilProFormDateField label={t('accueilpro.requests.fieldDateEnd')} value={dateFin} onChange={setDateFin} />
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <View style={{ flex: 1 }}>
+            <AccueilProFormTimeField label={t('accueilpro.requests.fieldTimeStart')} value={heureDebut} onChange={setHeureDebut} required />
+          </View>
+          <View style={{ flex: 1 }}>
+            <AccueilProFormTimeField label={t('accueilpro.requests.fieldTimeEnd')} value={heureFin} onChange={setHeureFin} required />
+          </View>
+        </View>
+      </AccueilProFormCard>
+
+      <AccueilProFormCard>
+        <Text style={apStyles.sectionTitle}>{t('accueilpro.events.sectionOrgVenue')}</Text>
+        <AccueilProFormSelectPicker
           label={t('accueilpro.requests.fieldOrg')}
           value={organizationId}
           options={orgOptions}
           onChange={setOrganizationId}
         />
-<AccueilProFormSelectPicker 
+        <AccueilProLinkButton
+          label={`+ ${t('accueilpro.events.newOrganization')}`}
+          onPress={() =>
+            navigation.navigate('AccueilProOrganizationEdit', { returnToEvent: true, ...eventReturnParams })
+          }
+        />
+        <AccueilProFormSelectPicker
           label={t('accueilpro.requests.fieldVenue')}
           value={venueId}
           options={venueOptions}
@@ -216,6 +275,21 @@ export default function AccueilProEventEditScreen() {
             setSpaceId('');
           }}
         />
+        <AccueilProLinkButton
+          label={`+ ${t('accueilpro.events.newVenueSpaces')}`}
+          onPress={() =>
+            navigation.navigate('AccueilProVenueEdit', { returnToEvent: true, ...eventReturnParams })
+          }
+        />
+        {venueId ?
+          <AccueilProLinkButton
+            label={`+ ${t('accueilpro.venues.addSpace')}`}
+            onPress={() =>
+              navigation.navigate('AccueilProSpaceEdit', { venueId, returnToEvent: true, ...eventReturnParams })
+            }
+            style={{ marginTop: 4 }}
+          />
+        : null}
         <SpaceSelectionEditor
           venueId={venueId}
           mode={spacesMode}
@@ -223,22 +297,6 @@ export default function AccueilProEventEditScreen() {
           onModeChange={setSpacesMode}
           onSelectionChange={setSelectedSpaceIds}
         />
-        <AccueilProInput label={t('accueilpro.events.fieldType')} value={type} onChangeText={setType} />
-        <AccueilProFormDateField label={t('accueilpro.requests.fieldDateStart')} value={dateDebut} onChange={setDateDebut} />
-        <AccueilProFormDateField label={t('accueilpro.requests.fieldDateEnd')} value={dateFin} onChange={setDateFin} />
-        <AccueilProInput label={t('accueilpro.requests.fieldTimeStart')} value={heureDebut} onChangeText={setHeureDebut} />
-        <AccueilProInput label={t('accueilpro.requests.fieldTimeEnd')} value={heureFin} onChangeText={setHeureFin} />
-        <AccueilProInput
-          label={t('accueilpro.events.fieldParticipants')}
-          value={participants}
-          onChangeText={setParticipants}
-          keyboardType="number-pad"
-        />
-        <AccueilProInput label={t('accueilpro.events.fieldDesc')} value={description} onChangeText={setDescription} multiline />
-        <Text style={apStyles.label}>{t('accueilpro.orgs.status')}</Text>
-        {statuses.map(st => (
-          <AccueilProChip key={st} label={st} selected={status === st} onPress={() => setStatus(st)} />
-        ))}
       </AccueilProFormCard>
     </AccueilProScreenLayout>
   );
