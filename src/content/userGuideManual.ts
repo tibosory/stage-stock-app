@@ -36,7 +36,7 @@ export const USER_GUIDE_META = {
 
   versionLabel:
 
-    '21 mai 2026 (v1.0.75 : feuille information matériel Accueil Pro)',
+    '21 mai 2026 (v1.0.76 : équipe événement — association personnel corrigée)',
 
 };
 
@@ -336,7 +336,7 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'Événement : lors de la création, section « Dates et horaires » (début/fin + heures), statut (Option, Confirmé, Annulé, Terminé), boutons « + Nouvelle organisation » et « + Nouveau lieu et espaces » sans quitter le formulaire.',
 
-      'Événement ouvert : onglets Aperçu, Équipe et Agenda. Équipe — créer une fiche (prénom, nom, téléphone, e-mail, adresse) : elle rejoint l’annuaire général et l’équipe du jour ; ou ajouter quelqu’un déjà présent dans l’annuaire. Annuaire (Contacts) — équipe du lieu (créée via menu Équipe), contacts organisation et externes ; les membres permanents sont surlignés et en tête de liste (ordre alphabétique), puis les autres (alphabétique). Chaque fiche affiche le nom et prénom sur une ligne, puis une ligne par information (rôle, téléphone, e-mail, etc.). Photo de profil : en création ou modification d’un contact (menu Équipe ou fiche contact), section Photo — galerie ou appareil photo ; la vignette apparaît dans l’annuaire. Consulter ou modifier une fiche, « Ajouter à un événement » depuis la fiche. Agenda — créneaux horaires détaillés (qui, quoi, où) comme un planning de journée ; bouton pour importer les horaires de l’événement.',
+      'Événement ouvert : onglets Aperçu, Équipe et Agenda. Équipe — bouton « Gérer l’équipe » : choisir une fiche dans l’annuaire puis « Ajouter depuis l’annuaire », ou créer une nouvelle fiche (enregistrée dans l’annuaire et ajoutée à l’équipe). Un message confirme l’ajout ; la liste « Équipe assignée » est en bas de l’écran (faites défiler si besoin). L’événement doit avoir un lieu renseigné pour créer une fiche depuis cet écran. Depuis une fiche personnel (Contacts / Équipe) : section « Ajouter à un événement » — la fiche est enregistrée automatiquement si elle est nouvelle. Annuaire (Contacts) — équipe du lieu, contacts organisation et externes ; les membres permanents sont surlignés et en tête de liste. Agenda — créneaux horaires détaillés (qui, quoi, où).',
 
       'Feuille de route : menu Accueil Pro → Feuille de route. Une feuille par événement (titre = nom + dates), liste triée chronologiquement. Touchez une ligne pour la synthèse (organisation, lieu, espaces, horaires, matériel par espace, équipe, agenda, conventions, EDL, notes régisseur) et l’export PDF. Lien « Ouvrir la feuille de route » aussi depuis la fiche événement (onglet Aperçu). Feuille information : depuis la fiche événement ou la feuille de route, renseignez le matériel nécessaire par salle (ex. « Salle A : 80 chaises, 2 micros HF ») — le texte apparaît sur la feuille de route et le PDF. Le planning du jour reste dans Planning du jour.',
 

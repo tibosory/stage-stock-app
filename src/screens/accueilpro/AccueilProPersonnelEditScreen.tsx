@@ -109,45 +109,40 @@ export default function AccueilProPersonnelEditScreen() {
     [firstName, lastName]
   );
 
-  const onSave = useCallback(async () => {
+  const persistPersonnel = useCallback(async (): Promise<string | null> => {
     if (!displayName.trim()) {
       Alert.alert(t('accueilpro.orgs.errTitle'), t('accueilpro.personnel.errNameParts'));
-      return;
+      return null;
     }
     const effectiveVenueId = kind === 'lieu' ? venueId : associationVenueId;
     if (!effectiveVenueId) {
       Alert.alert(t('accueilpro.orgs.errTitle'), t('accueilpro.requests.fieldVenue'));
-      return;
+      return null;
     }
     if (kind === 'association' && !organizationId) {
       Alert.alert(t('accueilpro.orgs.errTitle'), t('accueilpro.requests.fieldOrg'));
-      return;
+      return null;
     }
-    setSaving(true);
-    try {
-      const persistedKind: ApPersonnelKind = kind === 'association' ? 'organisation' : kind;
-      const id = recordId;
-      await saveApPersonnel({
-        id,
-        kind: persistedKind,
-        venue_id: effectiveVenueId,
-        organization_id: kind === 'association' ? organizationId || null : null,
-        name: displayName.trim(),
-        first_name: firstName.trim() || null,
-        last_name: lastName.trim() || null,
-        address: address.trim() || null,
-        role: role.trim() || null,
-        role_permanent: rolePermanent,
-        mission: mission.trim() || null,
-        phone: phone.trim() || null,
-        email: email.trim() || null,
-        notes: notes.trim() || null,
-        photo_uri: photoUri,
-      });
-      navigation.goBack();
-    } finally {
-      setSaving(false);
-    }
+    const persistedKind: ApPersonnelKind = kind === 'association' ? 'organisation' : kind;
+    const id = personnelId ?? recordId;
+    await saveApPersonnel({
+      id,
+      kind: persistedKind,
+      venue_id: effectiveVenueId,
+      organization_id: kind === 'association' ? organizationId || null : null,
+      name: displayName.trim(),
+      first_name: firstName.trim() || null,
+      last_name: lastName.trim() || null,
+      address: address.trim() || null,
+      role: role.trim() || null,
+      role_permanent: rolePermanent,
+      mission: mission.trim() || null,
+      phone: phone.trim() || null,
+      email: email.trim() || null,
+      notes: notes.trim() || null,
+      photo_uri: photoUri,
+    });
+    return id;
   }, [
     personnelId,
     recordId,
@@ -166,21 +161,46 @@ export default function AccueilProPersonnelEditScreen() {
     email,
     notes,
     photoUri,
-    navigation,
     t,
   ]);
 
+  const onSave = useCallback(async () => {
+    setSaving(true);
+    try {
+      const id = await persistPersonnel();
+      if (id) navigation.goBack();
+    } finally {
+      setSaving(false);
+    }
+  }, [persistPersonnel, navigation]);
+
   const onAssignToEvent = async () => {
-    const id = personnelId ?? recordId;
-    if (!id) return;
     if (!assignEventId) {
       Alert.alert(t('accueilpro.orgs.errTitle'), t('accueilpro.personnel.pickEvent'));
       return;
     }
-    await addPersonnelToEventFromDirectory(assignEventId, id, assignDayRole);
-    Alert.alert(t('accueilpro.save'), t('accueilpro.personnel.addedToEvent'));
-    setAssignEventId('');
-    setAssignDayRole('');
+    setSaving(true);
+    try {
+      const id = personnelId ?? (await persistPersonnel());
+      if (!id) return;
+      const res = await addPersonnelToEventFromDirectory(assignEventId, id, assignDayRole);
+      if (!res.ok) {
+        const msg =
+          res.reason === 'person' ? t('accueilpro.eventTeam.errPersonNotFound')
+          : res.reason === 'event' ? t('accueilpro.eventTeam.errEventNotFound')
+          : res.message ?? t('accueilpro.eventTeam.errAdd');
+        Alert.alert(t('accueilpro.orgs.errTitle'), msg);
+        return;
+      }
+      Alert.alert(
+        t('accueilpro.save'),
+        res.updated ? t('accueilpro.eventTeam.updatedMember') : t('accueilpro.personnel.addedToEvent')
+      );
+      setAssignEventId('');
+      setAssignDayRole('');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -272,9 +292,14 @@ export default function AccueilProPersonnelEditScreen() {
         <AccueilProInput label={t('accueilpro.field.notes')} value={notes} onChangeText={setNotes} multiline />
       </AccueilProFormCard>
 
-      {personnelId || recordId ?
+      {personnelId || displayName.trim() ?
         <AccueilProFormCard style={{ marginTop: Spacing.md }}>
           <Text style={apStyles.sectionTitle}>{t('accueilpro.personnel.addToEvent')}</Text>
+          {!personnelId ?
+            <Text style={[apStyles.rowMeta, { marginBottom: Spacing.sm }]}>
+              {t('accueilpro.personnel.assignSaveHint')}
+            </Text>
+          : null}
           <AccueilProFormSelectPicker
             label={t('accueilpro.events.fieldName')}
             value={assignEventId}

@@ -76,7 +76,19 @@ export default function AccueilProEventPersonnelScreen() {
       Alert.alert(t('accueilpro.orgs.errTitle'), t('accueilpro.personnel.pickOne'));
       return;
     }
-    await addPersonnelToEventFromDirectory(eventId, pickId, dayRole);
+    const res = await addPersonnelToEventFromDirectory(eventId, pickId, dayRole);
+    if (!res.ok) {
+      const msg =
+        res.reason === 'person' ? t('accueilpro.eventTeam.errPersonNotFound')
+        : res.reason === 'event' ? t('accueilpro.eventTeam.errEventNotFound')
+        : res.message ?? t('accueilpro.eventTeam.errAdd');
+      Alert.alert(t('accueilpro.orgs.errTitle'), msg);
+      return;
+    }
+    Alert.alert(
+      t('accueilpro.save'),
+      res.updated ? t('accueilpro.eventTeam.updatedMember') : t('accueilpro.personnel.addedToEvent')
+    );
     setPickId('');
     setDayRole('');
     await load();
@@ -92,17 +104,23 @@ export default function AccueilProEventPersonnelScreen() {
       Alert.alert(t('accueilpro.orgs.errTitle'), t('accueilpro.eventTeam.errVenue'));
       return;
     }
-    await createDirectoryPersonnelForEvent({
-      eventId,
-      venueId,
-      first_name: firstName,
-      last_name: lastName,
-      phone: phone.trim() || null,
-      email: email.trim() || null,
-      address: address.trim() || null,
-      role: role.trim() || null,
-      day_role: role.trim() || null,
-    });
+    try {
+      await createDirectoryPersonnelForEvent({
+        eventId,
+        venueId,
+        first_name: firstName,
+        last_name: lastName,
+        phone: phone.trim() || null,
+        email: email.trim() || null,
+        address: address.trim() || null,
+        role: role.trim() || null,
+        day_role: role.trim() || null,
+      });
+      Alert.alert(t('accueilpro.save'), t('accueilpro.personnel.addedToEvent'));
+    } catch (e) {
+      Alert.alert(t('accueilpro.orgs.errTitle'), e instanceof Error ? e.message : String(e));
+      return;
+    }
     setFirstName('');
     setLastName('');
     setPhone('');
@@ -126,7 +144,8 @@ export default function AccueilProEventPersonnelScreen() {
       <FlatList
         data={rows}
         keyExtractor={i => i.id}
-        contentContainerStyle={[apStyles.list, { paddingBottom: Spacing.xxl * 2 }]}
+        style={{ flex: 1 }}
+        contentContainerStyle={[apStyles.list, { paddingBottom: Spacing.xxl * 2, flexGrow: 1 }]}
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
           <>

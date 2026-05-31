@@ -2067,11 +2067,16 @@ export async function resolveSpacesForEvent(
   return all.filter(s => ids.has(s.id));
 }
 
+export type AddPersonnelToEventResult =
+  | { ok: true; updated: boolean }
+  | { ok: false; reason: 'event' | 'person' | 'db'; message?: string };
+
 export async function listApEventPersonnel(
   eventId: string,
   database?: SQLite.SQLiteDatabase
 ): Promise<ApEventPersonnel[]> {
   const db = await resolveDb(database);
+  await ensureAccueilProSchema(db);
   const rows = await db.getAllAsync<any>(
     'SELECT * FROM ap_event_personnel WHERE event_id = ? ORDER BY name ASC',
     [eventId]
@@ -2084,6 +2089,7 @@ export async function saveApEventPersonnel(
   database?: SQLite.SQLiteDatabase
 ): Promise<string> {
   const db = await resolveDb(database);
+  await ensureAccueilProSchema(db);
   const id = row.id ?? generateApId();
   const n = nowIso();
   await db.runAsync(
@@ -2111,22 +2117,38 @@ export async function addPersonnelToEventFromDirectory(
   personnelDirectoryId: string,
   dayRole: string | null | undefined,
   database?: SQLite.SQLiteDatabase
-): Promise<void> {
-  const dir = await getApPersonnel(personnelDirectoryId, database);
-  if (!dir) return;
-  await saveApEventPersonnel(
-    {
-      event_id: eventId,
-      source: 'directory',
-      source_personnel_id: dir.id,
-      name: personnelDisplayName(dir),
-      day_role: dayRole?.trim() || null,
-      day_mission: dayRole?.trim() || null,
-      phone: dir.phone ?? null,
-      email: dir.email ?? null,
-    },
-    database
-  );
+): Promise<AddPersonnelToEventResult> {
+  const db = await resolveDb(database);
+  await ensureAccueilProSchema(db);
+  const ev = await getApEvent(eventId, db);
+  if (!ev) return { ok: false, reason: 'event' };
+  const dir = await getApPersonnel(personnelDirectoryId, db);
+  if (!dir) return { ok: false, reason: 'person' };
+  const role = dayRole?.trim() || null;
+  try {
+    const existing = await db.getFirstAsync<{ id: string }>(
+      'SELECT id FROM ap_event_personnel WHERE event_id = ? AND source_personnel_id = ? LIMIT 1',
+      [eventId, personnelDirectoryId]
+    );
+    await saveApEventPersonnel(
+      {
+        id: existing?.id,
+        event_id: eventId,
+        source: 'directory',
+        source_personnel_id: dir.id,
+        name: personnelDisplayName(dir),
+        day_role: role,
+        day_mission: role,
+        phone: dir.phone ?? null,
+        email: dir.email ?? null,
+      },
+      db
+    );
+    return { ok: true, updated: !!existing };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { ok: false, reason: 'db', message };
+  }
 }
 
 /** Crée une fiche annuaire + l’ajoute à l’équipe de l’événement. */

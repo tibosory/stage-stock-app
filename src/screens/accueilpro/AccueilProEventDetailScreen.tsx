@@ -4,8 +4,14 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import { EventDayAgendaTimeline } from '../../components/accueilpro/EventDayAgendaTimeline';
 import { EventReadinessChecklist } from '../../components/accueilpro/EventReadinessChecklist';
 import { AccueilProContactCard } from '../../components/accueilpro/AccueilProContactCard';
-import { AccueilProChip, AccueilProFormCard, AccueilProLinkButton } from '../../components/accueilpro/AccueilProUI';
-import { AccueilProScreenLayout, apStyles } from '../../components/accueilpro/AccueilProUI';
+import {
+  AccueilProChip,
+  AccueilProFormCard,
+  AccueilProLinkButton,
+  AccueilProPrimaryButton,
+  AccueilProScreenLayout,
+  apStyles,
+} from '../../components/accueilpro/AccueilProUI';
 import { Spacing } from '../../theme/spacing';
 import { useLanguage } from '../../context/LanguageContext';
 import {
@@ -244,7 +250,14 @@ export default function AccueilProEventDetailScreen() {
                 <Text style={[apStyles.rowMeta, { marginTop: 4 }]}>{t('accueilpro.eventTeam.directoryHint')}</Text>
               </TouchableOpacity>
               {team.length === 0 ?
-                <Text style={apStyles.empty}>{t('accueilpro.eventTeam.empty')}</Text>
+                <>
+                  <Text style={apStyles.empty}>{t('accueilpro.eventTeam.empty')}</Text>
+                  <AccueilProPrimaryButton
+                    label={t('accueilpro.eventTeam.manage')}
+                    onPress={() => navigation.navigate('AccueilProEventPersonnel', { eventId })}
+                    style={{ marginTop: Spacing.sm }}
+                  />
+                </>
               : team.map(m => (
                   <AccueilProContactCard
                     key={m.id}
