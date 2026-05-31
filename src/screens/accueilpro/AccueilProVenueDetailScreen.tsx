@@ -1,7 +1,9 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { VenueSpaceBubblePicker } from '../../components/accueilpro/VenueSpaceBubblePicker';
+import { VenuePlanSection } from '../../components/accueilpro/VenuePlanSection';
+import { AccueilProContactCard } from '../../components/accueilpro/AccueilProContactCard';
 import {
   AccueilProChip,
   AccueilProEmpty,
@@ -14,6 +16,12 @@ import {
 } from '../../components/accueilpro/AccueilProUI';
 import { useLanguage } from '../../context/LanguageContext';
 import { ERP_CATS, ERP_TYPES } from '../../lib/inspectionChecklist';
+import { contactFieldLabelsFromT, personnelContactLines } from '../../lib/accueilProContactDisplay';
+import { accueilProEventColor } from '../../lib/accueilProEventColors';
+import {
+  isPersonnelPermanent,
+  personnelDisplayName,
+} from '../../lib/accueilProPersonnelHelpers';
 import {
   getApVenue,
   listApConventionsByVenue,
@@ -38,6 +46,7 @@ export default function AccueilProVenueDetailScreen() {
   const [conventions, setConventions] = useState<ApConvention[]>([]);
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const contactFieldLabels = useMemo(() => contactFieldLabelsFromT(t), [t]);
 
   const load = useCallback(async () => {
     const v = await getApVenue(venueId);
@@ -143,14 +152,39 @@ export default function AccueilProVenueDetailScreen() {
           </View>
           {team.length === 0 ?
             <AccueilProEmpty message={t('accueilpro.personnel.empty')} />
-          : team.map(m => (
-            <AccueilProListRow key={m.id} title={m.name} meta={[m.role, m.phone].filter(Boolean).join(' · ')} subtitle={m.mission ?? undefined} />
-          ))}
+          : team.map(m => {
+              const permanent = isPersonnelPermanent(m);
+              return (
+                <AccueilProContactCard
+                  key={m.id}
+                  displayName={personnelDisplayName(m)}
+                  badge={permanent ? t('accueilpro.contacts.permanentBadge') : null}
+                  lines={personnelContactLines(m, contactFieldLabels)}
+                  phone={m.phone}
+                  email={m.email}
+                  photoUri={m.photo_uri}
+                  variant={permanent ? 'permanentStaff' : 'default'}
+                  onPress={() =>
+                    navigation.navigate('AccueilProPersonnelEdit', {
+                      id: m.id,
+                      kind: 'lieu',
+                      venueId: m.venue_id,
+                    })
+                  }
+                />
+              );
+            })}
         </View>
       )}
 
       {tab === 'reglementation' && venue && (
         <View style={{ gap: 12 }}>
+          <VenuePlanSection
+            venueId={venueId}
+            planLocalUri={venue.plan_local_uri ?? null}
+            planFilename={venue.plan_filename ?? null}
+            readOnly
+          />
           <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: AccueilProColors.borderSubtle }}>
             <Text style={apStyles.sectionTitle}>{t('accueilpro.venueTab.erpType')}</Text>
             {venue.erp_type ?
@@ -214,6 +248,7 @@ export default function AccueilProVenueDetailScreen() {
               key={e.id}
               title={e.name}
               meta={e.date_debut ?? '—'}
+              accentColor={accueilProEventColor(e.id).bg}
               onPress={() => navigation.navigate('AccueilProEventDetail', { id: e.id })}
               rightAccessory={
                 <View style={{ gap: 6, alignItems: 'flex-end' }}>

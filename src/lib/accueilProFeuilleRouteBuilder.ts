@@ -1,6 +1,7 @@
 import {
   findApRoomInspection,
   getApDayNote,
+  getApEvent,
   getApOrganization,
   getApVenue,
   listApConventionsByEvent,
@@ -14,6 +15,7 @@ import {
   resolveSpacesForEvent,
 } from '../db/accueilProDb';
 import { sortDayPlanItems } from './accueilProDayPlanHelpers';
+import { feuilleRouteEventTitle, formatApEventDates, eventsOnDate } from './accueilProFeuilleHelpers';
 import { buildEventReadinessSnapshot } from './accueilProEventReadiness';
 import type {
   ApDayPlanItem,
@@ -65,6 +67,16 @@ export type FeuilleRouteSnapshot = {
   note: string;
 };
 
+export type FeuilleRouteEventSnapshot = {
+  eventId: string;
+  title: string;
+  datesLabel: string;
+  block: FeuilleEventSynthesis;
+  venue: ApVenue | null;
+  spaceNames: Record<string, string>;
+  note: string;
+};
+
 function spacesLabelForEvent(event: ApEvent, spaces: ApSpace[]): string {
   if (event.spaces_mode === 'all') return `Tous les espaces (${spaces.length})`;
   const n = spaces.length;
@@ -80,9 +92,9 @@ function mapPersonnel(p: ApEventPersonnel): FeuillePersonRow {
   };
 }
 
-export function feuilleDateLabel(date: string): string {
+export function feuilleDateLabel(date: string, locale = 'fr-FR'): string {
   try {
-    return new Date(date + 'T12:00:00').toLocaleDateString('fr-FR', {
+    return new Date(date + 'T12:00:00').toLocaleDateString(locale, {
       weekday: 'long',
       day: 'numeric',
       month: 'long',
@@ -91,6 +103,79 @@ export function feuilleDateLabel(date: string): string {
   } catch {
     return date;
   }
+}
+
+async function buildEventSynthesis(
+  ev: ApEvent,
+  planRows: ApDayPlanItem[]
+): Promise<FeuilleEventSynthesis> {
+  const [org, venue, spaces, personnel, conventions] = await Promise.all([
+    ev.organization_id ? getApOrganization(ev.organization_id) : Promise.resolve(null),
+    ev.venue_id ? getApVenue(ev.venue_id) : Promise.resolve(null),
+    resolveSpacesForEvent(ev),
+    listApEventPersonnel(ev.id),
+    listApConventionsByEvent(ev.id),
+  ]);
+  const agenda = sortDayPlanItems(planRows.filter(item => item.event_id === ev.id));
+
+  const inspections: FeuilleInspectionRow[] = [];
+  for (const sp of spaces) {
+    for (const type of ['entrée', 'sortie'] as const) {
+      const insp = await findApRoomInspection(ev.id, sp.id, type);
+      if (!insp) continue;
+      inspections.push({
+        spaceName: sp.name,
+        type,
+        status: insp.status,
+        date: insp.inspection_date ?? insp.updated_at?.slice(0, 10) ?? '—',
+      });
+    }
+  }
+
+  const readiness = await buildEventReadinessSnapshot(ev.id);
+  const readinessSummary = (readiness?.checks ?? [])
+    .map(c => `${c.id}:${c.state}`)
+    .filter(Boolean);
+
+  return {
+    event: ev,
+    organizationName: org?.name ?? ev.organisateur ?? '—',
+    venueName: venue?.name ?? '—',
+    spaces,
+    spacesLabel: spacesLabelForEvent(ev, spaces),
+    personnel: personnel.map(mapPersonnel),
+    agenda,
+    conventions: conventions.map(c => ({ titre: c.titre, status: c.status })),
+    inspections,
+    readinessScore: readiness?.score ?? 0,
+    readinessSummary,
+  };
+}
+
+export async function buildFeuilleRouteEventSnapshot(
+  eventId: string,
+  locale = 'fr-FR'
+): Promise<FeuilleRouteEventSnapshot | null> {
+  const ev = await getApEvent(eventId);
+  if (!ev || ev.status === 'annulé') return null;
+
+  const planDate = (ev.date_debut ?? '').slice(0, 10);
+  const [planRows, venue] = await Promise.all([
+    listApDayPlanItems(planDate),
+    ev.venue_id ? getApVenue(ev.venue_id) : Promise.resolve(null),
+  ]);
+  const block = await buildEventSynthesis(ev, planRows);
+  const spaceNames = Object.fromEntries(block.spaces.map(s => [s.id, s.name]));
+
+  return {
+    eventId: ev.id,
+    title: feuilleRouteEventTitle(ev, locale),
+    datesLabel: formatApEventDates(ev, locale),
+    block,
+    venue,
+    spaceNames,
+    note: ev.feuille_note ?? '',
+  };
 }
 
 export async function buildFeuilleRouteSnapshot(date: string): Promise<FeuilleRouteSnapshot> {
@@ -119,49 +204,7 @@ export async function buildFeuilleRouteSnapshot(date: string): Promise<FeuilleRo
 
   const eventBlocks: FeuilleEventSynthesis[] = [];
   for (const ev of dayEvents) {
-    const [org, venue, spaces, personnel, agenda, conventions] = await Promise.all([
-      ev.organization_id ? getApOrganization(ev.organization_id) : Promise.resolve(null),
-      ev.venue_id ? getApVenue(ev.venue_id) : Promise.resolve(null),
-      resolveSpacesForEvent(ev),
-      listApEventPersonnel(ev.id),
-      Promise.resolve(
-        sortDayPlanItems(planRows.filter(item => item.event_id === ev.id))
-      ),
-      listApConventionsByEvent(ev.id),
-    ]);
-
-    const inspections: FeuilleInspectionRow[] = [];
-    for (const sp of spaces) {
-      for (const type of ['entrée', 'sortie'] as const) {
-        const insp = await findApRoomInspection(ev.id, sp.id, type);
-        if (!insp) continue;
-        inspections.push({
-          spaceName: sp.name,
-          type,
-          status: insp.status,
-          date: insp.inspection_date ?? insp.updated_at?.slice(0, 10) ?? '—',
-        });
-      }
-    }
-
-    const readiness = await buildEventReadinessSnapshot(ev.id);
-    const readinessSummary = (readiness?.checks ?? [])
-      .map(c => `${c.id}:${c.state}`)
-      .filter(Boolean);
-
-    eventBlocks.push({
-      event: ev,
-      organizationName: org?.name ?? ev.organisateur ?? '—',
-      venueName: venue?.name ?? '—',
-      spaces,
-      spacesLabel: spacesLabelForEvent(ev, spaces),
-      personnel: personnel.map(mapPersonnel),
-      agenda,
-      conventions: conventions.map(c => ({ titre: c.titre, status: c.status })),
-      inspections,
-      readinessScore: readiness?.score ?? 0,
-      readinessSummary,
-    });
+    eventBlocks.push(await buildEventSynthesis(ev, planRows));
   }
 
   const dayEventIds = new Set(dayEvents.map(e => e.id));

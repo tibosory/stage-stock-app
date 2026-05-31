@@ -16,6 +16,7 @@ import AccueilProPlanningScreen from '../screens/accueilpro/AccueilProPlanningSc
 import AccueilProConventionsScreen from '../screens/accueilpro/AccueilProConventionsScreen';
 import AccueilProConventionEditScreen from '../screens/accueilpro/AccueilProConventionEditScreen';
 import AccueilProFeuilleRouteScreen from '../screens/accueilpro/AccueilProFeuilleRouteScreen';
+import AccueilProFeuilleRouteEventScreen from '../screens/accueilpro/AccueilProFeuilleRouteEventScreen';
 import AccueilProDayPlanScreen from '../screens/accueilpro/AccueilProDayPlanScreen';
 import AccueilProDayPlanEditScreen from '../screens/accueilpro/AccueilProDayPlanEditScreen';
 import AccueilProPersonnelScreen from '../screens/accueilpro/AccueilProPersonnelScreen';
@@ -47,7 +48,8 @@ export type AccueilProStackParamList = {
   AccueilProPlanning: undefined;
   AccueilProConventions: undefined;
   AccueilProConventionEdit: { id?: string; eventId?: string; venueId?: string; signNow?: boolean };
-  AccueilProFeuilleRoute: { date?: string };
+  AccueilProFeuilleRoute: undefined;
+  AccueilProFeuilleRouteEvent: { eventId: string };
   AccueilProDayPlan: { date?: string };
   AccueilProDayPlanEdit: { id?: string; date: string; eventId?: string };
   AccueilProPersonnel: { kind?: string; venueId?: string; organizationId?: string };
@@ -90,6 +92,7 @@ export function AccueilProStackNavigator() {
       <Stack.Screen name="AccueilProConventions" component={AccueilProConventionsScreen} />
       <Stack.Screen name="AccueilProConventionEdit" component={AccueilProConventionEditScreen} />
       <Stack.Screen name="AccueilProFeuilleRoute" component={AccueilProFeuilleRouteScreen} />
+      <Stack.Screen name="AccueilProFeuilleRouteEvent" component={AccueilProFeuilleRouteEventScreen} />
       <Stack.Screen name="AccueilProDayPlan" component={AccueilProDayPlanScreen} />
       <Stack.Screen name="AccueilProDayPlanEdit" component={AccueilProDayPlanEditScreen} />
       <Stack.Screen name="AccueilProPersonnel" component={AccueilProPersonnelScreen} />

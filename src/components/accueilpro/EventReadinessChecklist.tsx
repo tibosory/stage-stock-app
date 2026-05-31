@@ -3,6 +3,7 @@ import { Text, TouchableOpacity, View } from 'react-native';
 import { AccueilProColors, apStyles } from './AccueilProUI';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAppAuth } from '../../context/AuthContext';
+import { accueilProEventColor } from '../../lib/accueilProEventColors';
 import {
   buildEventReadinessSnapshot,
   toggleEventReadinessManual,
@@ -108,7 +109,8 @@ export function EventDayReadinessCard(props: {
   t: (key: string, params?: Record<string, string>) => string;
 }) {
   const { snap, onPress, t } = props;
-  const color =
+  const eventColor = accueilProEventColor(snap.event.id);
+  const scoreColor =
     snap.level === 'green' ? AccueilProColors.statusConfirme
     : snap.level === 'red' ? AccueilProColors.statusAnnule
     : AccueilProColors.gold;
@@ -122,7 +124,7 @@ export function EventDayReadinessCard(props: {
         borderWidth: 1,
         borderColor: AccueilProColors.borderSubtle,
         borderLeftWidth: 4,
-        borderLeftColor: color,
+        borderLeftColor: eventColor.bg,
         borderRadius: 10,
         padding: 12,
         marginBottom: 10,
@@ -131,7 +133,7 @@ export function EventDayReadinessCard(props: {
     >
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
         <Text style={{ fontWeight: '700', fontSize: 15, flex: 1 }}>{snap.event.name}</Text>
-        <Text style={{ fontWeight: '800', color }}>{snap.score}%</Text>
+        <Text style={{ fontWeight: '800', color: scoreColor }}>{snap.score}%</Text>
       </View>
       <Text style={{ fontSize: 12, color: AccueilProColors.textMuted, marginTop: 4 }}>
         {[snap.event.heure_debut, snap.event.heure_fin ? `→ ${snap.event.heure_fin}` : '']

@@ -1,41 +1,81 @@
 import React from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
+import { Text, TouchableOpacity, View, type ViewStyle } from 'react-native';
 import { openEmail, openPhone, openSms } from '../../lib/contactActions';
 import { AccueilProColors, apStyles } from './AccueilProUI';
 
-/** Boutons téléphone / SMS / mail — cibles larges pour usage terrain. */
+const pillFlex: ViewStyle = {
+  flex: 1,
+  minWidth: 0,
+  paddingHorizontal: 10,
+};
+
+const pillFull: ViewStyle = {
+  width: '100%',
+  alignSelf: 'stretch',
+  paddingHorizontal: 12,
+};
+
+/** Boutons téléphone / SMS / mail — empilés pour tenir sur petits écrans. */
 export function ContactActionRow(props: {
   phone?: string | null;
   email?: string | null;
   emailSubject?: string;
 }) {
+  const hasPhone = Boolean(props.phone?.trim());
+  const hasEmail = Boolean(props.email?.trim());
+
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-      {props.phone ?
-        <>
+    <View style={{ width: '100%', gap: 8 }}>
+      {hasPhone ?
+        <View style={{ flexDirection: 'row', gap: 8, width: '100%' }}>
           <TouchableOpacity
             accessibilityRole="button"
             onPress={() => void openPhone(props.phone)}
-            style={[apStyles.contactPill, { backgroundColor: 'rgba(46,125,90,0.12)', borderColor: 'rgba(46,125,90,0.35)' }]}
+            style={[
+              apStyles.contactPill,
+              pillFlex,
+              { backgroundColor: 'rgba(46,125,90,0.12)', borderColor: 'rgba(46,125,90,0.35)' },
+            ]}
           >
-            <Text style={apStyles.actionOk}>📞 Appeler</Text>
+            <Text style={apStyles.actionOk} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+              📞 Appeler
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
             accessibilityRole="button"
             onPress={() => void openSms(props.phone, null)}
-            style={[apStyles.contactPill, { backgroundColor: AccueilProColors.surfaceMuted, borderColor: AccueilProColors.borderSubtle }]}
+            style={[
+              apStyles.contactPill,
+              pillFlex,
+              { backgroundColor: AccueilProColors.surfaceMuted, borderColor: AccueilProColors.borderSubtle },
+            ]}
           >
-            <Text style={apStyles.actionText}>💬 SMS</Text>
+            <Text style={apStyles.actionText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+              💬 SMS
+            </Text>
           </TouchableOpacity>
-        </>
+        </View>
       : null}
-      {props.email ?
+      {hasEmail ?
         <TouchableOpacity
           accessibilityRole="button"
-          onPress={() => void openEmail(props.email, props.emailSubject ? { subject: props.emailSubject } : undefined)}
-          style={[apStyles.contactPill, { backgroundColor: 'rgba(64,104,224,0.1)', borderColor: 'rgba(64,104,224,0.28)' }]}
+          onPress={() =>
+            void openEmail(props.email, props.emailSubject ? { subject: props.emailSubject } : undefined)
+          }
+          style={[
+            apStyles.contactPill,
+            pillFull,
+            { backgroundColor: 'rgba(64,104,224,0.1)', borderColor: 'rgba(64,104,224,0.28)' },
+          ]}
         >
-          <Text style={[apStyles.actionText, { color: AccueilProColors.primary }]}>✉ Mail</Text>
+          <Text
+            style={[apStyles.actionText, { color: AccueilProColors.primary }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.8}
+          >
+            ✉ Mail
+          </Text>
         </TouchableOpacity>
       : null}
     </View>

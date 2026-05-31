@@ -3,8 +3,8 @@ import { Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { EventDayAgendaTimeline } from '../../components/accueilpro/EventDayAgendaTimeline';
 import { EventReadinessChecklist } from '../../components/accueilpro/EventReadinessChecklist';
+import { AccueilProContactCard } from '../../components/accueilpro/AccueilProContactCard';
 import { AccueilProChip, AccueilProFormCard, AccueilProLinkButton } from '../../components/accueilpro/AccueilProUI';
-import { ContactActionRow } from '../../components/accueilpro/ContactActionRow';
 import { AccueilProScreenLayout, apStyles } from '../../components/accueilpro/AccueilProUI';
 import { Spacing } from '../../theme/spacing';
 import { useLanguage } from '../../context/LanguageContext';
@@ -18,6 +18,7 @@ import {
   resolveSpacesForEvent,
   seedApDayPlanFromSingleEvent,
 } from '../../db/accueilProDb';
+import { contactFieldLabelsFromT, eventPersonnelContactLines } from '../../lib/accueilProContactDisplay';
 import type {
   ApConvention,
   ApDayPlanItem,
@@ -47,6 +48,7 @@ export default function AccueilProEventDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const planDate = useMemo(() => (event?.date_debut ?? '').slice(0, 10), [event?.date_debut]);
+  const contactFieldLabels = useMemo(() => contactFieldLabelsFromT(t), [t]);
   const spaceNames = useMemo(() => Object.fromEntries(spaces.map(s => [s.id, s.name])), [spaces]);
 
   const load = useCallback(async () => {
@@ -161,6 +163,11 @@ export default function AccueilProEventDetailScreen() {
               </AccueilProFormCard>
 
               <AccueilProLinkButton
+                label={t('accueilpro.feuille.openEvent')}
+                onPress={() => navigation.navigate('AccueilProFeuilleRouteEvent', { eventId: event.id })}
+              />
+
+              <AccueilProLinkButton
                 label={t('accueilpro.edlCompare.open')}
                 onPress={() => navigation.navigate('AccueilProEventInspectionCompare', { eventId })}
               />
@@ -222,22 +229,26 @@ export default function AccueilProEventDetailScreen() {
                 </TouchableOpacity>
               </View>
               <TouchableOpacity
-                style={[apStyles.row, { marginBottom: Spacing.sm }]}
+                style={[
+                  apStyles.formCard,
+                  { marginBottom: Spacing.sm, paddingVertical: 12 },
+                ]}
                 onPress={() => navigation.navigate('AccueilProContacts')}
               >
-                <Text style={apStyles.rowTitle}>{t('accueilpro.eventTeam.openDirectory')}</Text>
-                <Text style={apStyles.rowMeta}>{t('accueilpro.eventTeam.directoryHint')}</Text>
+                <Text style={[apStyles.rowTitle, { flex: undefined }]}>{t('accueilpro.eventTeam.openDirectory')}</Text>
+                <Text style={[apStyles.rowMeta, { marginTop: 4 }]}>{t('accueilpro.eventTeam.directoryHint')}</Text>
               </TouchableOpacity>
               {team.length === 0 ?
                 <Text style={apStyles.empty}>{t('accueilpro.eventTeam.empty')}</Text>
               : team.map(m => (
-                  <View key={m.id} style={apStyles.row}>
-                    <Text style={apStyles.rowTitle}>{m.name}</Text>
-                    <Text style={apStyles.rowMeta}>
-                      {[m.day_role, m.day_mission].filter(Boolean).join(' · ')}
-                    </Text>
-                    <ContactActionRow phone={m.phone} email={m.email} emailSubject={`StageStock · ${m.name}`} />
-                  </View>
+                  <AccueilProContactCard
+                    key={m.id}
+                    displayName={m.name.trim()}
+                    lines={eventPersonnelContactLines(m, contactFieldLabels)}
+                    phone={m.phone}
+                    email={m.email}
+                    emailSubject={`StageStock · ${m.name}`}
+                  />
                 ))
               }
             </>

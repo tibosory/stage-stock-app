@@ -1,17 +1,17 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Text, FlatList, RefreshControl, View } from 'react-native';
 import { Spacing } from '../../theme/spacing';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
-import { ContactActionRow } from '../../components/accueilpro/ContactActionRow';
+import { AccueilProContactCard } from '../../components/accueilpro/AccueilProContactCard';
 import {
   AccueilProEmpty,
-  AccueilProListRow,
   AccueilProScreenLayout,
   AccueilProColors,
   apStyles,
 } from '../../components/accueilpro/AccueilProUI';
 import { useLanguage } from '../../context/LanguageContext';
 import { listApPersonnel } from '../../db/accueilProDb';
+import { contactFieldLabelsFromT, personnelContactLines } from '../../lib/accueilProContactDisplay';
 import {
   isPersonnelPermanent,
   partitionPersonnelForDirectory,
@@ -53,6 +53,7 @@ export default function AccueilProPersonnelScreen() {
 
   const title =
     filterKind === 'lieu' ? t('accueilpro.personnel.venueTitle') : t('accueilpro.personnel.orgTitle');
+  const fieldLabels = useMemo(() => contactFieldLabelsFromT(t), [t]);
 
   return (
     <AccueilProScreenLayout
@@ -106,17 +107,13 @@ export default function AccueilProPersonnelScreen() {
                   {t('accueilpro.contacts.sectionPermanent')}
                 </Text>
               : null}
-              <AccueilProListRow
-                title={personnelDisplayName(item)}
-                meta={
-                  [
-                    permanent ? t('accueilpro.contacts.permanentBadge') : null,
-                    item.role,
-                    item.mission,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ') || '—'
-                }
+              <AccueilProContactCard
+                displayName={personnelDisplayName(item)}
+                badge={permanent ? t('accueilpro.contacts.permanentBadge') : null}
+                lines={personnelContactLines(item, fieldLabels)}
+                phone={item.phone}
+                email={item.email}
+                photoUri={item.photo_uri}
                 variant={permanent ? 'permanentStaff' : 'default'}
                 onPress={() =>
                   navigation.navigate('AccueilProPersonnelEdit', {
@@ -126,7 +123,6 @@ export default function AccueilProPersonnelScreen() {
                     organizationId: item.organization_id,
                   })
                 }
-                rightAccessory={<ContactActionRow phone={item.phone} email={item.email} />}
               />
             </View>
           );

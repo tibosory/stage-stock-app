@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { AccueilProEventBubble } from '../../components/accueilpro/AccueilProEventBubble';
 import {
   AccueilProChip,
   AccueilProEmpty,
@@ -12,6 +13,7 @@ import {
 } from '../../components/accueilpro/AccueilProUI';
 import { useLanguage } from '../../context/LanguageContext';
 import { listApEvents, listApVenues } from '../../db/accueilProDb';
+import { accueilProEventColor } from '../../lib/accueilProEventColors';
 import { ClientReadOnlyBanner } from '../../modules/accueilpro/components/ClientReadOnlyBanner';
 import { useAccueilProRole } from '../../modules/accueilpro/hooks/useAccueilProRole';
 import type { ApEvent } from '../../types/accueilPro';
@@ -89,6 +91,7 @@ export default function AccueilProPlanningScreen() {
             key={e.id}
             title={e.name}
             meta={`${venues[e.venue_id ?? ''] ?? '—'} · ${e.heure_debut ?? ''}–${e.heure_fin ?? ''}`}
+            accentColor={accueilProEventColor(e.id).bg}
             onPress={() => navigation.navigate('AccueilProEventDetail', { id: e.id })}
             rightAccessory={
               <View style={{ gap: 4, alignItems: 'flex-end' }}>
@@ -134,8 +137,20 @@ export default function AccueilProPlanningScreen() {
                     <>
                       <Text style={{ fontWeight: isToday(day) ? '800' : '400', color: isToday(day) ? AccueilProColors.gold : AccueilProColors.textPrimary, fontSize: 12 }}>{day}</Text>
                       {de.slice(0, 2).map(ev => (
-                        <Text key={ev.id} numberOfLines={1} style={{ fontSize: 9, color: '#fff', backgroundColor: AccueilProColors.navy, borderRadius: 3, paddingHorizontal: 3, marginTop: 2 }}>{ev.name}</Text>
+                        <AccueilProEventBubble
+                          key={ev.id}
+                          eventId={ev.id}
+                          label={ev.name}
+                          compact
+                          style={{ marginTop: 2, alignSelf: 'stretch' }}
+                          onPress={() => navigation.navigate('AccueilProEventDetail', { id: ev.id })}
+                        />
                       ))}
+                      {de.length > 2 ?
+                        <Text style={{ fontSize: 9, color: AccueilProColors.textMuted, marginTop: 2, fontWeight: '700' }}>
+                          +{de.length - 2}
+                        </Text>
+                      : null}
                     </>
                   : null}
                 </TouchableOpacity>

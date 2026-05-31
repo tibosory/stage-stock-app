@@ -157,6 +157,7 @@ export async function ensureAccueilProSchema(database: SQLite.SQLiteDatabase): P
       mime_type TEXT,
       uploaded_by TEXT,
       created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
       local_uri TEXT,
       synced INTEGER DEFAULT 0
     );
@@ -275,6 +276,12 @@ export async function ensureAccueilProSchema(database: SQLite.SQLiteDatabase): P
   await addCol('ap_team_members', 'first_name', 'TEXT');
   await addCol('ap_team_members', 'last_name', 'TEXT');
   await addCol('ap_team_members', 'address', 'TEXT');
+  await addCol('ap_team_members', 'photo_uri', 'TEXT');
+  await addCol('ap_team_members', 'photo_storage_path', 'TEXT');
+
+  await addCol('ap_venues', 'plan_local_uri', 'TEXT');
+  await addCol('ap_venues', 'plan_filename', 'TEXT');
+  await addCol('ap_venues', 'plan_storage_path', 'TEXT');
 
   await addCol('ap_event_personnel', 'day_mission', 'TEXT');
 
@@ -282,6 +289,7 @@ export async function ensureAccueilProSchema(database: SQLite.SQLiteDatabase): P
   await addCol('ap_events', 'selected_space_ids_json', "TEXT DEFAULT '[]'");
   await addCol('ap_events', 'space_id', 'TEXT REFERENCES ap_spaces(id) ON DELETE SET NULL');
   await addCol('ap_events', 'readiness_manual_json', "TEXT DEFAULT '{}'");
+  await addCol('ap_events', 'feuille_note', 'TEXT');
 
   await addCol('ap_rental_requests', 'space_id', 'TEXT');
   await addCol('ap_rental_requests', 'event_name', 'TEXT');
@@ -299,6 +307,43 @@ export async function ensureAccueilProSchema(database: SQLite.SQLiteDatabase): P
   await addCol('ap_conventions', 'document_filename', 'TEXT');
   await addCol('ap_conventions', 'venue_id', 'TEXT REFERENCES ap_venues(id) ON DELETE SET NULL');
   await addCol('ap_spaces', 'control_points_json', "TEXT DEFAULT '[]'");
+  await addCol('ap_organization_documents', 'event_id', 'TEXT');
+
+  /** Bases créées avant l’ajout systématique de updated_at (sync Accueil Pro). */
+  for (const table of [
+    'ap_venues',
+    'ap_spaces',
+    'ap_organizations',
+    'ap_organization_contacts',
+    'ap_organization_documents',
+    'ap_rental_requests',
+    'ap_events',
+    'ap_room_inspections',
+    'ap_conventions',
+    'ap_team_members',
+    'ap_event_personnel',
+    'ap_day_plan_items',
+    'ap_day_notes',
+  ] as const) {
+    await addCol(table, 'updated_at', "TEXT DEFAULT (datetime('now'))");
+  }
+  for (const table of [
+    'ap_venues',
+    'ap_spaces',
+    'ap_organizations',
+    'ap_organization_contacts',
+    'ap_organization_documents',
+    'ap_rental_requests',
+    'ap_events',
+    'ap_room_inspections',
+    'ap_conventions',
+    'ap_team_members',
+    'ap_event_personnel',
+    'ap_day_plan_items',
+    'ap_day_notes',
+  ] as const) {
+    await addCol(table, 'synced', 'INTEGER DEFAULT 0');
+  }
 
   await database.execAsync(`
     CREATE TABLE IF NOT EXISTS ap_activity_log (
@@ -352,6 +397,9 @@ function mapVenueRow(r: any): ApVenue {
     capacity: r.capacity != null ? Number(r.capacity) : null,
     fire_notes: r.fire_notes ?? null,
     safety_rules: r.safety_rules ?? null,
+    plan_local_uri: r.plan_local_uri ?? null,
+    plan_filename: r.plan_filename ?? null,
+    plan_storage_path: r.plan_storage_path ?? null,
     created_at: r.created_at ?? null,
     updated_at: r.updated_at ?? null,
     synced: !!r.synced,
@@ -469,6 +517,7 @@ function mapEventRow(r: any): ApEvent {
     selected_space_ids: parseJson<string[]>(r.selected_space_ids_json, []),
     space_id: r.space_id ?? null,
     readiness_manual: parseJson<ApEvent['readiness_manual']>(r.readiness_manual_json, {}),
+    feuille_note: r.feuille_note ?? null,
     created_at: r.created_at ?? null,
     updated_at: r.updated_at ?? null,
     synced: !!r.synced,
@@ -530,6 +579,8 @@ function mapPersonnelRow(r: any): ApPersonnel {
     role_permanent: r.role_permanent != null ? !!r.role_permanent : null,
     organization_id: r.organization_id ?? null,
     notes: r.notes ?? null,
+    photo_uri: r.photo_uri ?? null,
+    photo_storage_path: r.photo_storage_path ?? null,
     updated_at: r.updated_at ?? null,
     synced: !!r.synced,
   };
@@ -653,8 +704,8 @@ export async function applyAccueilProSnapshot(
       const r = row as Record<string, unknown>;
       await db.runAsync(
         `INSERT INTO ap_venues (id,name,address,cp,city,phone,email,erp_type,erp_category,capacity,
-          fire_notes,safety_rules,created_at,updated_at,synced)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+          fire_notes,safety_rules,plan_local_uri,plan_filename,plan_storage_path,created_at,updated_at,synced)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
         [
           String(r.id),
           String(r.name ?? ''),
@@ -668,6 +719,9 @@ export async function applyAccueilProSnapshot(
           r.capacity != null ? Number(r.capacity) : 0,
           (r.fire_notes as string) ?? null,
           (r.safety_rules as string) ?? null,
+          (r.plan_local_uri as string) ?? null,
+          (r.plan_filename as string) ?? null,
+          (r.plan_storage_path as string) ?? null,
           (r.created_at as string) ?? now,
           (r.updated_at as string) ?? now,
         ]
@@ -724,8 +778,8 @@ export async function applyAccueilProSnapshot(
       const r = row as Record<string, unknown>;
       await db.runAsync(
         `INSERT INTO ap_team_members (
-          id,venue_id,name,first_name,last_name,address,role,mission,phone,email,kind,organization_id,role_permanent,notes,updated_at,synced)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+          id,venue_id,name,first_name,last_name,address,role,mission,phone,email,kind,organization_id,role_permanent,notes,photo_uri,photo_storage_path,updated_at,synced)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
         [
           String(r.id),
           String(r.venue_id ?? ''),
@@ -741,6 +795,8 @@ export async function applyAccueilProSnapshot(
           r.organization_id != null ? String(r.organization_id) : null,
           int01(r.role_permanent as boolean | number),
           (r.notes as string) ?? null,
+          (r.photo_uri as string) ?? null,
+          (r.photo_storage_path as string) ?? null,
           (r.updated_at as string) ?? now,
         ]
       );
@@ -987,8 +1043,9 @@ export async function saveVenue(row: ApVenue, database?: SQLite.SQLiteDatabase):
   await db.runAsync(
     `INSERT OR REPLACE INTO ap_venues (
       id,name,address,cp,city,phone,email,erp_type,erp_category,capacity,fire_notes,safety_rules,
+      plan_local_uri,plan_filename,plan_storage_path,
       created_at,updated_at,synced)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
     [
       row.id,
       row.name,
@@ -1002,6 +1059,9 @@ export async function saveVenue(row: ApVenue, database?: SQLite.SQLiteDatabase):
       row.capacity ?? 0,
       row.fire_notes ?? null,
       row.safety_rules ?? null,
+      row.plan_local_uri ?? null,
+      row.plan_filename ?? null,
+      row.plan_storage_path ?? null,
       created,
       updated,
     ]
@@ -1070,9 +1130,9 @@ export async function savePersonnel(row: ApPersonnel, database?: SQLite.SQLiteDa
   await db.runAsync(
     `INSERT OR REPLACE INTO ap_team_members (
       id,venue_id,name,first_name,last_name,address,role,mission,phone,email,
-      kind,organization_id,role_permanent,notes,
+      kind,organization_id,role_permanent,notes,photo_uri,photo_storage_path,
       updated_at,synced)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
     [
       row.id,
       row.venue_id,
@@ -1088,6 +1148,8 @@ export async function savePersonnel(row: ApPersonnel, database?: SQLite.SQLiteDa
       row.organization_id ?? null,
       int01(row.role_permanent ?? false),
       row.notes ?? null,
+      row.photo_uri ?? null,
+      row.photo_storage_path ?? null,
       row.updated_at ?? n,
     ]
   );
@@ -1312,11 +1374,19 @@ export async function saveEvent(row: ApEvent, database?: SQLite.SQLiteDatabase):
   const updated = row.updated_at ?? n;
   const sel = JSON.stringify(row.selected_space_ids ?? []);
   const mode = row.spaces_mode ?? 'all';
+  let feuilleNote: string | null = row.feuille_note ?? null;
+  if (row.feuille_note === undefined) {
+    const prev = await db.getFirstAsync<{ feuille_note: string | null }>(
+      'SELECT feuille_note FROM ap_events WHERE id = ?',
+      [row.id]
+    );
+    feuilleNote = prev?.feuille_note ?? null;
+  }
   await db.runAsync(
     `INSERT OR REPLACE INTO ap_events (
       id,venue_id,organization_id,name,type,organisateur,date_debut,date_fin,heure_debut,heure_fin,
-      participants,description,status,spaces_mode,selected_space_ids_json,space_id,readiness_manual_json,created_at,updated_at,synced)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+      participants,description,status,spaces_mode,selected_space_ids_json,space_id,readiness_manual_json,feuille_note,created_at,updated_at,synced)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
     [
       row.id,
       row.venue_id ?? null,
@@ -1335,6 +1405,7 @@ export async function saveEvent(row: ApEvent, database?: SQLite.SQLiteDatabase):
       sel,
       row.space_id ?? null,
       JSON.stringify(row.readiness_manual ?? {}),
+      feuilleNote,
       created,
       updated,
     ]
@@ -1351,6 +1422,19 @@ export async function saveApEventReadinessManual(
     `UPDATE ap_events SET readiness_manual_json = ?, updated_at = ?, synced = 0 WHERE id = ?`,
     [JSON.stringify(manual ?? {}), nowIso(), eventId]
   );
+}
+
+export async function saveApEventFeuilleNote(
+  eventId: string,
+  note: string,
+  database?: SQLite.SQLiteDatabase
+): Promise<void> {
+  const db = await resolveDb(database);
+  await db.runAsync(`UPDATE ap_events SET feuille_note = ?, updated_at = ?, synced = 0 WHERE id = ?`, [
+    note.trim() || null,
+    nowIso(),
+    eventId,
+  ]);
 }
 
 export async function deleteEvent(id: string, database?: SQLite.SQLiteDatabase): Promise<void> {

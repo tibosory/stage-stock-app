@@ -44,6 +44,8 @@ import { BackendModePicker } from '../components/BackendModePicker';
 import { NetworkSupabasePanel } from '../components/NetworkSupabasePanel';
 import { WindowsInstallerCard } from '../components/WindowsInstallerCard';
 import { ConnectionDiagnosticPanel } from '../components/ConnectionDiagnosticPanel';
+import { PairingQrScannerModal } from '../components/PairingQrScannerModal';
+import { setServerPairingVerified } from '../lib/workspaceOnboardingStorage';
 import { useLanguage } from '../context/LanguageContext';
 import { toUserFriendlyNetworkMessage } from '../lib/userFriendlyNetworkError';
 import { getDataBackendMode, type DataBackendMode } from '../lib/backendMode';
@@ -67,6 +69,7 @@ export default function NetworkScreen() {
   const [quickSetupBusy, setQuickSetupBusy] = useState(false);
   /** Mode grand public : afficher URL / clé / tests comme sur l’écran Réseau complet */
   const [showManualServer, setShowManualServer] = useState(false);
+  const [pairingScanOpen, setPairingScanOpen] = useState(false);
   const [backendMode, setBackendMode] = useState<DataBackendMode>('local_server');
 
   const isLocalBackend = isV1LanMode() || backendMode === 'local_server';
@@ -315,6 +318,19 @@ export default function NetworkScreen() {
     }
   }, [resolved]);
 
+  const handlePairingScanSuccess = useCallback(
+    async (baseUrl: string) => {
+      setPairingScanOpen(false);
+      await refresh();
+      await setServerPairingVerified();
+      Alert.alert(
+        t('onboarding.pairingTitle'),
+        t('onboarding.pairingSuccess') + (baseUrl ? `\n\n${baseUrl}` : '')
+      );
+    },
+    [refresh, t]
+  );
+
   if (isConsumerApp()) {
     const modeLabel = connectionSurfaceLabel(resolved || getBundledDefaultApiBase());
     const stateLabel =
@@ -410,6 +426,9 @@ export default function NetworkScreen() {
                     <TouchableOpacity style={styles.secondaryBtn} onPress={onOpenPairingQrPage}>
                       <Text style={styles.secondaryBtnText}>{t('network.openPairPage')}</Text>
                     </TouchableOpacity>
+                    <TouchableOpacity style={styles.primaryBtn} onPress={() => setPairingScanOpen(true)}>
+                      <Text style={styles.primaryBtnText}>{t('onboarding.scanPairingQr')}</Text>
+                    </TouchableOpacity>
                   </Card>
 
                   {showManualServer ? (
@@ -489,6 +508,11 @@ export default function NetworkScreen() {
             </Card>
           )}
         </ScrollView>
+        <PairingQrScannerModal
+          visible={pairingScanOpen}
+          onClose={() => setPairingScanOpen(false)}
+          onSuccess={handlePairingScanSuccess}
+        />
       </TabScreenSafeArea>
     );
   }

@@ -1,4 +1,4 @@
-import * as Linking from 'expo-linking';
+import { Linking } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import type { InspectionReportPayload } from './accueilProInspectionReport';

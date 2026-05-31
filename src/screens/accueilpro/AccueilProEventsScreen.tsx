@@ -12,6 +12,7 @@ import {
 } from '../../components/accueilpro/AccueilProUI';
 import { useLanguage } from '../../context/LanguageContext';
 import { listApEvents } from '../../db/accueilProDb';
+import { accueilProEventColor } from '../../lib/accueilProEventColors';
 import type { ApEvent } from '../../types/accueilPro';
 import { filterEventsList, type EventListFilter } from '../../lib/accueilProEventFilters';
 import { todayIsoDate } from './accueilProScreenCommon';
@@ -87,6 +88,7 @@ export default function AccueilProEventsScreen() {
             meta={[item.date_debut, item.heure_debut, item.heure_fin ? `→ ${item.heure_fin}` : '']
               .filter(Boolean)
               .join(' · ')}
+            accentColor={accueilProEventColor(item.id).bg}
             onPress={() => navigation.navigate('AccueilProEventDetail', { id: item.id })}
             rightAccessory={<AccueilProStatusBadge status={item.status} />}
           />

@@ -1,7 +1,7 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, FlatList, Alert, TouchableOpacity } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
-import { ContactActionRow } from '../../components/accueilpro/ContactActionRow';
+import { AccueilProContactCard } from '../../components/accueilpro/AccueilProContactCard';
 import {
   AccueilProFormCard,
   AccueilProFormSelectPicker,
@@ -19,6 +19,7 @@ import {
   listApEventPersonnel,
   listApPersonnel,
 } from '../../db/accueilProDb';
+import { contactFieldLabelsFromT, eventPersonnelContactLines } from '../../lib/accueilProContactDisplay';
 import { personnelDisplayName } from '../../lib/accueilProPersonnelHelpers';
 import type { ApEvent, ApEventPersonnel } from '../../types/accueilPro';
 
@@ -39,6 +40,8 @@ export default function AccueilProEventPersonnelScreen() {
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
   const [role, setRole] = useState('');
+
+  const fieldLabels = useMemo(() => contactFieldLabelsFromT(t), [t]);
 
   const load = useCallback(async () => {
     try {
@@ -194,13 +197,13 @@ export default function AccueilProEventPersonnelScreen() {
         }
         ListEmptyComponent={<Text style={apStyles.empty}>{t('accueilpro.eventTeam.empty')}</Text>}
         renderItem={({ item }) => (
-          <View style={apStyles.row}>
-            <Text style={apStyles.rowTitle}>{item.name}</Text>
-            <Text style={apStyles.rowMeta}>
-              {[item.day_role, item.day_mission, item.source].filter(Boolean).join(' · ')}
-            </Text>
-            <ContactActionRow phone={item.phone} email={item.email} emailSubject={`StageStock · ${item.name}`} />
-          </View>
+          <AccueilProContactCard
+            displayName={item.name.trim()}
+            lines={eventPersonnelContactLines(item, fieldLabels)}
+            phone={item.phone}
+            email={item.email}
+            emailSubject={`StageStock · ${item.name}`}
+          />
         )}
       />
     </AccueilProScreenLayout>

@@ -52,6 +52,9 @@ export interface ApVenue {
   capacity?: number | null;
   fire_notes?: string | null;
   safety_rules?: string | null;
+  plan_local_uri?: string | null;
+  plan_filename?: string | null;
+  plan_storage_path?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   synced?: boolean;
@@ -171,6 +174,8 @@ export interface ApEvent {
   space_id?: string | null;
   /** Checklist manuelle « prêt à accueillir » (JSON local). */
   readiness_manual?: ApEventReadinessManual | null;
+  /** Notes régisseur sur la feuille de route de l’événement. */
+  feuille_note?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   synced?: boolean;
@@ -251,6 +256,9 @@ export interface ApPersonnel {
   organization_id?: string | null;
   /** Notes locales (SQLite). */
   notes?: string | null;
+  /** URI locale (documentDirectory) — photo de profil. */
+  photo_uri?: string | null;
+  photo_storage_path?: string | null;
   updated_at?: string | null;
   synced?: boolean;
 }

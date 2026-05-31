@@ -36,7 +36,7 @@ export const USER_GUIDE_META = {
 
   versionLabel:
 
-    '21 mai 2026 (v1.0.66 : ma journée, statuts, checklist, comparaison EDL)',
+    '21 mai 2026 (v1.0.73 : feuilles de route par événement Accueil Pro)',
 
 };
 
@@ -144,7 +144,7 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'L’onglet Scanner utilise la caméra pour les QR et codes-barres, ou le NFC si le téléphone le permet.',
 
-      'QR de jumelage serveur : dans l’assistant ou Réseau, appuyez sur « Scanner le QR d’appairage » et visez le QR affiché sur le PC (/pair). Le QR inclut l’URL et la clé API : un second scan est nécessaire si le serveur vient d’être réinstallé ou si un message « clé API manquante » s’affiche.',
+      'QR de jumelage serveur : Connexion / Réseau → « Scanner le QR d’appairage » (ou onglet Scanner) et visez le QR affiché sur la page /pair du PC — pas l’adresse seule sous le QR. Le QR inclut l’URL et la clé API. Si « clé API requise » : rechargez /pair sur le PC et rescannez ; après réinstallation du serveur, l’ancien QR ne sert plus.',
 
       'Matériel : le code ouvre la fiche ou permet d’en créer une minimale si votre organisation l’autorise.',
 
@@ -328,7 +328,7 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'Lieux, événements, conventions, portail association. Les demandes de location ne passent pas par l’application : créez les événements directement. Sync séparée : Réseau → carte Accueil Pro.',
 
-      'Lieux : menu Accueil Pro → Lieux. Chaque lieu apparaît en bulle ; en le sélectionnant, les espaces (salles) s’affichent en bulles. Sélectionnez un espace pour le visualiser et le modifier, ou « + Nouvel espace » pour en créer un. Après l’enregistrement du lieu, section « Convention de location » : import PDF, texte et signature — visible aussi dans l’onglet Réglementation du lieu.',
+      'Lieux : menu Accueil Pro → Lieux. Chaque lieu apparaît en bulle ; en le sélectionnant, les espaces (salles) s’affichent en bulles. Sélectionnez un espace pour le visualiser et le modifier, ou « + Nouvel espace » pour en créer un. Plan du lieu : en création ou modification, section « Plan du lieu » — import PDF ou DWG ; consulter depuis la fiche (onglet Réglementation) ou depuis l’édition. Le PDF s’affiche dans l’app ; le DWG s’ouvre via Partager (AutoCAD, etc.). Après l’enregistrement du lieu, section « Convention de location » : import PDF, texte et signature — visible aussi dans l’onglet Réglementation du lieu.',
 
       'Organisations : menu Accueil Pro → Organisations. Liste des associations et entreprises enregistrées ; touchez une fiche pour la modifier (coordonnées, contacts, documents). Lien « Créer un événement » sous chaque organisation, ou bouton dédié dans la fiche — l’organisation est pré-sélectionnée dans le formulaire événement.',
 
@@ -336,13 +336,13 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'Événement : lors de la création, section « Dates et horaires » (début/fin + heures), statut (Option, Confirmé, Annulé, Terminé), boutons « + Nouvelle organisation » et « + Nouveau lieu et espaces » sans quitter le formulaire.',
 
-      'Événement ouvert : onglets Aperçu, Équipe et Agenda. Équipe — créer une fiche (prénom, nom, téléphone, e-mail, adresse) : elle rejoint l’annuaire général et l’équipe du jour ; ou ajouter quelqu’un déjà présent dans l’annuaire. Annuaire (Contacts) — équipe du lieu (créée via menu Équipe), contacts organisation et externes ; les membres permanents sont surlignés et en tête de liste (ordre alphabétique), puis les autres (alphabétique). Consulter ou modifier une fiche, « Ajouter à un événement » depuis la fiche. Agenda — créneaux horaires détaillés (qui, quoi, où) comme un planning de journée ; bouton pour importer les horaires de l’événement.',
+      'Événement ouvert : onglets Aperçu, Équipe et Agenda. Équipe — créer une fiche (prénom, nom, téléphone, e-mail, adresse) : elle rejoint l’annuaire général et l’équipe du jour ; ou ajouter quelqu’un déjà présent dans l’annuaire. Annuaire (Contacts) — équipe du lieu (créée via menu Équipe), contacts organisation et externes ; les membres permanents sont surlignés et en tête de liste (ordre alphabétique), puis les autres (alphabétique). Chaque fiche affiche le nom et prénom sur une ligne, puis une ligne par information (rôle, téléphone, e-mail, etc.). Photo de profil : en création ou modification d’un contact (menu Équipe ou fiche contact), section Photo — galerie ou appareil photo ; la vignette apparaît dans l’annuaire. Consulter ou modifier une fiche, « Ajouter à un événement » depuis la fiche. Agenda — créneaux horaires détaillés (qui, quoi, où) comme un planning de journée ; bouton pour importer les horaires de l’événement.',
 
-      'Feuille de route : menu Accueil Pro → Feuille de route. Choisissez la date avec les flèches ou le champ date. En tête : planning global du jour ; puis une synthèse par événement (organisation, lieu, espaces, horaires, description, équipe jour J avec rôles et coordonnées, agenda, conventions, états des lieux). Section lieux & sécurité et notes régisseur en bas. Export PDF pour impression ou partage.',
+      'Feuille de route : menu Accueil Pro → Feuille de route. Une feuille par événement (titre = nom + dates), liste triée chronologiquement. Touchez une ligne pour la synthèse (organisation, lieu, espaces, horaires, équipe, agenda, conventions, EDL, notes régisseur) et l’export PDF. Lien « Ouvrir la feuille de route » aussi depuis la fiche événement (onglet Aperçu). Le planning du jour reste dans Planning du jour.',
 
       'Portail organisation : menu Accueil Pro → Portail association. Liste des organisations ayant au moins un événement créé ; sous chaque nom, les événements concernés. Touchez un événement pour y ajouter des fichiers PDF, audio ou vidéo (programme, rider, bandes-son…). Côté association (portail client), la fiche et les documents généraux de l’organisation restent en bas de l’écran.',
 
-      'Ma journée (staff) : section sur l’accueil Accueil Pro avec le score de préparation de chaque événement du jour ; tap → fiche événement. Bannière « Aujourd’hui » → liste filtrée. Événements : filtres Aujourd’hui / Semaine / Tous ; statuts Option, Confirmé, Annulé, Terminé (les annulés sont exclus des comptages jour J). Fiche événement → checklist « Prêt à accueillir » (convention, docs, EDL, équipe + cases briefing et accès). Lien « Comparer EDL entrée / sortie » par espace. Feuille de route PDF : inclut le score de préparation.',
+      'Ma journée (staff) : section sur l’accueil Accueil Pro avec le score de préparation de chaque événement du jour ; tap → fiche événement. Bannière « Aujourd’hui » → liste filtrée. Événements : filtres Aujourd’hui / Semaine / Tous ; statuts Option, Confirmé, Annulé, Terminé (les annulés sont exclus des comptages jour J). Chaque événement a une couleur fixe (bulles du calendrier Planning, bandeau latéral dans les listes) pour le repérer rapidement. Fiche événement → checklist « Prêt à accueillir » (convention, docs, EDL, équipe + cases briefing et accès). Lien « Comparer EDL entrée / sortie » par espace. Feuille de route PDF : inclut le score de préparation.',
 
       'Invitations portail (staff, mode Supabase) : fiche Organisation → Inviter au portail cloud.',
 

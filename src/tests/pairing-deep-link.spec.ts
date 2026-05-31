@@ -29,6 +29,11 @@ function testHttpPairPageNoKey() {
   assert.equal(p!.apiKey, null);
 }
 
+function testNonPairingHttpRejected() {
+  assert.equal(parseHttpPairingTarget('http://192.168.0.5:8091/health'), null);
+  assert.equal(parseHttpPairingTarget('http://192.168.0.5:8091/api/sync/snapshot'), null);
+}
+
 function testLoopbackHost() {
   assert.equal(getPairingHostIssue('http://127.0.0.1:8091'), 'loopback');
   assert.equal(getPairingHostIssue('http://192.168.1.10:8091'), null);
@@ -39,5 +44,6 @@ function testLoopbackHost() {
 testDeepLink();
 testHttpPairPage();
 testHttpPairPageNoKey();
+testNonPairingHttpRejected();
 testLoopbackHost();
 console.log('pairing-deep-link.spec: OK');

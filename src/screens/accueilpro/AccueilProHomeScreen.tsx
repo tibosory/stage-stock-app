@@ -33,6 +33,7 @@ import { todayIsoDate } from './accueilProScreenCommon';
 import type { ApEvent, ApRoomInspection, ApVenue } from '../../types/accueilPro';
 import { eventsOnDate } from '../../lib/accueilProFeuilleHelpers';
 import { buildEventReadinessSnapshots, type EventReadinessSnapshot } from '../../lib/accueilProEventReadiness';
+import { accueilProEventColor } from '../../lib/accueilProEventColors';
 import { EventDayReadinessCard } from '../../components/accueilpro/EventReadinessChecklist';
 
 function formatShortDate(iso?: string | null): string {
@@ -180,7 +181,7 @@ export default function AccueilProHomeScreen() {
         <AccueilProSectionCard
           title={t('accueilpro.home.myDay')}
           actionLabel={t('accueilpro.home.myDayFeuille')}
-          onAction={() => nav('AccueilProFeuilleRoute', { date: todayIsoDate() })}
+          onAction={() => nav('AccueilProFeuilleRoute')}
         >
           {todayReadiness.map(snap => (
             <EventDayReadinessCard
@@ -227,6 +228,7 @@ export default function AccueilProHomeScreen() {
             key={e.id}
             title={e.name}
             meta={formatShortDate(e.date_debut)}
+            accentColor={accueilProEventColor(e.id).bg}
             onPress={() => nav('AccueilProEventDetail', { id: e.id })}
             rightAccessory={<AccueilProTypeBadge type={e.type} />}
             showChevron={false}

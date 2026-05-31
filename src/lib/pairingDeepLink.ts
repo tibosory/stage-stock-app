@@ -20,12 +20,21 @@ export function parsePairingDeepLink(url: string): { baseUrl: string; apiKey: st
   return { baseUrl: stripStageStockServerRootSuffix(base.replace(/\/+$/, '')), apiKey: key || null };
 }
 
+function isHttpPairingCandidate(u: URL): boolean {
+  const path = u.pathname.replace(/\/+$/, '') || '/';
+  if (/^\/(pair|pair\.html)$/i.test(path)) return true;
+  if (u.searchParams.has('key')) return true;
+  const baseParam = u.searchParams.get('base')?.trim() ?? '';
+  return Boolean(baseParam && looksLikeHttpUrl(baseParam));
+}
+
 /** QR ou URL http(s) affichée sur la page /pair du PC (ex. http://192.168.0.5:8091/pair?key=…). */
 export function parseHttpPairingTarget(raw: string): { baseUrl: string; apiKey: string | null } | null {
   const t = raw.trim();
   if (!/^https?:\/\//i.test(t)) return null;
   try {
     const u = new URL(t);
+    if (!isHttpPairingCandidate(u)) return null;
     const baseParam = u.searchParams.get('base')?.trim() ?? '';
     const baseFromQuery =
       baseParam && looksLikeHttpUrl(baseParam)
@@ -56,12 +65,19 @@ export function getPairingHostIssue(baseUrl: string): 'loopback' | null {
   }
 }
 
+export function pairingScanHadApiKey(raw: string): boolean {
+  const parsed = parsePairingDeepLink(raw) ?? parseHttpPairingTarget(raw);
+  return Boolean(parsed?.apiKey?.trim());
+}
+
 export async function tryApplyPairingFromScan(raw: string): Promise<boolean> {
   const fromDeep = parsePairingDeepLink(raw);
   const parsed = fromDeep ?? parseHttpPairingTarget(raw);
   if (!parsed) return false;
   await setApiBaseOverride(parsed.baseUrl);
-  await setApiKeyOverride(parsed.apiKey);
+  if (parsed.apiKey?.trim()) {
+    await setApiKeyOverride(parsed.apiKey.trim());
+  }
   return true;
 }
 
@@ -69,6 +85,8 @@ export async function applyPairingDeepLink(url: string): Promise<boolean> {
   const parsed = parsePairingDeepLink(url) ?? parseHttpPairingTarget(url);
   if (!parsed) return false;
   await setApiBaseOverride(parsed.baseUrl);
-  await setApiKeyOverride(parsed.apiKey);
+  if (parsed.apiKey?.trim()) {
+    await setApiKeyOverride(parsed.apiKey.trim());
+  }
   return true;
 }

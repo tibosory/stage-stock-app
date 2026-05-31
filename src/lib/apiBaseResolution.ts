@@ -42,8 +42,18 @@ function pairingPortCandidates(seedPort: number): number[] {
   ].filter(p => Number.isFinite(p) && p > 0);
 }
 
+export type HealthProbeOpts = {
+  /** Limite le balayage de ports alternatifs (appairage QR : évite ~15 s d’attente). */
+  maxExtraPorts?: number;
+  timeoutMs?: number;
+};
+
 /** Détection rapide du port StageStock (health seul, sans clé API). */
-export async function resolveStageStockBaseFromHealthProbe(seedBase: string): Promise<string | null> {
+export async function resolveStageStockBaseFromHealthProbe(
+  seedBase: string,
+  opts?: HealthProbeOpts
+): Promise<string | null> {
+  const timeoutMs = opts?.timeoutMs ?? PAIRING_HEALTH_MS;
   const normalized = normalizeHttpBaseUrl(seedBase) ?? stripStageStockServerRootSuffix(seedBase.trim());
   if (!normalized) return null;
   let host = '';
@@ -67,15 +77,18 @@ export async function resolveStageStockBaseFromHealthProbe(seedBase: string): Pr
   })();
 
   const seedUrl = `${protocol}//${host}:${seedPort}`;
-  if (await probeStageStockHealth(seedUrl, PAIRING_HEALTH_MS)) return seedUrl;
+  if (await probeStageStockHealth(seedUrl, timeoutMs)) return seedUrl;
 
-  const otherPorts = pairingPortCandidates(seedPort).filter(p => p !== seedPort);
+  let otherPorts = pairingPortCandidates(seedPort).filter(p => p !== seedPort);
+  if (opts?.maxExtraPorts != null) {
+    otherPorts = otherPorts.slice(0, Math.max(0, opts.maxExtraPorts));
+  }
   for (let i = 0; i < otherPorts.length; i += 6) {
     const batch = otherPorts.slice(i, i + 6);
     const hits = await Promise.all(
       batch.map(async port => {
         const base = `${protocol}//${host}:${port}`;
-        return (await probeStageStockHealth(base, PAIRING_HEALTH_MS)) ? base : null;
+        return (await probeStageStockHealth(base, timeoutMs)) ? base : null;
       })
     );
     const found = hits.find(Boolean);
@@ -84,17 +97,22 @@ export async function resolveStageStockBaseFromHealthProbe(seedBase: string): Pr
   return null;
 }
 
-/** Ping court pour l’appairage QR (3 essais sur /health uniquement). */
+type PairingPingOpts = { attempts?: number; timeoutMs?: number };
+
+/** Ping court pour l’appairage QR (essais sur /health uniquement). */
 export async function pairingPingHealthBase(
-  baseUrl: string
+  baseUrl: string,
+  opts?: PairingPingOpts
 ): Promise<{ ok: boolean; testedBase: string }> {
   const base = stripStageStockServerRootSuffix(baseUrl.trim());
   if (!base) return { ok: false, testedBase: baseUrl.trim() };
-  for (let i = 0; i < 3; i += 1) {
-    if (await probeStageStockHealth(base, PAIRING_PING_MS)) {
+  const attempts = opts?.attempts ?? 3;
+  const timeoutMs = opts?.timeoutMs ?? PAIRING_PING_MS;
+  for (let i = 0; i < attempts; i += 1) {
+    if (await probeStageStockHealth(base, timeoutMs)) {
       return { ok: true, testedBase: base };
     }
-    if (i < 2) {
+    if (i < attempts - 1) {
       await new Promise(resolve => setTimeout(resolve, 600));
     }
   }

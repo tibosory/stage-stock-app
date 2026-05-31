@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { AccueilProEventBubble } from '../../components/accueilpro/AccueilProEventBubble';
 import {
   AccueilProEmpty,
   AccueilProLinkButton,
@@ -21,6 +22,7 @@ import {
   seedApDayPlanFromEvents,
 } from '../../db/accueilProDb';
 import { formatDayPlanTimeRange, sortDayPlanItems } from '../../lib/accueilProDayPlanHelpers';
+import { accueilProEventColor } from '../../lib/accueilProEventColors';
 import { shiftIsoDate } from '../../lib/accueilProFeuilleHelpers';
 import type { ApDayPlanItem, ApEvent } from '../../types/accueilPro';
 import { todayIsoDate } from './accueilProScreenCommon';
@@ -165,22 +167,28 @@ export default function AccueilProDayPlanScreen() {
         />
         <AccueilProLinkButton
           label={t('accueilpro.feuille.title')}
-          onPress={() => navigation.navigate('AccueilProFeuilleRoute', { date })}
+          onPress={() => navigation.navigate('AccueilProFeuilleRoute')}
         />
       </View>
 
       {items.length === 0 ?
         <AccueilProEmpty emoji="🗓" message={t('accueilpro.dayPlan.empty')} />
       : <AccueilProSectionCard title={t('accueilpro.dayPlan.schedule')}>
-          {items.map(item => (
+          {items.map(item => {
+            const linkedEvent = item.event_id ? events[item.event_id] : undefined;
+            const eventAccent = item.event_id ? accueilProEventColor(item.event_id).bg : undefined;
+            return (
             <TouchableOpacity
               key={item.id}
               onPress={() => navigation.navigate('AccueilProDayPlanEdit', { id: item.id, date: item.plan_date })}
               onLongPress={() => onDelete(item)}
               style={{
                 paddingVertical: 12,
+                paddingLeft: eventAccent ? 10 : 0,
                 borderBottomWidth: 1,
                 borderBottomColor: AccueilProColors.borderSubtle,
+                borderLeftWidth: eventAccent ? 4 : 0,
+                borderLeftColor: eventAccent,
               }}
             >
               <Text style={{ fontWeight: '800', color: AccueilProColors.gold, fontSize: 16, marginBottom: 6 }}>
@@ -200,16 +208,17 @@ export default function AccueilProDayPlanScreen() {
                   <Text style={{ fontSize: 13 }}>{whereLabel(item)}</Text>
                 </View>
               </View>
-              {item.event_id && events[item.event_id] ?
-                <Text style={{ fontSize: 11, color: AccueilProColors.textSecondary, marginTop: 6 }}>
-                  {t('accueilpro.dayPlan.linkedEvent')}: {events[item.event_id].name}
-                </Text>
+              {linkedEvent ?
+                <View style={{ marginTop: 8 }}>
+                  <AccueilProEventBubble eventId={linkedEvent.id} label={linkedEvent.name} />
+                </View>
               : null}
               {item.notes?.trim() ?
                 <Text style={{ fontSize: 12, color: AccueilProColors.textSecondary, marginTop: 4 }}>{item.notes}</Text>
               : null}
             </TouchableOpacity>
-          ))}
+            );
+          })}
         </AccueilProSectionCard>}
 
       <AccueilProSectionCard title={t('accueilpro.feuille.notes')}>

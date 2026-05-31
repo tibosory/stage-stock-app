@@ -8,7 +8,7 @@ export const USER_GUIDE_META_EN = {
   title: 'CATRACK Pro — User guide',
   subtitle: 'Step-by-step guide with practical examples',
   versionLabel:
-    'May 21, 2026 (v1.0.66: my day, statuses, checklist, EDL compare)',
+    'May 21, 2026 (v1.0.73: per-event run sheets in Accueil Pro)',
 };
 
 export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
@@ -62,7 +62,7 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     title: 'Scanner (QR, barcodes, NFC)',
     paragraphs: [
       'The Scanner tab uses the camera for QR codes and barcodes, or NFC if your phone supports it.',
-      'Server pairing QR: during setup, tap Scan pairing QR code, or use the Scanner tab to scan the PC /pair page code. The app saves the address and API key automatically. Do not create an equipment record for this code. Fallback: manual entry in Network.',
+      'Server pairing QR: Connection / Network → Scan pairing QR code (or Scanner tab) and aim at the QR on the PC /pair page — not the address line under the QR alone. The QR includes URL and API key. If “API key required”: reload /pair on the PC and scan again; after server reinstall, old QR codes are invalid.',
       'Equipment: the code opens the record or creates a minimal one if your organisation allows it.',
       'Consumables: stock in or out; burst mode applies the same quantity at each scan.',
     ],
@@ -154,13 +154,13 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     paragraphs: [
       'Module for front-of-house and room hire. Accueil Pro banner on the home screen.',
       'Venues, events, agreements, association portal. Hire requests are not handled in the app — create events directly. Separate sync: Network → Accueil Pro card.',
-      'Venues: Accueil Pro → Venues. After saving a venue, use “Rental agreement” to attach a PDF template or text (also under the venue Regulations tab).',
+      'Venues: Accueil Pro → Venues. Each venue appears as a bubble; select it to show its spaces (rooms) as bubbles. Select a space to view or edit it, or “+ New space” to create one. Venue plan: when creating or editing, use “Venue plan” to import a PDF or DWG; view it from the venue record (Regulations tab) or while editing. PDF opens in-app; DWG via Share (AutoCAD, etc.). After saving, use “Rental agreement” to attach a PDF template or text (also under the venue Regulations tab).',
       'Organizations: Accueil Pro → Organizations. Saved list with edit (details, contacts, documents). “Create event” under each row or on the organization record — organization is pre-selected in the event form.',
       'Inspections: Accueil Pro → Inspections → “By event” tab. Select an event; for each space, check-in and check-out buttons (checklist + photos). History tab for past records. Issues report: PDF (print/share) or email summary (failed checks, comments, missing inspections).',
-      'Open event: Overview, Team and Agenda tabs. Team — create a staff record (name, phone, email, address): it joins the general directory and the event team; or pick someone already in the directory. Contacts — venue team (Team menu), organization and external contacts; permanent members highlighted at the top (A–Z), then others (A–Z). View or edit a record, “Add to event” from the record. Agenda — detailed time slots (who, what, where) like a day schedule; import event times with one tap.',
-      'Run sheet: Accueil Pro → Run sheet. Pick the date with arrows or the date field. Global day schedule at the top; then one block per event (organization, venue, spaces, times, description, day-of team with roles and contact details, agenda, agreements, inspections). Venues & safety section and regisseur notes at the bottom. Export PDF to print or share.',
+      'Open event: Overview, Team and Agenda tabs. Team — create a staff record (name, phone, email, address): it joins the general directory and the event team; or pick someone already in the directory. Contacts — venue team (Team menu), organization and external contacts; permanent members highlighted at the top (A–Z), then others (A–Z). Each card shows the full name on one line, then one line per field (role, phone, email, etc.). Profile photo: when creating or editing a contact (Team menu or contact record), Photo section — gallery or camera; thumbnail shown in the directory. View or edit a record, “Add to event” from the record. Agenda — detailed time slots (who, what, where) like a day schedule; import event times with one tap.',
+      'Run sheet: Accueil Pro → Run sheet. One sheet per event (title = name + dates), list sorted chronologically. Tap a row for the synthesis (organization, venue, spaces, times, team, agenda, agreements, inspections, regisseur notes) and PDF export. “Open run sheet” link on the event record (Overview tab) too. Day schedule remains under Day plan.',
       'Organization portal: Accueil Pro → Association portal. Lists organizations with at least one created event; events appear under each name. Tap an event to add PDF, audio or video files (programme, rider, sound tracks…). For association users (client portal), the profile form and general organization documents remain at the bottom.',
-      'My day (staff): section on Accueil Pro home with readiness score per today’s event; tap → event record. Today banner → filtered list. Events: Today / Week / All filters; statuses Option, Confirmed, Cancelled, Completed (cancelled excluded from day counts). Event record → “Ready to host” checklist (agreement, files, inspections, team + briefing and access toggles). “Compare check-in / check-out” link per space. Run sheet PDF includes readiness score.',
+      'My day (staff): section on Accueil Pro home with readiness score per today’s event; tap → event record. Today banner → filtered list. Events: Today / Week / All filters; statuses Option, Confirmed, Cancelled, Completed (cancelled excluded from day counts). Each event has a fixed color (Planning calendar bubbles, list side stripe) for quick identification. Event record → “Ready to host” checklist (agreement, files, inspections, team + briefing and access toggles). “Compare check-in / check-out” link per space. Run sheet PDF includes readiness score.',
       'Portal invitations (staff, Supabase mode): Organization record → Invite to cloud portal.',
     ],
   },

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Text, Alert, Switch, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { ContactPhotoPicker } from '../../components/accueilpro/ContactPhotoPicker';
 import {
   AccueilProFormCard,
   AccueilProFormSelectPicker,
@@ -30,6 +31,7 @@ export default function AccueilProPersonnelEditScreen() {
   const route = useRoute<any>();
   const { t } = useLanguage();
   const personnelId = route.params?.id as string | undefined;
+  const [recordId] = useState(() => personnelId ?? generateApId());
   const resolvedParam = route.params?.kind as ApPersonnelKind | 'association' | undefined;
   const defaultKind: PersonnelKindUi =
     resolvedParam === 'organisation' || resolvedParam === 'association' ? 'association'
@@ -51,6 +53,7 @@ export default function AccueilProPersonnelEditScreen() {
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [notes, setNotes] = useState('');
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [assignEventId, setAssignEventId] = useState('');
   const [assignDayRole, setAssignDayRole] = useState('');
   const [eventOptions, setEventOptions] = useState<{ label: string; value: string }[]>([]);
@@ -94,6 +97,7 @@ export default function AccueilProPersonnelEditScreen() {
         setPhone(p.phone ?? '');
         setEmail(p.email ?? '');
         setNotes(p.notes ?? '');
+        setPhotoUri(p.photo_uri ?? null);
         setRolePermanent(!!p.role_permanent);
       }
       setLoading(false);
@@ -122,7 +126,7 @@ export default function AccueilProPersonnelEditScreen() {
     setSaving(true);
     try {
       const persistedKind: ApPersonnelKind = kind === 'association' ? 'organisation' : kind;
-      const id = personnelId ?? generateApId();
+      const id = recordId;
       await saveApPersonnel({
         id,
         kind: persistedKind,
@@ -138,6 +142,7 @@ export default function AccueilProPersonnelEditScreen() {
         phone: phone.trim() || null,
         email: email.trim() || null,
         notes: notes.trim() || null,
+        photo_uri: photoUri,
       });
       navigation.goBack();
     } finally {
@@ -145,6 +150,7 @@ export default function AccueilProPersonnelEditScreen() {
     }
   }, [
     personnelId,
+    recordId,
     kind,
     venueId,
     associationVenueId,
@@ -159,17 +165,19 @@ export default function AccueilProPersonnelEditScreen() {
     phone,
     email,
     notes,
+    photoUri,
     navigation,
     t,
   ]);
 
   const onAssignToEvent = async () => {
-    if (!personnelId) return;
+    const id = personnelId ?? recordId;
+    if (!id) return;
     if (!assignEventId) {
       Alert.alert(t('accueilpro.orgs.errTitle'), t('accueilpro.personnel.pickEvent'));
       return;
     }
-    await addPersonnelToEventFromDirectory(assignEventId, personnelId, assignDayRole);
+    await addPersonnelToEventFromDirectory(assignEventId, id, assignDayRole);
     Alert.alert(t('accueilpro.save'), t('accueilpro.personnel.addedToEvent'));
     setAssignEventId('');
     setAssignDayRole('');
@@ -190,6 +198,7 @@ export default function AccueilProPersonnelEditScreen() {
         />
       }
     >
+      <ContactPhotoPicker contactId={recordId} photoUri={photoUri} onChange={setPhotoUri} />
       <AccueilProFormCard>
         <AccueilProFormSelectPicker
           label={t('accueilpro.personnel.kind')}
@@ -263,7 +272,7 @@ export default function AccueilProPersonnelEditScreen() {
         <AccueilProInput label={t('accueilpro.field.notes')} value={notes} onChangeText={setNotes} multiline />
       </AccueilProFormCard>
 
-      {personnelId ?
+      {personnelId || recordId ?
         <AccueilProFormCard style={{ marginTop: Spacing.md }}>
           <Text style={apStyles.sectionTitle}>{t('accueilpro.personnel.addToEvent')}</Text>
           <AccueilProFormSelectPicker

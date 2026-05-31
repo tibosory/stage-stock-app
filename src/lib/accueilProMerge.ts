@@ -213,11 +213,24 @@ async function upsertRemoteRow(
 ): Promise<void> {
   const now = nowIso();
   switch (entity) {
-    case 'venues':
+    case 'venues': {
+      let planLocalUri: string | null = (r.plan_local_uri as string | null) ?? null;
+      let planFilename = (r.plan_filename as string) ?? null;
+      let planStoragePath = (r.plan_storage_path as string) ?? null;
+      if (!planLocalUri) {
+        const existing = await db.getFirstAsync<{
+          plan_local_uri: string | null;
+          plan_filename: string | null;
+          plan_storage_path: string | null;
+        }>('SELECT plan_local_uri, plan_filename, plan_storage_path FROM ap_venues WHERE id = ?', [String(r.id)]);
+        planLocalUri = existing?.plan_local_uri ?? null;
+        planFilename = planFilename ?? existing?.plan_filename ?? null;
+        planStoragePath = planStoragePath ?? existing?.plan_storage_path ?? null;
+      }
       await db.runAsync(
         `INSERT OR REPLACE INTO ap_venues (id,name,address,cp,city,phone,email,erp_type,erp_category,capacity,
-          fire_notes,safety_rules,created_at,updated_at,synced)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+          fire_notes,safety_rules,plan_local_uri,plan_filename,plan_storage_path,created_at,updated_at,synced)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
         [
           String(r.id),
           String(r.name ?? ''),
@@ -231,11 +244,15 @@ async function upsertRemoteRow(
           r.capacity != null ? Number(r.capacity) : 0,
           (r.fire_notes as string) ?? null,
           (r.safety_rules as string) ?? null,
+          planLocalUri,
+          planFilename,
+          planStoragePath,
           (r.created_at as string) ?? now,
           (r.updated_at as string) ?? now,
         ]
       );
       break;
+    }
     case 'spaces':
       await db.runAsync(
         `INSERT OR REPLACE INTO ap_spaces (id,venue_id,name,type,capacity,description,control_points_json,updated_at,synced)
@@ -286,11 +303,19 @@ async function upsertRemoteRow(
               (r.selected_space_ids as string[]) ??
                 (Array.isArray(r.space_ids) ? (r.space_ids as string[]) : [])
             );
+      let feuilleNote = (r.feuille_note as string | null) ?? null;
+      if (r.feuille_note === undefined || r.feuille_note === null) {
+        const existing = await db.getFirstAsync<{ feuille_note: string | null }>(
+          'SELECT feuille_note FROM ap_events WHERE id = ?',
+          [String(r.id)]
+        );
+        feuilleNote = existing?.feuille_note ?? null;
+      }
       await db.runAsync(
         `INSERT OR REPLACE INTO ap_events (
           id,venue_id,organization_id,name,type,organisateur,date_debut,date_fin,heure_debut,heure_fin,
-          participants,description,status,spaces_mode,selected_space_ids_json,space_id,readiness_manual_json,created_at,updated_at,synced)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+          participants,description,status,spaces_mode,selected_space_ids_json,space_id,readiness_manual_json,feuille_note,created_at,updated_at,synced)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
         [
           String(r.id),
           r.venue_id != null ? String(r.venue_id) : null,
@@ -311,6 +336,7 @@ async function upsertRemoteRow(
           typeof r.readiness_manual_json === 'string'
             ? r.readiness_manual_json
             : JSON.stringify(r.readiness_manual ?? r.readiness_manual_json ?? {}),
+          feuilleNote,
           (r.created_at as string) ?? now,
           (r.updated_at as string) ?? now,
         ]
@@ -345,15 +371,26 @@ async function upsertRemoteRow(
       );
       break;
     }
-    case 'team_members':
+    case 'team_members': {
+      let photoUri: string | null = (r.photo_uri as string | null) ?? null;
+      if (!photoUri) {
+        const existing = await db.getFirstAsync<{ photo_uri: string | null }>(
+          'SELECT photo_uri FROM ap_team_members WHERE id = ?',
+          [String(r.id)]
+        );
+        photoUri = existing?.photo_uri ?? null;
+      }
       await db.runAsync(
         `INSERT OR REPLACE INTO ap_team_members (
-          id,venue_id,name,role,mission,phone,email,kind,organization_id,role_permanent,notes,updated_at,synced)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+          id,venue_id,name,first_name,last_name,address,role,mission,phone,email,kind,organization_id,role_permanent,notes,photo_uri,photo_storage_path,updated_at,synced)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
         [
           String(r.id),
           String(r.venue_id ?? ''),
           String(r.name ?? ''),
+          (r.first_name as string) ?? null,
+          (r.last_name as string) ?? null,
+          (r.address as string) ?? null,
           (r.role as string) ?? null,
           (r.mission as string) ?? null,
           (r.phone as string) ?? null,
@@ -362,10 +399,13 @@ async function upsertRemoteRow(
           r.organization_id != null ? String(r.organization_id) : null,
           int01(r.role_permanent),
           (r.notes as string) ?? null,
+          photoUri,
+          (r.photo_storage_path as string) ?? null,
           (r.updated_at as string) ?? now,
         ]
       );
       break;
+    }
     case 'event_personnel':
       await db.runAsync(
         `INSERT OR REPLACE INTO ap_event_personnel (
@@ -503,8 +543,8 @@ async function upsertRemoteRow(
     case 'organization_documents':
       await db.runAsync(
         `INSERT OR REPLACE INTO ap_organization_documents (
-          id,organization_id,event_id,title,category,storage_path,public_url,file_size,mime_type,uploaded_by,created_at,local_uri,synced)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+          id,organization_id,event_id,title,category,storage_path,public_url,file_size,mime_type,uploaded_by,created_at,updated_at,local_uri,synced)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
         [
           String(r.id),
           String(r.organization_id ?? ''),
@@ -517,6 +557,7 @@ async function upsertRemoteRow(
           (r.mime_type as string) ?? null,
           r.uploaded_by != null ? String(r.uploaded_by) : null,
           (r.created_at as string) ?? now,
+          (r.updated_at as string) ?? (r.created_at as string) ?? now,
           (r.local_uri as string) ?? null,
         ]
       );

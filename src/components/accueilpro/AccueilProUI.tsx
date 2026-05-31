@@ -159,7 +159,6 @@ export const apStyles = StyleSheet.create({
   },
   contactPill: {
     minHeight: 44,
-    minWidth: 72,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 10,
@@ -562,6 +561,8 @@ export function AccueilProListRow(props: {
   showChevron?: boolean;
   /** Mise en avant équipe permanente du lieu (annuaire / menu Équipe). */
   variant?: 'default' | 'permanentStaff';
+  /** Bandeau latéral (ex. couleur événement). */
+  accentColor?: string;
 }) {
   const showChevron = props.showChevron ?? !!props.onPress;
   const isPermanent = props.variant === 'permanentStaff';
@@ -577,6 +578,12 @@ export function AccueilProListRow(props: {
             backgroundColor: '#FBF6EA',
             borderLeftWidth: 4,
             borderLeftColor: AccueilProColors.gold,
+            paddingLeft: 12,
+          }
+        : props.accentColor ?
+          {
+            borderLeftWidth: 4,
+            borderLeftColor: props.accentColor,
             paddingLeft: 12,
           }
         : null,
@@ -674,7 +681,9 @@ export function AccueilProStatTile(props: {
   );
 }
 
-export function AccueilProSectionCard(props: PropsWithChildren<{ title: string; actionLabel?: string; onAction?: () => void }>) {
+export function AccueilProSectionCard(
+  props: PropsWithChildren<{ title: string; actionLabel?: string; onAction?: () => void; style?: ViewStyle }>
+) {
   return (
     <View
       style={{
@@ -685,6 +694,7 @@ export function AccueilProSectionCard(props: PropsWithChildren<{ title: string; 
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: AccueilProColors.borderSubtle,
         ...apElevation,
+        ...props.style,
       }}
     >
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>

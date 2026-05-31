@@ -1,7 +1,8 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, FlatList, Alert, Switch } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { AccueilProFormCard, AccueilProInput } from '../../components/accueilpro/AccueilProUI';
+import { AccueilProContactCard } from '../../components/accueilpro/AccueilProContactCard';
 import {
   AccueilProPrimaryButton,
   AccueilProScreenLayout,
@@ -12,6 +13,7 @@ import { Colors } from '../../theme/colors';
 import { Spacing } from '../../theme/spacing';
 import { useLanguage } from '../../context/LanguageContext';
 import { generateApId, listApContactsByOrganization, saveApOrganizationContact } from '../../db/accueilProDb';
+import { contactFieldLabelsFromT, organizationContactLines } from '../../lib/accueilProContactDisplay';
 import type { ApOrganizationContact } from '../../types/accueilPro';
 
 export default function AccueilProOrganizationContactsScreen() {
@@ -70,6 +72,8 @@ export default function AccueilProOrganizationContactsScreen() {
     }
   };
 
+  const fieldLabels = useMemo(() => contactFieldLabelsFromT(t), [t]);
+
   return (
     <AccueilProScreenLayout
       backLabel={t('accueilpro.back')}
@@ -115,13 +119,13 @@ export default function AccueilProOrganizationContactsScreen() {
         }
         ListEmptyComponent={<Text style={apStyles.empty}>{t('accueilpro.contacts.empty')}</Text>}
         renderItem={({ item }) => (
-          <View style={apStyles.row}>
-            <Text style={apStyles.rowTitle}>
-              {item.name}
-              {item.is_primary ? ' ·' : ''}
-            </Text>
-            <Text style={apStyles.rowMeta}>{[item.role, item.phone, item.email].filter(Boolean).join(' · ') || '—'}</Text>
-          </View>
+          <AccueilProContactCard
+            displayName={item.name.trim()}
+            badge={item.is_primary ? t('accueilpro.contacts.primary') : null}
+            lines={organizationContactLines(item, fieldLabels)}
+            phone={item.phone}
+            email={item.email}
+          />
         )}
       />
     </AccueilProScreenLayout>

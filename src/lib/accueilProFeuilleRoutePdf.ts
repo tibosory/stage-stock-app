@@ -1,6 +1,6 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import type { FeuilleRouteSnapshot } from './accueilProFeuilleRouteBuilder';
+import type { FeuilleRouteEventSnapshot, FeuilleRouteSnapshot } from './accueilProFeuilleRouteBuilder';
 import { formatDayPlanTimeRange } from './accueilProDayPlanHelpers';
 
 type FeuillePdfPayload = FeuilleRouteSnapshot & { note?: string };
@@ -174,5 +174,41 @@ ${venues.map(v => `<p><strong>${esc(v.name)}</strong> — ERP ${esc(v.erp_type ?
   const { uri } = await Print.printToFileAsync({ html });
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: `Feuille de route — ${dateLabel}` });
+  }
+}
+
+type FeuilleEventPdfPayload = FeuilleRouteEventSnapshot & { note?: string };
+
+export async function exportAccueilProFeuilleRouteEventPdf(payload: FeuilleEventPdfPayload): Promise<void> {
+  const noteText = (payload.note ?? payload.block.event.feuille_note ?? '').trim();
+  const eventSection = renderEventBlock(payload.block);
+  const venueBlock =
+    payload.venue ?
+      `<h2>Lieu & sécurité</h2>
+<p><strong>${esc(payload.venue.name)}</strong> — ERP ${esc(payload.venue.erp_type ?? '?')} · ${esc(payload.venue.fire_notes ?? '')}</p>`
+    : '';
+
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"/>
+<style>
+body{font-family:system-ui,sans-serif;color:#1A2744;padding:32px;font-size:13px;line-height:1.45}
+h1{font-size:22px;margin:0 0 4px} .sub{color:#888;font-size:12px}
+h2{font-size:17px;margin:24px 0 8px;color:#1A2744;border-bottom:2px solid #C8973A;padding-bottom:4px}
+.notes{background:#F7F4EE;border-radius:8px;padding:14px;min-height:60px;white-space:pre-wrap}
+</style></head><body>
+<h1>${esc(payload.title)}</h1>
+<p class="sub">Feuille de route · ${esc(payload.datesLabel)} · généré ${esc(new Date().toLocaleString('fr-FR'))}</p>
+${eventSection}
+${venueBlock}
+<h2>Notes régisseur</h2>
+<div class="notes">${esc(noteText || 'Aucune note.')}</div>
+<p style="margin-top:32px;font-size:11px;color:#999">Accueil Pro — document interne</p>
+</body></html>`;
+
+  const { uri } = await Print.printToFileAsync({ html });
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(uri, {
+      mimeType: 'application/pdf',
+      dialogTitle: payload.title,
+    });
   }
 }

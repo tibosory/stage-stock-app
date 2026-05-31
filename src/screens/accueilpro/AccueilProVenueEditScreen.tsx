@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Text, Alert, TouchableOpacity } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { VenuePlanSection } from '../../components/accueilpro/VenuePlanSection';
 import { AccueilProFormCard, AccueilProInput } from '../../components/accueilpro/AccueilProUI';
 import {
   AccueilProLinkButton,
@@ -25,6 +26,7 @@ export default function AccueilProVenueEditScreen() {
   const route = useRoute<any>();
   const { t } = useLanguage();
   const venueId = route.params?.id as string | undefined;
+  const [recordId] = useState(() => venueId ?? generateApId());
   const returnToEvent = route.params?.returnToEvent === true;
   const eventEditId = route.params?.eventEditId as string | undefined;
   const [loading, setLoading] = useState(!!venueId);
@@ -40,6 +42,8 @@ export default function AccueilProVenueEditScreen() {
   const [capacity, setCapacity] = useState('');
   const [fireNotes, setFireNotes] = useState('');
   const [safetyRules, setSafetyRules] = useState('');
+  const [planLocalUri, setPlanLocalUri] = useState<string | null>(null);
+  const [planFilename, setPlanFilename] = useState<string | null>(null);
   const [spaceCount, setSpaceCount] = useState(0);
   const [conventions, setConventions] = useState<ApConvention[]>([]);
 
@@ -57,6 +61,8 @@ export default function AccueilProVenueEditScreen() {
       setCapacity(v.capacity != null ? String(v.capacity) : '');
       setFireNotes(v.fire_notes ?? '');
       setSafetyRules(v.safety_rules ?? '');
+      setPlanLocalUri(v.plan_local_uri ?? null);
+      setPlanFilename(v.plan_filename ?? null);
       const [sp, conv] = await Promise.all([listApSpaces(id), listApConventionsByVenue(id)]);
       setSpaceCount(sp.length);
       setConventions(conv);
@@ -82,7 +88,7 @@ export default function AccueilProVenueEditScreen() {
     }
     setSaving(true);
     try {
-      const id = venueId ?? generateApId();
+      const id = recordId;
       await saveApVenue({
         id,
         name: name.trim(),
@@ -96,6 +102,8 @@ export default function AccueilProVenueEditScreen() {
         capacity: capacity.trim() ? parseInt(capacity, 10) || 0 : 0,
         fire_notes: fireNotes.trim() || null,
         safety_rules: safetyRules.trim() || null,
+        plan_local_uri: planLocalUri,
+        plan_filename: planFilename,
       });
       if (venueId) {
         navigation.goBack();
@@ -113,6 +121,7 @@ export default function AccueilProVenueEditScreen() {
     }
   }, [
     venueId,
+    recordId,
     name,
     address,
     cp,
@@ -124,6 +133,8 @@ export default function AccueilProVenueEditScreen() {
     capacity,
     fireNotes,
     safetyRules,
+    planLocalUri,
+    planFilename,
     navigation,
     t,
     returnToEvent,
@@ -158,6 +169,18 @@ export default function AccueilProVenueEditScreen() {
         <AccueilProInput label={t('accueilpro.venueTab.fireNotes')} value={fireNotes} onChangeText={setFireNotes} multiline />
         <AccueilProInput label={t('accueilpro.venueTab.safetyRules')} value={safetyRules} onChangeText={setSafetyRules} multiline />
       </AccueilProFormCard>
+
+      {recordId ?
+        <VenuePlanSection
+          venueId={recordId}
+          planLocalUri={planLocalUri}
+          planFilename={planFilename}
+          onChange={({ localUri, filename }) => {
+            setPlanLocalUri(localUri);
+            setPlanFilename(filename);
+          }}
+        />
+      : null}
 
       {venueId ?
         <>
