@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { EventDayAgendaTimeline } from '../../components/accueilpro/EventDayAgendaTimeline';
 import { EventReadinessChecklist } from '../../components/accueilpro/EventReadinessChecklist';
@@ -15,6 +15,7 @@ import {
 import { Spacing } from '../../theme/spacing';
 import { useLanguage } from '../../context/LanguageContext';
 import {
+  deleteApDayPlanItem,
   findApRoomInspection,
   getApEvent,
   listApConventionsByEvent,
@@ -114,6 +115,17 @@ export default function AccueilProEventDetailScreen() {
   const onSeedAgenda = async () => {
     const n = await seedApDayPlanFromSingleEvent(eventId);
     if (n > 0) await load();
+  };
+
+  const onDeleteAgendaItem = (item: ApDayPlanItem) => {
+    Alert.alert(t('accueilpro.deleteConfirmTitle'), t('accueilpro.dayPlan.deleteBody'), [
+      { text: t('accueilpro.cancel'), style: 'cancel' },
+      {
+        text: t('accueilpro.delete'),
+        style: 'destructive',
+        onPress: () => void deleteApDayPlanItem(item.id).then(() => load()),
+      },
+    ]);
   };
 
   return (
@@ -293,6 +305,8 @@ export default function AccueilProEventDetailScreen() {
                   eventId: event.id,
                 })
               }
+              onDeleteItem={onDeleteAgendaItem}
+              deleteAccessibilityLabel={t('accueilpro.dayPlan.deleteSlot')}
               whereLabel={whereLabel}
               labels={{
                 who: t('accueilpro.dayPlan.colWho'),

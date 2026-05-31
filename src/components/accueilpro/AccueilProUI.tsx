@@ -20,6 +20,7 @@ import { useConnection } from '../../context/ConnectionContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { moduleAccueilPro } from '../../theme/tokens';
 import { DateField as BaseDateField, SelectPicker as BaseSelectPicker } from '../UI';
+import { TrashIcon } from '../Icons';
 
 export const AccueilProColors = moduleAccueilPro;
 
@@ -481,6 +482,27 @@ export function AccueilProLinkButton(props: {
       >
         {props.label}
       </Text>
+    </TouchableOpacity>
+  );
+}
+
+/** Suppression d’une ligne (planning, liste…) — icône poubelle accessible. */
+export function AccueilProDeleteIconButton(props: { onPress: () => void; accessibilityLabel: string }) {
+  return (
+    <TouchableOpacity
+      onPress={props.onPress}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      accessibilityRole="button"
+      accessibilityLabel={props.accessibilityLabel}
+      style={{
+        padding: 8,
+        minWidth: 44,
+        minHeight: 44,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <TrashIcon size={22} color={AccueilProColors.statusAnnule} />
     </TouchableOpacity>
   );
 }

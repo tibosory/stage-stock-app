@@ -4,6 +4,7 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import { AccueilProEventBubble } from '../../components/accueilpro/AccueilProEventBubble';
 import {
   AccueilProEmpty,
+  AccueilProDeleteIconButton,
   AccueilProLinkButton,
   AccueilProPrimaryButton,
   AccueilProScreenLayout,
@@ -178,11 +179,11 @@ export default function AccueilProDayPlanScreen() {
             const linkedEvent = item.event_id ? events[item.event_id] : undefined;
             const eventAccent = item.event_id ? accueilProEventColor(item.event_id).bg : undefined;
             return (
-            <TouchableOpacity
+            <View
               key={item.id}
-              onPress={() => navigation.navigate('AccueilProDayPlanEdit', { id: item.id, date: item.plan_date })}
-              onLongPress={() => onDelete(item)}
               style={{
+                flexDirection: 'row',
+                alignItems: 'flex-start',
                 paddingVertical: 12,
                 paddingLeft: eventAccent ? 10 : 0,
                 borderBottomWidth: 1,
@@ -191,6 +192,10 @@ export default function AccueilProDayPlanScreen() {
                 borderLeftColor: eventAccent,
               }}
             >
+              <TouchableOpacity
+                style={{ flex: 1, paddingRight: 4 }}
+                onPress={() => navigation.navigate('AccueilProDayPlanEdit', { id: item.id, date: item.plan_date })}
+              >
               <Text style={{ fontWeight: '800', color: AccueilProColors.gold, fontSize: 16, marginBottom: 6 }}>
                 {formatDayPlanTimeRange(item)}
               </Text>
@@ -216,7 +221,12 @@ export default function AccueilProDayPlanScreen() {
               {item.notes?.trim() ?
                 <Text style={{ fontSize: 12, color: AccueilProColors.textSecondary, marginTop: 4 }}>{item.notes}</Text>
               : null}
-            </TouchableOpacity>
+              </TouchableOpacity>
+              <AccueilProDeleteIconButton
+                accessibilityLabel={t('accueilpro.dayPlan.deleteSlot')}
+                onPress={() => onDelete(item)}
+              />
+            </View>
             );
           })}
         </AccueilProSectionCard>}

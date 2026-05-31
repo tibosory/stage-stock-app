@@ -4,6 +4,7 @@ import type { ApDayPlanItem } from '../../types/accueilPro';
 import { formatDayPlanTimeRange } from '../../lib/accueilProDayPlanHelpers';
 import {
   AccueilProColors,
+  AccueilProDeleteIconButton,
   AccueilProEmpty,
   AccueilProLinkButton,
   apStyles,
@@ -18,6 +19,8 @@ export type EventDayAgendaTimelineProps = {
   onAdd: () => void;
   onSeed: () => void;
   onPressItem: (item: ApDayPlanItem) => void;
+  onDeleteItem?: (item: ApDayPlanItem) => void;
+  deleteAccessibilityLabel?: string;
   whereLabel: (item: ApDayPlanItem) => string;
   labels: {
     who: string;
@@ -36,6 +39,8 @@ export function EventDayAgendaTimeline(props: EventDayAgendaTimelineProps) {
     onAdd,
     onSeed,
     onPressItem,
+    onDeleteItem,
+    deleteAccessibilityLabel,
     whereLabel,
     labels,
   } = props;
@@ -66,16 +71,18 @@ export function EventDayAgendaTimeline(props: EventDayAgendaTimelineProps) {
       : (
         <View style={{ borderLeftWidth: 3, borderLeftColor: AccueilProColors.gold, paddingLeft: 14 }}>
           {items.map((item, index) => (
-            <TouchableOpacity
+            <View
               key={item.id}
-              onPress={() => onPressItem(item)}
               style={{
+                flexDirection: 'row',
+                alignItems: 'flex-start',
                 marginBottom: index < items.length - 1 ? 16 : 0,
                 paddingBottom: index < items.length - 1 ? 16 : 0,
                 borderBottomWidth: index < items.length - 1 ? 1 : 0,
                 borderBottomColor: AccueilProColors.borderSubtle,
               }}
             >
+              <TouchableOpacity style={{ flex: 1, paddingRight: 4 }} onPress={() => onPressItem(item)}>
               <Text style={{ fontWeight: '800', color: AccueilProColors.gold, fontSize: 15, marginBottom: 6 }}>
                 {formatDayPlanTimeRange(item)}
               </Text>
@@ -93,7 +100,14 @@ export function EventDayAgendaTimeline(props: EventDayAgendaTimelineProps) {
                   {labels.linkedNotes} : {item.notes.trim()}
                 </Text>
               : null}
-            </TouchableOpacity>
+              </TouchableOpacity>
+              {onDeleteItem && deleteAccessibilityLabel ?
+                <AccueilProDeleteIconButton
+                  accessibilityLabel={deleteAccessibilityLabel}
+                  onPress={() => onDeleteItem(item)}
+                />
+              : null}
+            </View>
           ))}
         </View>
       )}
