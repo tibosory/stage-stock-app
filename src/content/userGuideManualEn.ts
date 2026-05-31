@@ -8,7 +8,7 @@ export const USER_GUIDE_META_EN = {
   title: 'CATRACK Pro — User guide',
   subtitle: 'Step-by-step guide with practical examples',
   versionLabel:
-    'May 21, 2026 (v1.0.73: per-event run sheets in Accueil Pro)',
+    'May 21, 2026 (v1.0.74: Accueil Pro readability — contrast and selections)',
 };
 
 export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [

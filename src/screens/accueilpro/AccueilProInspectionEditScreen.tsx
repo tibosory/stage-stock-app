@@ -45,15 +45,31 @@ function ChecklistSection({
             {item.description ? <Text style={apStyles.checkSub}>{item.description}</Text> : null}
           </View>
           <View style={apStyles.tri}>
-            {(['ok', 'ko', 'na'] as const).map(v => (
+            {(['ok', 'ko', 'na'] as const).map(v => {
+              const active = checks[item.id] === v;
+              const activeStyle =
+                v === 'ok' ? { bg: AccueilProColors.statusConfirme, border: '#6BCF9A' }
+                : v === 'ko' ? { bg: AccueilProColors.statusAnnule, border: '#E88A86' }
+                : { bg: '#6B7280', border: '#A8A8AE' };
+              return (
               <TouchableOpacity
                 key={v}
-                style={[apStyles.triBtn, checks[item.id] === v && apStyles.triOn]}
+                style={[
+                  apStyles.triBtn,
+                  active ?
+                    {
+                      borderColor: activeStyle.border,
+                      backgroundColor: activeStyle.bg,
+                      borderWidth: 2,
+                    }
+                  : null,
+                ]}
                 onPress={() => onSetCheck(item.id, v)}
               >
-                <Text style={apStyles.triText}>{v.toUpperCase()}</Text>
+                <Text style={active ? apStyles.triTextOn : apStyles.triText}>{v.toUpperCase()}</Text>
               </TouchableOpacity>
-            ))}
+              );
+            })}
           </View>
         </View>
       ))}

@@ -65,11 +65,11 @@ export function ContactActionRow(props: {
           style={[
             apStyles.contactPill,
             pillFull,
-            { backgroundColor: 'rgba(64,104,224,0.1)', borderColor: 'rgba(64,104,224,0.28)' },
+            { backgroundColor: 'rgba(200,151,58,0.12)', borderColor: 'rgba(200,151,58,0.35)' },
           ]}
         >
           <Text
-            style={[apStyles.actionText, { color: AccueilProColors.primary }]}
+            style={[apStyles.actionText, { color: AccueilProColors.gold, fontWeight: '800' }]}
             numberOfLines={1}
             adjustsFontSizeToFit
             minimumFontScale={0.8}

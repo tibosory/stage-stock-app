@@ -166,7 +166,7 @@ const AP_TAB_BAR = {
     paddingBottom: Platform.OS === 'android' ? 8 : 6,
   },
   tabBarActiveTintColor: AccueilProColors.gold,
-  tabBarInactiveTintColor: 'rgba(255,255,255,0.45)',
+  tabBarInactiveTintColor: 'rgba(255,255,255,0.72)',
   tabBarLabelStyle: { fontSize: 13, fontWeight: '600' as const },
 };
 

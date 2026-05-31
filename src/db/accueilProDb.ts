@@ -262,6 +262,32 @@ export async function ensureAccueilProSchema(database: SQLite.SQLiteDatabase): P
     CREATE INDEX IF NOT EXISTS idx_ap_event_pers_event ON ap_event_personnel(event_id);
   `);
 
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS ap_day_plan_items (
+      id TEXT PRIMARY KEY,
+      plan_date TEXT NOT NULL,
+      event_id TEXT REFERENCES ap_events(id) ON DELETE SET NULL,
+      time_start TEXT,
+      time_end TEXT,
+      title TEXT NOT NULL,
+      assignee_name TEXT,
+      space_id TEXT REFERENCES ap_spaces(id) ON DELETE SET NULL,
+      venue_id TEXT REFERENCES ap_venues(id) ON DELETE SET NULL,
+      notes TEXT,
+      sort_order INTEGER DEFAULT 0,
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_ap_day_plan_date ON ap_day_plan_items(plan_date);
+
+    CREATE TABLE IF NOT EXISTS ap_day_notes (
+      plan_date TEXT PRIMARY KEY,
+      note TEXT NOT NULL DEFAULT '',
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+  `);
+
   const addCol = async (table: string, name: string, defSql: string) => {
     const rows = await database.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
     if (!rows.some(r => r.name === name)) {
@@ -356,30 +382,6 @@ export async function ensureAccueilProSchema(database: SQLite.SQLiteDatabase): P
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_ap_activity_created ON ap_activity_log(created_at DESC);
-
-    CREATE TABLE IF NOT EXISTS ap_day_plan_items (
-      id TEXT PRIMARY KEY,
-      plan_date TEXT NOT NULL,
-      event_id TEXT REFERENCES ap_events(id) ON DELETE SET NULL,
-      time_start TEXT,
-      time_end TEXT,
-      title TEXT NOT NULL,
-      assignee_name TEXT,
-      space_id TEXT REFERENCES ap_spaces(id) ON DELETE SET NULL,
-      venue_id TEXT REFERENCES ap_venues(id) ON DELETE SET NULL,
-      notes TEXT,
-      sort_order INTEGER DEFAULT 0,
-      updated_at TEXT DEFAULT (datetime('now')),
-      synced INTEGER DEFAULT 0
-    );
-    CREATE INDEX IF NOT EXISTS idx_ap_day_plan_date ON ap_day_plan_items(plan_date);
-
-    CREATE TABLE IF NOT EXISTS ap_day_notes (
-      plan_date TEXT PRIMARY KEY,
-      note TEXT NOT NULL DEFAULT '',
-      updated_at TEXT DEFAULT (datetime('now')),
-      synced INTEGER DEFAULT 0
-    );
   `);
 }
 

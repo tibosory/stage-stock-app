@@ -185,20 +185,31 @@ export const moduleAccueilPro = {
   statusConfirme: '#2E7D5A',
   statusBrouillon: '#C8973A',
   statusAnnule: '#B54A45',
-  statusEnCours: '#4068E0',
+  statusEnCours: '#D4A843',
   statusTermine: '#5A6778',
   statusSigné: '#1A2744',
 
   eventSpectacle: '#6B4C9A',
   eventConcert: '#B84C7A',
-  eventRéunion: '#4068E0',
+  eventRéunion: '#8B5E3C',
   eventFormation: '#2E7D5A',
   eventConférence: '#C8973A',
   eventSéminaire: '#8B5E3C',
   eventMariage: '#C8973A',
   eventLocation: '#C8973A',
   eventAutre: '#5A6778',
-  primary: '#4068E0',
+  /** Liens et accents — or (pas de bleu sur fond sombre). */
+  primary: '#C8973A',
+
+  /** Texte sur bandeaux navy / fond sombre. */
+  textOnDark: '#FFFFFF',
+  textOnDarkMuted: 'rgba(255,255,255,0.78)',
+  /** Puces et filtres sélectionnés — très contrastés. */
+  chipSelectedBg: '#C8973A',
+  chipSelectedText: '#FFFFFF',
+  chipSelectedBorder: '#F0D48A',
+  chipIdleBg: '#FFFFFF',
+  chipIdleText: '#1A2744',
 
   /** Cible tactile recommandée sur le terrain (gants, debout). */
   touchMin: 52,

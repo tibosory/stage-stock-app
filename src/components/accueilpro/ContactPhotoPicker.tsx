@@ -111,7 +111,7 @@ export function ContactPhotoPicker(props: Props) {
             alignItems: 'center',
           }}
         >
-          <Text style={{ fontWeight: '700', color: AccueilProColors.primary }}>
+          <Text style={{ fontWeight: '700', color: AccueilProColors.gold }}>
             {previewUri ? t('accueilpro.contacts.changePhoto') : t('accueilpro.contacts.addPhotoGallery')}
           </Text>
         </TouchableOpacity>

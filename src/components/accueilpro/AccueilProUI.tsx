@@ -104,8 +104,13 @@ export const apStyles = StyleSheet.create({
     backgroundColor: AccueilProColors.card,
     justifyContent: 'center',
   },
-  triOn: { borderColor: AccueilProColors.gold, backgroundColor: AccueilProColors.cream },
+  triOn: {
+    borderColor: AccueilProColors.chipSelectedBorder,
+    backgroundColor: AccueilProColors.chipSelectedBg,
+    borderWidth: 2,
+  },
   triText: { fontSize: 12, color: AccueilProColors.textSecondary, fontWeight: '700' },
+  triTextOn: { fontSize: 12, color: '#FFFFFF', fontWeight: '800' },
   inspBtn: {
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -212,7 +217,7 @@ export function AccueilProFieldStrip() {
         alignItems: 'center',
         gap: 10,
         backgroundColor:
-          checking ? 'rgba(64,104,224,0.1)'
+          checking ? 'rgba(200,151,58,0.14)'
           : needsPairing ? 'rgba(200,151,58,0.14)'
           : online ? 'rgba(46,125,90,0.12)'
           : 'rgba(181,74,69,0.12)',
@@ -222,7 +227,7 @@ export function AccueilProFieldStrip() {
         marginBottom: 14,
         borderWidth: 1,
         borderColor:
-          checking ? 'rgba(64,104,224,0.2)'
+          checking ? 'rgba(200,151,58,0.35)'
           : needsPairing ? 'rgba(200,151,58,0.35)'
           : online ? 'rgba(46,125,90,0.25)'
           : 'rgba(181,74,69,0.25)',
@@ -234,7 +239,7 @@ export function AccueilProFieldStrip() {
           height: 10,
           borderRadius: 5,
           backgroundColor:
-            checking ? AccueilProColors.primary
+            checking ? AccueilProColors.gold
             : needsPairing ? AccueilProColors.gold
             : online ? AccueilProColors.statusConfirme
             : AccueilProColors.statusAnnule,
@@ -384,25 +389,44 @@ export function AccueilProChip(props: {
   selected?: boolean;
   onPress?: () => void;
 }) {
+  const selected = props.selected ?? false;
   return (
     <TouchableOpacity
       accessibilityRole="button"
+      accessibilityState={{ selected }}
       onPress={props.onPress}
       style={{
         alignSelf: 'flex-start',
-        paddingHorizontal: 14,
+        paddingHorizontal: 16,
         paddingVertical: 10,
-        minHeight: 40,
-        borderRadius: 20,
-        borderWidth: 1,
+        minHeight: 44,
+        borderRadius: 22,
+        borderWidth: selected ? 2 : 1,
         marginRight: 8,
         marginBottom: 8,
-        borderColor: props.selected ? AccueilProColors.gold : AccueilProColors.borderSubtle,
-        backgroundColor: props.selected ? AccueilProColors.cream : AccueilProColors.card,
+        borderColor: selected ? AccueilProColors.chipSelectedBorder : AccueilProColors.borderSubtle,
+        backgroundColor: selected ? AccueilProColors.chipSelectedBg : AccueilProColors.chipIdleBg,
         justifyContent: 'center',
+        ...(selected
+          ? {
+              shadowColor: AccueilProColors.gold,
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.35,
+              shadowRadius: 6,
+              elevation: 3,
+            }
+          : null),
       }}
     >
-      <Text style={{ fontWeight: '700', color: AccueilProColors.textPrimary, fontSize: 14 }}>{props.label}</Text>
+      <Text
+        style={{
+          fontWeight: selected ? '800' : '600',
+          color: selected ? AccueilProColors.chipSelectedText : AccueilProColors.chipIdleText,
+          fontSize: 14,
+        }}
+      >
+        {props.label}
+      </Text>
     </TouchableOpacity>
   );
 }
@@ -434,14 +458,29 @@ export function AccueilProLinkButton(props: {
   label: string;
   onPress: () => void;
   style?: ViewStyle;
+  /** Sur bandeau navy ou fond sombre : texte clair. */
+  tone?: 'default' | 'onDark';
 }) {
+  const onDark = props.tone === 'onDark';
   return (
     <TouchableOpacity
       accessibilityRole="button"
       onPress={props.onPress}
-      style={[apStyles.sectionLink, props.style]}
+      style={[
+        apStyles.sectionLink,
+        onDark ? { borderBottomColor: AccueilProColors.gold } : null,
+        props.style,
+      ]}
     >
-      <Text style={{ fontWeight: '700', color: AccueilProColors.navy, fontSize: 14 }}>{props.label}</Text>
+      <Text
+        style={{
+          fontWeight: '700',
+          color: onDark ? AccueilProColors.textOnDark : AccueilProColors.gold,
+          fontSize: 14,
+        }}
+      >
+        {props.label}
+      </Text>
     </TouchableOpacity>
   );
 }

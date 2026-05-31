@@ -36,7 +36,7 @@ export const USER_GUIDE_META = {
 
   versionLabel:
 
-    '21 mai 2026 (v1.0.73 : feuilles de route par événement Accueil Pro)',
+    '21 mai 2026 (v1.0.74 : lisibilité Accueil Pro — contrastes et sélections)',
 
 };
 

@@ -35,7 +35,17 @@ function CheckRow(props: {
     : AccueilProColors.textMuted;
 
   const content = (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 }}>
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingVertical: 8,
+        paddingHorizontal: check.state === 'ok' ? 8 : 0,
+        borderRadius: check.state === 'ok' ? 8 : 0,
+        backgroundColor: check.state === 'ok' ? 'rgba(46,125,90,0.12)' : 'transparent',
+      }}
+    >
       <Text style={{ fontSize: 18, color, width: 22 }}>{icon}</Text>
       <View style={{ flex: 1 }}>
         <Text style={{ fontWeight: '600', fontSize: 14 }}>{label}</Text>
