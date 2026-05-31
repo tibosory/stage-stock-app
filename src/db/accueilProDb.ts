@@ -6,6 +6,7 @@ import type {
   ApDayNote,
   ApDayPlanItem,
   ApEvent,
+  ApEventFeuilleInfo,
   ApEventPersonnel,
   ApOrganization,
   ApOrganizationContact,
@@ -19,7 +20,7 @@ import type {
   ApVenue,
 } from '../types/accueilPro';
 import { parseControlPointsJson, serializeControlPointsJson } from '../lib/inspectionChecklist';
-import { buildPersonnelDisplayName, personnelDisplayName } from '../lib/accueilProPersonnelHelpers';
+import { parseApEventFeuilleInfo, serializeApEventFeuilleInfo } from '../lib/accueilProFeuilleInfo';
 
 type AssociationPortalProfile = {
   name: string;
@@ -316,6 +317,7 @@ export async function ensureAccueilProSchema(database: SQLite.SQLiteDatabase): P
   await addCol('ap_events', 'space_id', 'TEXT REFERENCES ap_spaces(id) ON DELETE SET NULL');
   await addCol('ap_events', 'readiness_manual_json', "TEXT DEFAULT '{}'");
   await addCol('ap_events', 'feuille_note', 'TEXT');
+  await addCol('ap_events', 'feuille_info_json', "TEXT DEFAULT '{}'");
 
   await addCol('ap_rental_requests', 'space_id', 'TEXT');
   await addCol('ap_rental_requests', 'event_name', 'TEXT');
@@ -520,6 +522,7 @@ function mapEventRow(r: any): ApEvent {
     space_id: r.space_id ?? null,
     readiness_manual: parseJson<ApEvent['readiness_manual']>(r.readiness_manual_json, {}),
     feuille_note: r.feuille_note ?? null,
+    feuille_info: parseApEventFeuilleInfo(r.feuille_info_json),
     created_at: r.created_at ?? null,
     updated_at: r.updated_at ?? null,
     synced: !!r.synced,
@@ -1384,11 +1387,19 @@ export async function saveEvent(row: ApEvent, database?: SQLite.SQLiteDatabase):
     );
     feuilleNote = prev?.feuille_note ?? null;
   }
+  let feuilleInfoJson = serializeApEventFeuilleInfo(row.feuille_info ?? { spaces: {} });
+  if (row.feuille_info === undefined) {
+    const prevInfo = await db.getFirstAsync<{ feuille_info_json: string | null }>(
+      'SELECT feuille_info_json FROM ap_events WHERE id = ?',
+      [row.id]
+    );
+    feuilleInfoJson = prevInfo?.feuille_info_json ?? '{}';
+  }
   await db.runAsync(
     `INSERT OR REPLACE INTO ap_events (
       id,venue_id,organization_id,name,type,organisateur,date_debut,date_fin,heure_debut,heure_fin,
-      participants,description,status,spaces_mode,selected_space_ids_json,space_id,readiness_manual_json,feuille_note,created_at,updated_at,synced)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+      participants,description,status,spaces_mode,selected_space_ids_json,space_id,readiness_manual_json,feuille_note,feuille_info_json,created_at,updated_at,synced)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
     [
       row.id,
       row.venue_id ?? null,
@@ -1408,6 +1419,7 @@ export async function saveEvent(row: ApEvent, database?: SQLite.SQLiteDatabase):
       row.space_id ?? null,
       JSON.stringify(row.readiness_manual ?? {}),
       feuilleNote,
+      feuilleInfoJson,
       created,
       updated,
     ]
@@ -1437,6 +1449,18 @@ export async function saveApEventFeuilleNote(
     nowIso(),
     eventId,
   ]);
+}
+
+export async function saveApEventFeuilleInfo(
+  eventId: string,
+  info: ApEventFeuilleInfo,
+  database?: SQLite.SQLiteDatabase
+): Promise<void> {
+  const db = await resolveDb(database);
+  await db.runAsync(
+    `UPDATE ap_events SET feuille_info_json = ?, updated_at = ?, synced = 0 WHERE id = ?`,
+    [serializeApEventFeuilleInfo(info), nowIso(), eventId]
+  );
 }
 
 export async function deleteEvent(id: string, database?: SQLite.SQLiteDatabase): Promise<void> {

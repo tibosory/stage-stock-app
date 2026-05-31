@@ -17,6 +17,8 @@ import {
 import { sortDayPlanItems } from './accueilProDayPlanHelpers';
 import { feuilleRouteEventTitle, formatApEventDates, eventsOnDate } from './accueilProFeuilleHelpers';
 import { buildEventReadinessSnapshot } from './accueilProEventReadiness';
+import { buildFeuilleMaterialRows, emptyApEventFeuilleInfo } from './accueilProFeuilleInfo';
+import type { FeuilleMaterialRow } from './accueilProFeuilleInfo';
 import type {
   ApDayPlanItem,
   ApEvent,
@@ -52,6 +54,8 @@ export type FeuilleEventSynthesis = {
   inspections: FeuilleInspectionRow[];
   readinessScore: number;
   readinessSummary: string[];
+  venueEquipment: string;
+  materialRows: FeuilleMaterialRow[];
 };
 
 export type FeuilleRouteSnapshot = {
@@ -137,6 +141,9 @@ async function buildEventSynthesis(
     .map(c => `${c.id}:${c.state}`)
     .filter(Boolean);
 
+  const feuilleInfo = ev.feuille_info ?? emptyApEventFeuilleInfo();
+  const materialRows = buildFeuilleMaterialRows(feuilleInfo, spaces);
+
   return {
     event: ev,
     organizationName: org?.name ?? ev.organisateur ?? '—',
@@ -149,6 +156,8 @@ async function buildEventSynthesis(
     inspections,
     readinessScore: readiness?.score ?? 0,
     readinessSummary,
+    venueEquipment: feuilleInfo.venueEquipment?.trim() ?? '',
+    materialRows,
   };
 }
 

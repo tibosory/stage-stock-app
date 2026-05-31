@@ -168,6 +168,11 @@ export default function AccueilProEventDetailScreen() {
               />
 
               <AccueilProLinkButton
+                label={t('accueilpro.infoSheet.open')}
+                onPress={() => navigation.navigate('AccueilProEventInfoSheet', { eventId: event.id })}
+              />
+
+              <AccueilProLinkButton
                 label={t('accueilpro.edlCompare.open')}
                 onPress={() => navigation.navigate('AccueilProEventInspectionCompare', { eventId })}
               />

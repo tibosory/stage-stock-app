@@ -89,10 +89,31 @@ function renderEventBlock(block: FeuilleRouteSnapshot['eventBlocks'][number]): s
     })
     .join('');
 
+  const materialHtml =
+    block.venueEquipment.trim() || block.materialRows.length > 0 ?
+      `<h3>Matériel & consignes</h3>
+    ${
+      block.venueEquipment.trim() ?
+        `<p class="desc"><strong>Lieu</strong><br/>${esc(block.venueEquipment.trim())}</p>`
+      : ''
+    }
+    ${
+      block.materialRows.length > 0 ?
+        `<table><thead><tr><th>Espace</th><th>Matériel / consignes</th></tr></thead><tbody>${block.materialRows
+          .map(
+            row =>
+              `<tr><td><strong>${esc(row.spaceName)}</strong></td><td style="white-space:pre-wrap">${esc(row.equipment)}</td></tr>`
+          )
+          .join('')}</tbody></table>`
+      : ''
+    }`
+    : '';
+
   return `<div class="event-block">
     <h2>${esc(ev.name)}</h2>
     <table class="meta">${metaRows}</table>
     ${description}
+    ${materialHtml}
     <h3>Prêt à accueillir (${block.readinessScore}%)</h3>
     <ul>${readinessList || '<li>Aucune donnée</li>'}</ul>
     <h3>Équipe jour J</h3>

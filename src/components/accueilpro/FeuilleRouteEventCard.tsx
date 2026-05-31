@@ -68,6 +68,43 @@ export function FeuilleRouteEventCard({ block, spaceNames, t }: Props) {
         </View>
       : null}
 
+      {block.venueEquipment.trim() || block.materialRows.length > 0 ?
+        <>
+          <Text style={{ fontWeight: '700', fontSize: 13, marginTop: 12, marginBottom: 6 }}>
+            {t('accueilpro.feuille.materialSection')}
+          </Text>
+          {block.venueEquipment.trim() ?
+            <View
+              style={{
+                backgroundColor: AccueilProColors.cream,
+                borderRadius: 8,
+                padding: 10,
+                marginBottom: 8,
+              }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: '600', marginBottom: 4 }}>
+                {t('accueilpro.feuille.materialVenue')}
+              </Text>
+              <Text style={{ fontSize: 13, color: AccueilProColors.textSecondary }}>{block.venueEquipment.trim()}</Text>
+            </View>
+          : null}
+          {block.materialRows.map(row => (
+            <View
+              key={row.spaceId}
+              style={{
+                backgroundColor: AccueilProColors.cream,
+                borderRadius: 8,
+                padding: 10,
+                marginBottom: 8,
+              }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{row.spaceName}</Text>
+              <Text style={{ fontSize: 13, color: AccueilProColors.textSecondary }}>{row.equipment}</Text>
+            </View>
+          ))}
+        </>
+      : null}
+
       <Text style={{ fontWeight: '700', fontSize: 13, marginTop: 10, marginBottom: 6 }}>
         {t('accueilpro.feuille.teamDay')}
       </Text>

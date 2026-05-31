@@ -21,6 +21,12 @@ export type ApEventReadinessManual = {
   access_ok?: ApEventReadinessManualItem;
 };
 
+/** Matériel et consignes par lieu / espace pour la feuille de route. */
+export type ApEventFeuilleInfo = {
+  venueEquipment?: string;
+  spaces: Record<string, string>;
+};
+
 export const AP_EVENT_ACTIVE_STATUSES: ApEventStatus[] = ['brouillon', 'confirmé', 'terminé'];
 export type ApConventionStatus = 'brouillon' | 'signé';
 /** @alias */
@@ -176,6 +182,8 @@ export interface ApEvent {
   readiness_manual?: ApEventReadinessManual | null;
   /** Notes régisseur sur la feuille de route de l’événement. */
   feuille_note?: string | null;
+  /** Matériel / consignes par espace pour la feuille de route (JSON local). */
+  feuille_info?: ApEventFeuilleInfo | null;
   created_at?: string | null;
   updated_at?: string | null;
   synced?: boolean;

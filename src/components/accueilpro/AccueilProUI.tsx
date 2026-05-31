@@ -498,6 +498,7 @@ export function AccueilProInput(props: {
   keyboardType?: KeyboardTypeOptions;
   multiline?: boolean;
   editable?: boolean;
+  onBlur?: () => void;
 }) {
   return (
     <View style={{ marginBottom: 14 }}>
@@ -516,6 +517,7 @@ export function AccueilProInput(props: {
         keyboardType={props.keyboardType}
         multiline={props.multiline}
         editable={props.editable !== false}
+        onBlur={props.onBlur}
       />
     </View>
   );

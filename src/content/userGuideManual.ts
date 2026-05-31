@@ -36,7 +36,7 @@ export const USER_GUIDE_META = {
 
   versionLabel:
 
-    '21 mai 2026 (v1.0.74 : lisibilité Accueil Pro — contrastes et sélections)',
+    '21 mai 2026 (v1.0.75 : feuille information matériel Accueil Pro)',
 
 };
 
@@ -338,7 +338,7 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'Événement ouvert : onglets Aperçu, Équipe et Agenda. Équipe — créer une fiche (prénom, nom, téléphone, e-mail, adresse) : elle rejoint l’annuaire général et l’équipe du jour ; ou ajouter quelqu’un déjà présent dans l’annuaire. Annuaire (Contacts) — équipe du lieu (créée via menu Équipe), contacts organisation et externes ; les membres permanents sont surlignés et en tête de liste (ordre alphabétique), puis les autres (alphabétique). Chaque fiche affiche le nom et prénom sur une ligne, puis une ligne par information (rôle, téléphone, e-mail, etc.). Photo de profil : en création ou modification d’un contact (menu Équipe ou fiche contact), section Photo — galerie ou appareil photo ; la vignette apparaît dans l’annuaire. Consulter ou modifier une fiche, « Ajouter à un événement » depuis la fiche. Agenda — créneaux horaires détaillés (qui, quoi, où) comme un planning de journée ; bouton pour importer les horaires de l’événement.',
 
-      'Feuille de route : menu Accueil Pro → Feuille de route. Une feuille par événement (titre = nom + dates), liste triée chronologiquement. Touchez une ligne pour la synthèse (organisation, lieu, espaces, horaires, équipe, agenda, conventions, EDL, notes régisseur) et l’export PDF. Lien « Ouvrir la feuille de route » aussi depuis la fiche événement (onglet Aperçu). Le planning du jour reste dans Planning du jour.',
+      'Feuille de route : menu Accueil Pro → Feuille de route. Une feuille par événement (titre = nom + dates), liste triée chronologiquement. Touchez une ligne pour la synthèse (organisation, lieu, espaces, horaires, matériel par espace, équipe, agenda, conventions, EDL, notes régisseur) et l’export PDF. Lien « Ouvrir la feuille de route » aussi depuis la fiche événement (onglet Aperçu). Feuille information : depuis la fiche événement ou la feuille de route, renseignez le matériel nécessaire par salle (ex. « Salle A : 80 chaises, 2 micros HF ») — le texte apparaît sur la feuille de route et le PDF. Le planning du jour reste dans Planning du jour.',
 
       'Portail organisation : menu Accueil Pro → Portail association. Liste des organisations ayant au moins un événement créé ; sous chaque nom, les événements concernés. Touchez un événement pour y ajouter des fichiers PDF, audio ou vidéo (programme, rider, bandes-son…). Côté association (portail client), la fiche et les documents généraux de l’organisation restent en bas de l’écran.',
 

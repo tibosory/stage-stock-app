@@ -311,11 +311,22 @@ async function upsertRemoteRow(
         );
         feuilleNote = existing?.feuille_note ?? null;
       }
+      let feuilleInfoJson =
+        typeof r.feuille_info_json === 'string'
+          ? (r.feuille_info_json as string)
+          : JSON.stringify(r.feuille_info ?? {});
+      if (r.feuille_info_json === undefined && r.feuille_info === undefined) {
+        const existingInfo = await db.getFirstAsync<{ feuille_info_json: string | null }>(
+          'SELECT feuille_info_json FROM ap_events WHERE id = ?',
+          [String(r.id)]
+        );
+        feuilleInfoJson = existingInfo?.feuille_info_json ?? '{}';
+      }
       await db.runAsync(
         `INSERT OR REPLACE INTO ap_events (
           id,venue_id,organization_id,name,type,organisateur,date_debut,date_fin,heure_debut,heure_fin,
-          participants,description,status,spaces_mode,selected_space_ids_json,space_id,readiness_manual_json,feuille_note,created_at,updated_at,synced)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+          participants,description,status,spaces_mode,selected_space_ids_json,space_id,readiness_manual_json,feuille_note,feuille_info_json,created_at,updated_at,synced)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
         [
           String(r.id),
           r.venue_id != null ? String(r.venue_id) : null,
@@ -337,6 +348,7 @@ async function upsertRemoteRow(
             ? r.readiness_manual_json
             : JSON.stringify(r.readiness_manual ?? r.readiness_manual_json ?? {}),
           feuilleNote,
+          feuilleInfoJson,
           (r.created_at as string) ?? now,
           (r.updated_at as string) ?? now,
         ]

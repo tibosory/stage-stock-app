@@ -4,6 +4,7 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import { FeuilleRouteEventCard } from '../../components/accueilpro/FeuilleRouteEventCard';
 import {
   AccueilProPrimaryButton,
+  AccueilProLinkButton,
   AccueilProScreenLayout,
   AccueilProSectionCard,
   AccueilProColors,
@@ -92,6 +93,11 @@ export default function AccueilProFeuilleRouteEventScreen() {
       {snapshot ?
         <>
           <FeuilleRouteEventCard block={snapshot.block} spaceNames={snapshot.spaceNames} t={t} />
+
+          <AccueilProLinkButton
+            label={t('accueilpro.infoSheet.edit')}
+            onPress={() => navigation.navigate('AccueilProEventInfoSheet', { eventId })}
+          />
 
           {snapshot.venue ?
             <AccueilProSectionCard title={t('accueilpro.feuille.venuesSecurity')}>
