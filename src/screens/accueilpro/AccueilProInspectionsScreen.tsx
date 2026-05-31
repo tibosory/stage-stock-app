@@ -87,7 +87,9 @@ export default function AccueilProInspectionsScreen() {
 
   const onSelectEvent = (eventId: string) => {
     setSelectedEventId(eventId);
-    void loadEventHub(eventId);
+    setSelectedEvent(null);
+    setLoading(true);
+    void loadEventHub(eventId).finally(() => setLoading(false));
   };
 
   const onExportPdf = async () => {
@@ -163,7 +165,8 @@ export default function AccueilProInspectionsScreen() {
         <FlatList
           data={events}
           keyExtractor={e => e.id}
-          contentContainerStyle={[apStyles.list, { paddingBottom: 48 }]}
+          style={{ flex: 1 }}
+          contentContainerStyle={[apStyles.list, { paddingBottom: 48, flexGrow: 1 }]}
           ListHeaderComponent={
             <Text style={[apStyles.hint, { marginBottom: Spacing.md }]}>{t('accueilpro.inspections.pickEventHint')}</Text>
           }
@@ -238,7 +241,8 @@ export default function AccueilProInspectionsScreen() {
         <FlatList
           data={history}
           keyExtractor={i => i.id}
-          contentContainerStyle={[apStyles.list, { paddingBottom: 48 }]}
+          style={{ flex: 1 }}
+          contentContainerStyle={[apStyles.list, { paddingBottom: 48, flexGrow: 1 }]}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={AccueilProColors.primary} />
           }
