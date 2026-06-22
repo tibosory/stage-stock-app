@@ -1,4 +1,6 @@
-export type FriendlyLang = 'fr' | 'en';
+import type { AppLanguage } from '../i18n/strings';
+
+export type FriendlyLang = AppLanguage;
 
 /** Transforme une erreur technique réseau/API en message compréhensible pour l'utilisateur final. */
 export function toUserFriendlyNetworkMessage(raw: string, language: FriendlyLang = 'fr'): string {

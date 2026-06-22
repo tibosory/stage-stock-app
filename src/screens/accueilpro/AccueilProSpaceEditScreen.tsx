@@ -14,7 +14,7 @@ import { generateApId, getApSpace, saveApSpace, deleteApSpace } from '../../db/a
 import type { ApInspectionControlPoint } from '../../types/accueilPro';
 
 export default function AccueilProSpaceEditScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { t } = useLanguage();
   const venueId = route.params?.venueId as string;

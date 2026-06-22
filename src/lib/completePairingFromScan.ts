@@ -16,13 +16,14 @@ import {
 import { setServerPairingVerified } from './workspaceOnboardingStorage';
 import { toUserFriendlyNetworkMessage } from './userFriendlyNetworkError';
 import { hasLocalSyncApiKey } from './serverAuthHeaders';
+import type { AppLanguage } from '../i18n/strings';
 
 export type PairingScanResult =
   | { kind: 'not_pairing' }
   | { kind: 'success'; baseUrl: string }
   | { kind: 'error'; title: string; message: string };
 
-function loopbackMessage(language: 'fr' | 'en'): string {
+function loopbackMessage(language: AppLanguage): string {
   return language === 'en'
     ? 'The QR code uses 127.0.0.1 (PC only). On the PC, open StageStock Local again — the address under the QR must start with 192.168… or 10…, not 127.0.0.1. Same Wi‑Fi on phone and PC.'
     : 'Le QR utilise 127.0.0.1 (adresse PC seulement). Sur le PC, relancez « StageStock Local » : l’adresse sous le QR doit commencer par 192.168… ou 10…, pas 127.0.0.1. Même Wi‑Fi sur le téléphone et le PC.';
@@ -37,7 +38,7 @@ function portFromBase(base: string): string {
   }
 }
 
-function unreachableMessage(language: 'fr' | 'en', testedBase: string, detail: string): string {
+function unreachableMessage(language: AppLanguage, testedBase: string, detail: string): string {
   const port = portFromBase(testedBase);
   const friendly = toUserFriendlyNetworkMessage(detail, language);
   if (language === 'en') {
@@ -60,7 +61,7 @@ function unreachableMessage(language: 'fr' | 'en', testedBase: string, detail: s
 
 export async function completePairingFromScan(
   raw: string,
-  language: 'fr' | 'en'
+  language: AppLanguage
 ): Promise<PairingScanResult> {
   const paired = await tryApplyPairingFromScan(raw);
   if (!paired) {

@@ -9,6 +9,7 @@ import {
   apStyles,
 } from '../../components/accueilpro/AccueilProUI';
 import { useLanguage } from '../../context/LanguageContext';
+import type { TranslateVars } from '../../i18n/strings';
 import { findApRoomInspection, getApEvent, resolveSpacesForEvent } from '../../db/accueilProDb';
 import {
   compareInspectionsForSpace,
@@ -21,7 +22,7 @@ function valLabel(v?: string): string {
   return v;
 }
 
-function CompareTable({ block, t }: { block: SpaceInspectionCompare; t: (k: string) => string }) {
+function CompareTable({ block, t }: { block: SpaceInspectionCompare; t: (k: string, vars?: TranslateVars) => string }) {
   const issues = countCompareIssues(block);
   return (
     <AccueilProFormCard style={{ marginBottom: 14 }}>

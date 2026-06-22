@@ -110,7 +110,7 @@ export default function AccueilProConventionsScreen() {
               title={item.titre}
               meta={eventLine}
               subtitle={item.created_at?.slice(0, 10) ?? undefined}
-              accentColor={ev ? undefined : AccueilProColors.statusRefuse}
+              accentColor={ev ? undefined : AccueilProColors.statusAnnule}
               onPress={() =>
                 navigation.navigate('AccueilProConventionEdit', {
                   id: item.id,

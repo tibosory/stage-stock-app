@@ -4,7 +4,7 @@ import { Colors } from '../theme/colors';
 import { Card } from './UI';
 import { runConnectionDiagnostics, type DiagnosticCheck, type DiagnosticLevel } from '../lib/connectionDiagnosticsCore';
 import { defaultConnectionDiagnosticsDeps } from '../lib/connectionDiagnostics';
-import { toUserFriendlyNetworkMessage } from '../lib/userFriendlyNetworkError';
+import { toUserFriendlyNetworkMessage, type FriendlyLang } from '../lib/userFriendlyNetworkError';
 import { useLanguage } from '../context/LanguageContext';
 import { useConnection } from '../context/ConnectionContext';
 import { runForegroundInventorySync } from '../lib/foregroundInventorySync';
@@ -18,7 +18,7 @@ function levelEmoji(level: DiagnosticLevel): string {
 
 function detailForCheck(
   check: DiagnosticCheck,
-  language: 'fr' | 'en',
+  language: FriendlyLang,
   t: (key: string) => string
 ): string | null {
   if (check.level === 'ok') return null;
@@ -45,7 +45,7 @@ export function ConnectionDiagnosticPanel() {
       setResolvedBase(repair.baseUrl);
       const result = await runConnectionDiagnostics(defaultConnectionDiagnosticsDeps());
       setChecks(result);
-      await refresh({ force: true });
+      await refresh();
     } finally {
       setBusy(false);
     }
@@ -60,7 +60,7 @@ export function ConnectionDiagnosticPanel() {
     try {
       const repair = await runConnectionRepair();
       setResolvedBase(repair.baseUrl);
-      await refresh({ force: true });
+      await refresh();
       if (repair.snapshotOk) {
         await runForegroundInventorySync();
       } else {
