@@ -3,6 +3,7 @@ import { Alert, Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { EventDayAgendaTimeline } from '../../components/accueilpro/EventDayAgendaTimeline';
 import { EventReadinessChecklist } from '../../components/accueilpro/EventReadinessChecklist';
+import { EventTeamSmsComposer } from '../../components/accueilpro/EventTeamSmsComposer';
 import { AccueilProContactCard } from '../../components/accueilpro/AccueilProContactCard';
 import {
   AccueilProChip,
@@ -53,10 +54,29 @@ export default function AccueilProEventDetailScreen() {
   const [venueNames, setVenueNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [smsOpen, setSmsOpen] = useState(false);
 
   const planDate = useMemo(() => (event?.date_debut ?? '').slice(0, 10), [event?.date_debut]);
   const contactFieldLabels = useMemo(() => contactFieldLabelsFromT(t), [t]);
   const spaceNames = useMemo(() => Object.fromEntries(spaces.map(s => [s.id, s.name])), [spaces]);
+  const smsLabels = useMemo(
+    () => ({
+      title: t('accueilpro.eventTeam.smsTitle'),
+      hint: t('accueilpro.eventTeam.smsHint'),
+      fieldMessage: t('accueilpro.eventTeam.smsFieldMessage'),
+      placeholder: t('accueilpro.eventTeam.smsPlaceholder'),
+      recipients: t('accueilpro.eventTeam.smsRecipients'),
+      withoutPhone: t('accueilpro.eventTeam.smsWithoutPhone'),
+      send: t('accueilpro.eventTeam.smsSend'),
+      cancel: t('accueilpro.cancel'),
+      errEmpty: t('accueilpro.eventTeam.smsErrEmpty'),
+      noPhones: t('accueilpro.eventTeam.smsNoPhones'),
+      unavailable: t('accueilpro.eventTeam.smsUnavailable'),
+      quickBreak: t('accueilpro.eventTeam.smsQuickBreak'),
+      quickStart: t('accueilpro.eventTeam.smsQuickStart'),
+    }),
+    [t]
+  );
 
   const load = useCallback(async () => {
     try {
@@ -261,6 +281,13 @@ export default function AccueilProEventDetailScreen() {
                 <Text style={[apStyles.rowTitle, { flex: undefined }]}>{t('accueilpro.eventTeam.openDirectory')}</Text>
                 <Text style={[apStyles.rowMeta, { marginTop: 4 }]}>{t('accueilpro.eventTeam.directoryHint')}</Text>
               </TouchableOpacity>
+              {team.length > 0 ?
+                <AccueilProPrimaryButton
+                  label={t('accueilpro.eventTeam.smsAll')}
+                  onPress={() => setSmsOpen(true)}
+                  style={{ marginBottom: Spacing.md }}
+                />
+              : null}
               {team.length === 0 ?
                 <>
                   <Text style={apStyles.empty}>{t('accueilpro.eventTeam.empty')}</Text>
@@ -317,6 +344,15 @@ export default function AccueilProEventDetailScreen() {
           : null}
         </>
       : null}
+
+      <EventTeamSmsComposer
+        visible={smsOpen}
+        team={team}
+        eventName={event?.name}
+        labels={smsLabels}
+        errTitle={t('accueilpro.orgs.errTitle')}
+        onClose={() => setSmsOpen(false)}
+      />
     </AccueilProScreenLayout>
   );
 }

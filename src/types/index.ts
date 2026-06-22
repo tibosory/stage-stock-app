@@ -336,3 +336,161 @@ export interface MouvementStockDetail extends MouvementStock {
   consommable_nom: string;
   consommable_unite: string;
 }
+
+// ============================================================
+// Module Régie — Conduite technique
+// ============================================================
+
+/** Département auquel appartient une conduite (« générale » = tous départements mélangés). */
+export type DepartementConduite = 'lumiere' | 'son' | 'plateau' | 'video' | 'generale';
+/** Type d’un top (couleur/icône) ; « autre » par défaut. */
+export type TypeTop = 'lumiere' | 'son' | 'plateau' | 'video' | 'autre';
+
+/** Une conduite = liste ordonnée de tops pour un spectacle et un département. */
+export interface Conduite {
+  id: string;
+  /** Spectacle en texte libre (StageStock n’a pas de table spectacles). */
+  nomSpectacle: string;
+  /** Lien optionnel vers une tournée existante (réutilise le concept « spectacle »). */
+  tourId: string | null;
+  titre: string;
+  departement: DepartementConduite;
+  notes: string | null;
+  /** Nombre de tops (jointure d’affichage, non stocké). */
+  topsCount?: number;
+  createdAt: string;
+  updatedAt: string;
+  synced: boolean;
+}
+
+/** Un top = un signal de régie minuté dans une conduite. */
+export interface Top {
+  id: string;
+  conduiteId: string;
+  numero: number;
+  /** Minutage libre « mm:ss » (ex. « 12:45 »). */
+  minutage: string | null;
+  /** Même valeur en secondes pour tri/calculs. */
+  minutageSecondes: number | null;
+  departement: TypeTop;
+  description: string;
+  detail: string | null;
+  /** Coché en mode live. */
+  effectue: boolean;
+  createdAt: string;
+  updatedAt: string;
+  synced: boolean;
+}
+
+/** Couleurs associées à chaque type de top (UI + PDF). */
+export const COULEURS_TOP: Record<TypeTop, { bg: string; text: string; border: string }> = {
+  lumiere: { bg: '#FEF3C7', text: '#92400E', border: '#FBBF24' },
+  son: { bg: '#DBEAFE', text: '#1E40AF', border: '#60A5FA' },
+  plateau: { bg: '#D1FAE5', text: '#065F46', border: '#34D399' },
+  video: { bg: '#EDE9FE', text: '#5B21B6', border: '#A78BFA' },
+  autre: { bg: '#F3F4F6', text: '#374151', border: '#9CA3AF' },
+};
+
+export const LABELS_DEPARTEMENT: Record<DepartementConduite, string> = {
+  lumiere: 'Lumière',
+  son: 'Son',
+  plateau: 'Plateau',
+  video: 'Vidéo',
+  generale: 'Générale (tous départements)',
+};
+
+export const LABELS_TYPE_TOP: Record<TypeTop, string> = {
+  lumiere: 'Lumière',
+  son: 'Son',
+  plateau: 'Plateau',
+  video: 'Vidéo',
+  autre: 'Autre',
+};
+
+// ============================================================
+// Module Régie — Mise technique (plan de scène)
+// ============================================================
+
+/** Zone de scène (aide au placement, reste libre via la description). */
+export type ZoneScene =
+  | 'cour'
+  | 'jardin'
+  | 'centre'
+  | 'cour_face'
+  | 'cour_fond'
+  | 'jardin_face'
+  | 'jardin_fond'
+  | 'centre_face'
+  | 'centre_fond'
+  | 'lointain'
+  | 'avant_scene'
+  | 'non_definie';
+
+/** Une mise technique = dossier d’implantation d’un spectacle (étapes + positions). */
+export interface MiseTechnique {
+  id: string;
+  nomSpectacle: string;
+  tourId: string | null;
+  titre: string;
+  notes: string | null;
+  /** Nombre d’étapes (jointure d’affichage, non stocké). */
+  etapesCount?: number;
+  createdAt: string;
+  updatedAt: string;
+  synced: boolean;
+}
+
+/** Une étape = un moment du spectacle (début, acte 1, rappel…), nom libre. */
+export interface Etape {
+  id: string;
+  miseTechniqueId: string;
+  ordre: number;
+  nom: string;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
+  synced: boolean;
+}
+
+/** Une position = un objet placé à une étape donnée. */
+export interface Position {
+  id: string;
+  etapeId: string;
+  /** Lien optionnel vers un matériel du stock. */
+  materielId: string | null;
+  nomObjet: string;
+  descriptionEmplacement: string;
+  zone: ZoneScene;
+  notes: string | null;
+  ordre: number;
+  createdAt: string;
+  updatedAt: string;
+  synced: boolean;
+  /** Photos locales (jointure optionnelle). */
+  photos?: PositionPhoto[];
+}
+
+/** Photo locale illustrant le placement d’une position. */
+export interface PositionPhoto {
+  id: string;
+  positionId: string;
+  /** URI de fichier local persistant (offline-first). */
+  localUri: string;
+  ordre: number;
+  createdAt: string;
+}
+
+export const LABELS_ZONE: Record<ZoneScene, string> = {
+  cour: 'Cour',
+  jardin: 'Jardin',
+  centre: 'Centre',
+  cour_face: 'Cour face',
+  cour_fond: 'Cour fond',
+  jardin_face: 'Jardin face',
+  jardin_fond: 'Jardin fond',
+  centre_face: 'Centre face',
+  centre_fond: 'Centre fond',
+  lointain: 'Lointain',
+  avant_scene: 'Avant-scène',
+  non_definie: 'Non définie',
+};

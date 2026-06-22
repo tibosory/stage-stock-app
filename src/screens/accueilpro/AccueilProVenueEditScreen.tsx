@@ -17,6 +17,7 @@ import {
   listApConventionsByVenue,
   listApSpaces,
   saveApVenue,
+  deleteApVenue,
 } from '../../db/accueilProDb';
 import { ERP_CATS, ERP_TYPES } from '../../lib/inspectionChecklist';
 import type { ApConvention } from '../../types/accueilPro';
@@ -141,6 +142,18 @@ export default function AccueilProVenueEditScreen() {
     eventEditId,
   ]);
 
+  const onDelete = useCallback(() => {
+    if (!venueId) return;
+    Alert.alert(t('accueilpro.deleteConfirmTitle'), t('accueilpro.venues.deleteVenueBody'), [
+      { text: t('accueilpro.cancel'), style: 'cancel' },
+      {
+        text: t('accueilpro.delete'),
+        style: 'destructive',
+        onPress: () => void deleteApVenue(venueId).then(() => navigation.goBack()),
+      },
+    ]);
+  }, [venueId, navigation, t]);
+
   return (
     <AccueilProScreenLayout
       backLabel={t('accueilpro.back')}
@@ -228,6 +241,10 @@ export default function AccueilProVenueEditScreen() {
           </AccueilProFormCard>
         </>
       : <Text style={[apStyles.hint, { marginTop: Spacing.md }]}>{t('accueilpro.venues.saveFirstSpaces')}</Text>}
+
+      {venueId ?
+        <AccueilProLinkButton label={t('accueilpro.venues.deleteVenue')} onPress={onDelete} style={{ marginTop: Spacing.md }} />
+      : null}
     </AccueilProScreenLayout>
   );
 }

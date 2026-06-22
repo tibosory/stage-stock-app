@@ -21,6 +21,7 @@ import type {
 } from '../types/accueilPro';
 import { parseControlPointsJson, serializeControlPointsJson } from '../lib/inspectionChecklist';
 import { parseApEventFeuilleInfo, serializeApEventFeuilleInfo } from '../lib/accueilProFeuilleInfo';
+import { buildPersonnelDisplayName, personnelDisplayName } from '../lib/accueilProPersonnelHelpers';
 
 type AssociationPortalProfile = {
   name: string;
@@ -1526,6 +1527,8 @@ export async function deleteConvention(id: string, database?: SQLite.SQLiteDatab
   await db.runAsync('DELETE FROM ap_conventions WHERE id = ?', [id]);
 }
 
+export const deleteApConvention = deleteConvention;
+
 export async function listInspections(
   opts?: { eventId?: string; spaceId?: string },
   database?: SQLite.SQLiteDatabase
@@ -1926,6 +1929,8 @@ export const saveApConvention = saveConvention;
 export const saveApEvent = saveEvent;
 export const saveApVenue = saveVenue;
 export const saveApSpace = saveSpace;
+export const deleteApVenue = deleteVenue;
+export const deleteApSpace = deleteSpace;
 export const saveApPersonnel = savePersonnel;
 export const saveApRentalRequest = saveRentalRequest;
 export const saveApOrganizationContact = saveContact;

@@ -21,6 +21,8 @@ export type VenueSpaceBubblePickerProps = {
   onAddSpace: (venueId: string) => void;
   onEditVenue: (venueId: string) => void;
   onEditSpace: (venueId: string, spaceId: string) => void;
+  onDeleteVenue?: (venueId: string) => void;
+  onDeleteSpace?: (venueId: string, spaceId: string) => void;
   onOpenVenueDetail?: (venueId: string) => void;
   /** Sur la fiche d’un lieu : masquer la rangée de bulles lieux. */
   singleVenueMode?: boolean;
@@ -38,6 +40,8 @@ export type VenueSpaceBubblePickerProps = {
     controlPoints: string;
     editSpace: string;
     editVenue: string;
+    deleteVenue?: string;
+    deleteSpace?: string;
     venueDetail: string;
   };
 };
@@ -54,6 +58,8 @@ export function VenueSpaceBubblePicker(props: VenueSpaceBubblePickerProps) {
     onAddSpace,
     onEditVenue,
     onEditSpace,
+    onDeleteVenue,
+    onDeleteSpace,
     onOpenVenueDetail,
     labels,
     singleVenueMode = false,
@@ -97,6 +103,9 @@ export function VenueSpaceBubblePicker(props: VenueSpaceBubblePickerProps) {
             <AccueilProLinkButton label={labels.editVenue} onPress={() => onEditVenue(selectedVenue.id)} />
             {onOpenVenueDetail ?
               <AccueilProLinkButton label={labels.venueDetail} onPress={() => onOpenVenueDetail(selectedVenue.id)} />
+            : null}
+            {onDeleteVenue && labels.deleteVenue ?
+              <AccueilProLinkButton label={labels.deleteVenue} onPress={() => onDeleteVenue(selectedVenue.id)} />
             : null}
           </View>
         </AccueilProFormCard>
@@ -150,6 +159,13 @@ export function VenueSpaceBubblePicker(props: VenueSpaceBubblePickerProps) {
             label={labels.editSpace}
             onPress={() => onEditSpace(selectedVenueId, selectedSpace.id)}
           />
+          {onDeleteSpace && labels.deleteSpace ?
+            <AccueilProLinkButton
+              label={labels.deleteSpace}
+              onPress={() => onDeleteSpace(selectedVenueId, selectedSpace.id)}
+              style={{ marginTop: 12 }}
+            />
+          : null}
         </AccueilProFormCard>
       : null}
     </View>

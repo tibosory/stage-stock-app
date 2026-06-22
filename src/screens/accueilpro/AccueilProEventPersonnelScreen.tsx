@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, FlatList, Alert, TouchableOpacity } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { AccueilProContactCard } from '../../components/accueilpro/AccueilProContactCard';
+import { EventTeamSmsComposer } from '../../components/accueilpro/EventTeamSmsComposer';
 import {
   AccueilProFormCard,
   AccueilProFormSelectPicker,
@@ -40,8 +41,27 @@ export default function AccueilProEventPersonnelScreen() {
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
   const [role, setRole] = useState('');
+  const [smsOpen, setSmsOpen] = useState(false);
 
   const fieldLabels = useMemo(() => contactFieldLabelsFromT(t), [t]);
+  const smsLabels = useMemo(
+    () => ({
+      title: t('accueilpro.eventTeam.smsTitle'),
+      hint: t('accueilpro.eventTeam.smsHint'),
+      fieldMessage: t('accueilpro.eventTeam.smsFieldMessage'),
+      placeholder: t('accueilpro.eventTeam.smsPlaceholder'),
+      recipients: t('accueilpro.eventTeam.smsRecipients'),
+      withoutPhone: t('accueilpro.eventTeam.smsWithoutPhone'),
+      send: t('accueilpro.eventTeam.smsSend'),
+      cancel: t('accueilpro.cancel'),
+      errEmpty: t('accueilpro.eventTeam.smsErrEmpty'),
+      noPhones: t('accueilpro.eventTeam.smsNoPhones'),
+      unavailable: t('accueilpro.eventTeam.smsUnavailable'),
+      quickBreak: t('accueilpro.eventTeam.smsQuickBreak'),
+      quickStart: t('accueilpro.eventTeam.smsQuickStart'),
+    }),
+    [t]
+  );
 
   const load = useCallback(async () => {
     try {
@@ -212,6 +232,13 @@ export default function AccueilProEventPersonnelScreen() {
             </AccueilProFormCard>
 
             <Text style={apStyles.sectionTitle}>{t('accueilpro.eventTeam.list')}</Text>
+            {rows.length > 0 ?
+              <AccueilProPrimaryButton
+                label={t('accueilpro.eventTeam.smsAll')}
+                onPress={() => setSmsOpen(true)}
+                style={{ marginBottom: Spacing.sm, marginTop: Spacing.xs }}
+              />
+            : null}
           </>
         }
         ListEmptyComponent={<Text style={apStyles.empty}>{t('accueilpro.eventTeam.empty')}</Text>}
@@ -224,6 +251,15 @@ export default function AccueilProEventPersonnelScreen() {
             emailSubject={`StageStock · ${item.name}`}
           />
         )}
+      />
+
+      <EventTeamSmsComposer
+        visible={smsOpen}
+        team={rows}
+        eventName={event?.name}
+        labels={smsLabels}
+        errTitle={t('accueilpro.orgs.errTitle')}
+        onClose={() => setSmsOpen(false)}
       />
     </AccueilProScreenLayout>
   );

@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Text, View, Alert } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { VenueSpaceBubblePicker } from '../../components/accueilpro/VenueSpaceBubblePicker';
 import { VenuePlanSection } from '../../components/accueilpro/VenuePlanSection';
@@ -28,6 +28,8 @@ import {
   listApEvents,
   listApPersonnel,
   listApSpaces,
+  deleteApSpace,
+  deleteApVenue,
 } from '../../db/accueilProDb';
 import type { ApConvention, ApEvent, ApPersonnel, ApSpace, ApVenue } from '../../types/accueilPro';
 
@@ -74,6 +76,32 @@ export default function AccueilProVenueDetailScreen() {
       void load().finally(() => setLoading(false));
     }, [load])
   );
+
+  const confirmDeleteVenue = (_id?: string) => {
+    Alert.alert(t('accueilpro.deleteConfirmTitle'), t('accueilpro.venues.deleteVenueBody'), [
+      { text: t('accueilpro.cancel'), style: 'cancel' },
+      {
+        text: t('accueilpro.delete'),
+        style: 'destructive',
+        onPress: () => void deleteApVenue(venueId).then(() => navigation.goBack()),
+      },
+    ]);
+  };
+
+  const confirmDeleteSpace = (_vId: string, spaceId: string) => {
+    Alert.alert(t('accueilpro.deleteConfirmTitle'), t('accueilpro.venues.deleteSpaceBody'), [
+      { text: t('accueilpro.cancel'), style: 'cancel' },
+      {
+        text: t('accueilpro.delete'),
+        style: 'destructive',
+        onPress: () =>
+          void deleteApSpace(spaceId).then(() => {
+            if (selectedSpaceId === spaceId) setSelectedSpaceId(null);
+            void load();
+          }),
+      },
+    ]);
+  };
 
   if (!loading && !venue) {
     return (
@@ -122,6 +150,8 @@ export default function AccueilProVenueDetailScreen() {
           onAddSpace={() => navigation.navigate('AccueilProSpaceEdit', { venueId })}
           onEditVenue={() => navigation.navigate('AccueilProVenueEdit', { id: venueId })}
           onEditSpace={(vId, sId) => navigation.navigate('AccueilProSpaceEdit', { venueId: vId, id: sId })}
+          onDeleteVenue={confirmDeleteVenue}
+          onDeleteSpace={confirmDeleteSpace}
           singleVenueMode
           labels={{
             venuesSection: t('accueilpro.venueTab.spaces'),
@@ -137,6 +167,8 @@ export default function AccueilProVenueDetailScreen() {
             controlPoints: t('accueilpro.venues.controlPointsCount', { n: '{n}' }),
             editSpace: t('accueilpro.venues.editSpace'),
             editVenue: t('accueilpro.venues.edit'),
+            deleteVenue: t('accueilpro.venues.deleteVenue'),
+            deleteSpace: t('accueilpro.venues.deleteSpace'),
             venueDetail: '',
           }}
         />

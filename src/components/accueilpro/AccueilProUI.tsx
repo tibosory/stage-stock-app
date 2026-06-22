@@ -15,7 +15,8 @@ import {
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format, parse } from 'date-fns';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { effectiveTopInset } from '../../lib/deviceSafeArea';
 import { useConnection } from '../../context/ConnectionContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { moduleAccueilPro } from '../../theme/tokens';
@@ -280,6 +281,9 @@ export function AccueilProScreenLayout({
   onRefresh,
   showFieldStrip = false,
 }: ScreenLayoutProps) {
+  const insets = useSafeAreaInsets();
+  const topInset = effectiveTopInset(insets.top);
+
   const contentLead = (
     <>
       {showFieldStrip ? <AccueilProFieldStrip /> : null}
@@ -311,8 +315,8 @@ export function AccueilProScreenLayout({
 
   return (
     <View style={{ flex: 1, backgroundColor: AccueilProColors.cream }}>
-      <SafeAreaView edges={['top']} style={{ backgroundColor: AccueilProColors.navy }}>
-        <View style={{ paddingHorizontal: 16, paddingBottom: 14, paddingTop: 4 }}>
+      <View style={{ backgroundColor: AccueilProColors.navy, paddingTop: topInset }}>
+        <View style={{ paddingHorizontal: 16, paddingBottom: 14, paddingTop: 8 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <View style={{ flex: 1, marginRight: 12 }}>
               {backLabel ?
@@ -344,12 +348,18 @@ export function AccueilProScreenLayout({
             : null}
           </View>
         </View>
-      </SafeAreaView>
+      </View>
       {body}
       {footer ?
-        <SafeAreaView edges={['bottom']} style={{ backgroundColor: AccueilProColors.card, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: AccueilProColors.borderSubtle }}>
+        <View
+          style={{
+            backgroundColor: AccueilProColors.card,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: AccueilProColors.borderSubtle,
+          }}
+        >
           <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}>{footer}</View>
-        </SafeAreaView>
+        </View>
       : null}
     </View>
   );

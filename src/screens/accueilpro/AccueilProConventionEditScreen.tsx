@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Text, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
@@ -7,6 +7,7 @@ import { AccueilProPdfPreviewModal } from '../../components/accueilpro/AccueilPr
 import {
   AccueilProChip,
   AccueilProFormCard,
+  AccueilProFormSelectPicker,
   AccueilProInput,
   AccueilProLinkButton,
   AccueilProPrimaryButton,
@@ -17,7 +18,15 @@ import {
 import { useLanguage } from '../../context/LanguageContext';
 import { useAppAuth } from '../../context/AuthContext';
 import { useConnection } from '../../context/ConnectionContext';
-import { generateApId, getApConvention, getApEvent, getApVenue, saveApConvention } from '../../db/accueilProDb';
+import {
+  deleteApConvention,
+  generateApId,
+  getApConvention,
+  getApEvent,
+  getApVenue,
+  listApEvents,
+  saveApConvention,
+} from '../../db/accueilProDb';
 import { uploadAccueilProConventionPdf } from '../../lib/accueilProConventionDocumentUpload';
 import { persistConventionPdfCopy, removeConventionPdfLocal } from '../../lib/accueilProConventionPdfStorage';
 import { logAccueilProAction } from '../../lib/accueilProActivityLog';
@@ -33,19 +42,27 @@ function pickPdfUri(pick: DocumentPicker.DocumentPickerResult): { uri: string; n
   return { uri: asset.uri, name };
 }
 
+function eventOptionLabel(name: string, date?: string | null): string {
+  const d = date?.slice(0, 10);
+  return d ? `${name} · ${d}` : name;
+}
+
 export default function AccueilProConventionEditScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { t } = useLanguage();
   const { user } = useAppAuth();
   const { status: connStatus } = useConnection();
-  const eventId = route.params?.eventId as string | undefined;
+  const presetEventId = route.params?.eventId as string | undefined;
   const venueId = route.params?.venueId as string | undefined;
   const conventionId = route.params?.id as string | undefined;
   const signNow = route.params?.signNow as boolean | undefined;
+  const requireEvent = route.params?.requireEvent === true || (!presetEventId && !venueId && !conventionId);
+  const [selectedEventId, setSelectedEventId] = useState(presetEventId ?? '');
   const [resolvedVenueId, setResolvedVenueId] = useState<string | undefined>(venueId);
   const [loading, setLoading] = useState(!!conventionId);
   const [saving, setSaving] = useState(false);
+  const [eventOptions, setEventOptions] = useState<{ label: string; value: string }[]>([]);
   const [titre, setTitre] = useState('');
   const [contenu, setContenu] = useState('');
   const [status, setStatus] = useState<ApConventionStatus>('brouillon');
@@ -60,11 +77,31 @@ export default function AccueilProConventionEditScreen() {
   const [showSignPad, setShowSignPad] = useState(!!signNow);
 
   useEffect(() => {
+    void (async () => {
+      const all = await listApEvents();
+      const filtered =
+        resolvedVenueId ? all.filter(e => e.venue_id === resolvedVenueId) : all;
+      const sorted = [...filtered].sort((a, b) => (b.date_debut ?? '').localeCompare(a.date_debut ?? ''));
+      setEventOptions(
+        sorted.map(e => ({
+          label: eventOptionLabel(e.name, e.date_debut),
+          value: e.id,
+        }))
+      );
+    })();
+  }, [resolvedVenueId]);
+
+  useEffect(() => {
     setResolvedVenueId(venueId);
   }, [venueId]);
 
   useEffect(() => {
-    if (conventionId || !resolvedVenueId) return;
+    if (presetEventId) setSelectedEventId(presetEventId);
+  }, [presetEventId]);
+
+  useEffect(() => {
+    if (conventionId || selectedEventId) return;
+    if (!resolvedVenueId) return;
     void getApVenue(resolvedVenueId).then(v => {
       if (v) {
         setTitre(prev =>
@@ -72,7 +109,7 @@ export default function AccueilProConventionEditScreen() {
         );
       }
     });
-  }, [conventionId, resolvedVenueId, t]);
+  }, [conventionId, selectedEventId, resolvedVenueId, t]);
 
   useEffect(() => {
     if (!conventionId) return;
@@ -88,11 +125,31 @@ export default function AccueilProConventionEditScreen() {
         setDocumentFilename(c.document_filename ?? null);
         setDocumentStoragePath(c.document_storage_path ?? null);
         setPdfPreviewed(!!c.document_local_uri);
+        if (c.event_id) setSelectedEventId(c.event_id);
         if (c.venue_id) setResolvedVenueId(c.venue_id);
       }
       setLoading(false);
     });
   }, [conventionId]);
+
+  const onEventChange = useCallback(
+    async (id: string) => {
+      setSelectedEventId(id);
+      if (!id) return;
+      const ev = await getApEvent(id);
+      if (!ev) return;
+      if (ev.venue_id) setResolvedVenueId(ev.venue_id);
+      if (!titre.trim()) {
+        setTitre(`${t('accueilpro.conventions.defaultTitlePrefix')} — ${ev.name}`);
+      }
+    },
+    [titre, t]
+  );
+
+  const selectedEventName = useMemo(() => {
+    const opt = eventOptions.find(o => o.value === selectedEventId);
+    return opt?.label ?? '';
+  }, [eventOptions, selectedEventId]);
 
   const openPreview = useCallback(() => {
     if (!documentLocalUri) {
@@ -169,6 +226,10 @@ export default function AccueilProConventionEditScreen() {
         Alert.alert(t('accueilpro.orgs.errTitle'), t('accueilpro.conventions.errTitle'));
         return null;
       }
+      if (!selectedEventId.trim()) {
+        Alert.alert(t('accueilpro.orgs.errTitle'), t('accueilpro.conventions.errEvent'));
+        return null;
+      }
       if (opts?.sign && !signatureB64) {
         Alert.alert(t('accueilpro.conventions.signTitle'), t('accueilpro.conventions.signNeed'));
         return null;
@@ -189,10 +250,11 @@ export default function AccueilProConventionEditScreen() {
             setDocumentStoragePath(storagePath);
           }
         }
+        const ev = await getApEvent(selectedEventId);
         const row = {
           id,
-          event_id: eventId ?? null,
-          venue_id: resolvedVenueId ?? null,
+          event_id: selectedEventId,
+          venue_id: ev?.venue_id ?? resolvedVenueId ?? null,
           titre: titre.trim(),
           contenu: contenu.trim() || null,
           status: (opts?.sign ? 'signé' : status) as ApConventionStatus,
@@ -216,7 +278,6 @@ export default function AccueilProConventionEditScreen() {
             actorName: actor,
           });
           if (opts.exportPdf !== false) {
-            const ev = eventId ? await getApEvent(eventId) : null;
             await exportAccueilProConventionPdf(row, ev?.name);
           }
         }
@@ -233,8 +294,7 @@ export default function AccueilProConventionEditScreen() {
       signedAt,
       signedBy,
       conventionId,
-      eventId,
-      venueId,
+      selectedEventId,
       resolvedVenueId,
       user?.nom,
       t,
@@ -256,7 +316,31 @@ export default function AccueilProConventionEditScreen() {
     if (id) navigation.goBack();
   }, [persist, navigation]);
 
+  const onDelete = useCallback(() => {
+    if (!conventionId) return;
+    Alert.alert(t('accueilpro.deleteConfirmTitle'), t('accueilpro.conventions.deleteBody'), [
+      { text: t('accueilpro.cancel'), style: 'cancel' },
+      {
+        text: t('accueilpro.delete'),
+        style: 'destructive',
+        onPress: () =>
+          void (async () => {
+            await removeConventionPdfLocal(documentLocalUri);
+            await deleteApConvention(conventionId);
+            navigation.goBack();
+          })(),
+      },
+    ]);
+  }, [conventionId, documentLocalUri, navigation, t]);
+
   const statuses: ApConventionStatus[] = ['brouillon', 'signé'];
+
+  const pickerOptions = useMemo(() => {
+    if (!requireEvent && eventOptions.length === 0) {
+      return [{ label: t('accueilpro.conventions.noEventsAvailable'), value: '' }];
+    }
+    return eventOptions;
+  }, [eventOptions, requireEvent, t]);
 
   return (
     <AccueilProScreenLayout
@@ -270,6 +354,21 @@ export default function AccueilProConventionEditScreen() {
       }
     >
       <AccueilProFormCard>
+        <Text style={apStyles.sectionTitle}>{t('accueilpro.conventions.linkedEvent')}</Text>
+        <AccueilProFormSelectPicker
+          label={t('accueilpro.events.fieldName')}
+          value={selectedEventId}
+          onChange={v => void onEventChange(v)}
+          options={pickerOptions}
+        />
+        {selectedEventId && selectedEventName ?
+          <Text style={apStyles.hint}>{selectedEventName}</Text>
+        : requireEvent ?
+          <Text style={[apStyles.hint, { color: AccueilProColors.gold, fontWeight: '600' }]}>
+            {t('accueilpro.conventions.eventRequiredHint')}
+          </Text>
+        : null}
+
         <AccueilProInput label={t('accueilpro.conventions.fieldTitle')} value={titre} onChangeText={setTitre} required />
         <AccueilProInput label={t('accueilpro.conventions.fieldBody')} value={contenu} onChangeText={setContenu} multiline />
 
@@ -325,7 +424,7 @@ export default function AccueilProConventionEditScreen() {
               void exportAccueilProConventionPdf(
                 {
                   id: conventionId ?? '',
-                  event_id: eventId ?? null,
+                  event_id: selectedEventId,
                   titre: titre.trim(),
                   contenu,
                   status,
@@ -342,6 +441,10 @@ export default function AccueilProConventionEditScreen() {
           />
         : null}
       </AccueilProFormCard>
+
+      {conventionId ?
+        <AccueilProLinkButton label={t('accueilpro.delete')} onPress={onDelete} />
+      : null}
 
       <AccueilProPdfPreviewModal
         visible={previewOpen}

@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Text } from 'react-native';
+import { Text, Alert } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { VenueSpaceBubblePicker } from '../../components/accueilpro/VenueSpaceBubblePicker';
 import {
@@ -8,7 +8,7 @@ import {
   AccueilProScreenLayout,
 } from '../../components/accueilpro/AccueilProUI';
 import { useLanguage } from '../../context/LanguageContext';
-import { listApVenues, listApSpaces } from '../../db/accueilProDb';
+import { deleteApSpace, deleteApVenue, listApVenues, listApSpaces } from '../../db/accueilProDb';
 import type { ApSpace, ApVenue } from '../../types/accueilPro';
 
 export default function AccueilProVenuesScreen() {
@@ -81,7 +81,42 @@ export default function AccueilProVenuesScreen() {
     controlPoints: t('accueilpro.venues.controlPointsCount', { n: '{n}' }),
     editSpace: t('accueilpro.venues.editSpace'),
     editVenue: t('accueilpro.venues.edit'),
+    deleteVenue: t('accueilpro.venues.deleteVenue'),
+    deleteSpace: t('accueilpro.venues.deleteSpace'),
     venueDetail: t('accueilpro.venues.fullDetail'),
+  };
+
+  const confirmDeleteVenue = (id: string) => {
+    Alert.alert(t('accueilpro.deleteConfirmTitle'), t('accueilpro.venues.deleteVenueBody'), [
+      { text: t('accueilpro.cancel'), style: 'cancel' },
+      {
+        text: t('accueilpro.delete'),
+        style: 'destructive',
+        onPress: () =>
+          void deleteApVenue(id).then(() => {
+            if (selectedVenueId === id) {
+              setSelectedVenueId(null);
+              setSelectedSpaceId(null);
+            }
+            void load();
+          }),
+      },
+    ]);
+  };
+
+  const confirmDeleteSpace = (venueId: string, spaceId: string) => {
+    Alert.alert(t('accueilpro.deleteConfirmTitle'), t('accueilpro.venues.deleteSpaceBody'), [
+      { text: t('accueilpro.cancel'), style: 'cancel' },
+      {
+        text: t('accueilpro.delete'),
+        style: 'destructive',
+        onPress: () =>
+          void deleteApSpace(spaceId).then(() => {
+            if (selectedSpaceId === spaceId) setSelectedSpaceId(null);
+            void load();
+          }),
+      },
+    ]);
   };
 
   return (
@@ -129,6 +164,8 @@ export default function AccueilProVenuesScreen() {
           onEditSpace={(venueId, spaceId) =>
             navigation.navigate('AccueilProSpaceEdit', { venueId, id: spaceId })
           }
+          onDeleteVenue={confirmDeleteVenue}
+          onDeleteSpace={confirmDeleteSpace}
           onOpenVenueDetail={id => navigation.navigate('AccueilProVenueDetail', { id })}
           labels={labels}
         />

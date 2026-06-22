@@ -48,7 +48,14 @@ export type AccueilProStackParamList = {
   AccueilProInspectionEdit: { id?: string; eventId?: string; spaceId?: string; type?: string };
   AccueilProPlanning: undefined;
   AccueilProConventions: undefined;
-  AccueilProConventionEdit: { id?: string; eventId?: string; venueId?: string; signNow?: boolean };
+  AccueilProConventionEdit: {
+    id?: string;
+    eventId?: string;
+    venueId?: string;
+    signNow?: boolean;
+    /** Onglet Conventions : impose le choix d’un événement à la création. */
+    requireEvent?: boolean;
+  };
   AccueilProFeuilleRoute: undefined;
   AccueilProFeuilleRouteEvent: { eventId: string };
   AccueilProEventInfoSheet: { eventId: string };

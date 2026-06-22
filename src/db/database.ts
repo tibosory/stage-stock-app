@@ -98,6 +98,75 @@ async function runSchemaMigrations(database: SQLite.SQLiteDatabase): Promise<voi
     );
   `);
 
+  // ── Module Régie : Conduite technique + Mise technique ──────────
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS conduites (
+      id TEXT PRIMARY KEY,
+      nom_spectacle TEXT NOT NULL,
+      tour_id TEXT REFERENCES tours(id) ON DELETE SET NULL,
+      titre TEXT NOT NULL,
+      departement TEXT NOT NULL DEFAULT 'generale',
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS tops (
+      id TEXT PRIMARY KEY,
+      conduite_id TEXT NOT NULL REFERENCES conduites(id) ON DELETE CASCADE,
+      numero INTEGER NOT NULL,
+      minutage TEXT,
+      minutage_secondes INTEGER,
+      departement TEXT NOT NULL DEFAULT 'autre',
+      description TEXT NOT NULL,
+      detail TEXT,
+      effectue INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS mises_techniques (
+      id TEXT PRIMARY KEY,
+      nom_spectacle TEXT NOT NULL,
+      tour_id TEXT REFERENCES tours(id) ON DELETE SET NULL,
+      titre TEXT NOT NULL,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS etapes (
+      id TEXT PRIMARY KEY,
+      mise_technique_id TEXT NOT NULL REFERENCES mises_techniques(id) ON DELETE CASCADE,
+      ordre INTEGER NOT NULL,
+      nom TEXT NOT NULL,
+      description TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS positions (
+      id TEXT PRIMARY KEY,
+      etape_id TEXT NOT NULL REFERENCES etapes(id) ON DELETE CASCADE,
+      materiel_id TEXT REFERENCES materiels(id) ON DELETE SET NULL,
+      nom_objet TEXT NOT NULL,
+      description_emplacement TEXT NOT NULL,
+      zone TEXT DEFAULT 'non_definie',
+      notes TEXT,
+      ordre INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS position_photos (
+      id TEXT PRIMARY KEY,
+      position_id TEXT NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
+      local_uri TEXT NOT NULL,
+      ordre INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
   const addCol = async (table: string, name: string, defSql: string) => {
     const rows = await database.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
     if (!rows.some(r => r.name === name)) {
@@ -153,6 +222,12 @@ async function runSchemaMigrations(database: SQLite.SQLiteDatabase): Promise<voi
     CREATE INDEX IF NOT EXISTS idx_consommables_categorie ON consommables(categorie_id);
     CREATE INDEX IF NOT EXISTS idx_tour_documents_tour ON tour_documents(tour_id);
     CREATE INDEX IF NOT EXISTS idx_tour_documents_title ON tour_documents(title);
+    CREATE INDEX IF NOT EXISTS idx_tops_conduite ON tops(conduite_id);
+    CREATE INDEX IF NOT EXISTS idx_tops_numero ON tops(conduite_id, numero);
+    CREATE INDEX IF NOT EXISTS idx_etapes_mise ON etapes(mise_technique_id);
+    CREATE INDEX IF NOT EXISTS idx_etapes_ordre ON etapes(mise_technique_id, ordre);
+    CREATE INDEX IF NOT EXISTS idx_positions_etape ON positions(etape_id);
+    CREATE INDEX IF NOT EXISTS idx_position_photos_position ON position_photos(position_id);
   `);
 
   // Tables du moteur de synchronisation Caractère (@caractere/sync-engine).

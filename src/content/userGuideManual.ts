@@ -36,7 +36,7 @@ export const USER_GUIDE_META = {
 
   versionLabel:
 
-    '21 mai 2026 (v1.0.77 : suppression plages planning du jour)',
+    '20 mai 2026 (v1.0.82 : conventions liées aux événements, suppression depuis l’onglet Conventions)',
 
 };
 
@@ -327,8 +327,9 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
       'Module pour l’accueil et la location de salles. Bannière Accueil Pro sur l’écran d’accueil.',
 
       'Lieux, événements, conventions, portail association. Les demandes de location ne passent pas par l’application : créez les événements directement. Sync séparée : Réseau → carte Accueil Pro.',
+      'Conventions : onglet Conventions — chaque ligne est rattachée à un événement (nom et date affichés). « + Nouvelle » impose le choix de l’événement. Suppression : lien « Supprimer » à droite de la ligne ou en bas de l’écran de modification. Création rapide aussi depuis la fiche événement (section Conventions).',
 
-      'Lieux : menu Accueil Pro → Lieux. Chaque lieu apparaît en bulle ; en le sélectionnant, les espaces (salles) s’affichent en bulles. Sélectionnez un espace pour le visualiser et le modifier, ou « + Nouvel espace » pour en créer un. Plan du lieu : en création ou modification, section « Plan du lieu » — import PDF ou DWG ; consulter depuis la fiche (onglet Réglementation) ou depuis l’édition. Le PDF s’affiche dans l’app ; le DWG s’ouvre via Partager (AutoCAD, etc.). Après l’enregistrement du lieu, section « Convention de location » : import PDF, texte et signature — visible aussi dans l’onglet Réglementation du lieu.',
+      'Lieux : menu Accueil Pro → Lieux. Chaque lieu apparaît en bulle ; en le sélectionnant, les espaces (salles) s’affichent en bulles. Sélectionnez un espace pour le visualiser et le modifier, ou « + Nouvel espace » pour en créer un. Suppression : lien « Supprimer le lieu » ou « Supprimer l’espace » sur la fiche bulles, bouton en bas de l’écran de modification, ou icône poubelle dans la liste « Gérer les espaces ». Plan du lieu : en création ou modification, section « Plan du lieu » — import PDF ou DWG ; consulter depuis la fiche (onglet Réglementation) ou depuis l’édition. Le PDF s’affiche page par page dans l’app (conventions, plans) ; si besoin, « Ouvrir avec une app externe » en bas de l’écran. Le DWG s’ouvre via Partager (AutoCAD, etc.). Après l’enregistrement du lieu, section « Convention de location » : import PDF, texte et signature — visible aussi dans l’onglet Réglementation du lieu.',
 
       'Organisations : menu Accueil Pro → Organisations. Liste des associations et entreprises enregistrées ; touchez une fiche pour la modifier (coordonnées, contacts, documents). Lien « Créer un événement » sous chaque organisation, ou bouton dédié dans la fiche — l’organisation est pré-sélectionnée dans le formulaire événement.',
 
@@ -336,7 +337,7 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'Événement : lors de la création, section « Dates et horaires » (début/fin + heures), statut (Option, Confirmé, Annulé, Terminé), boutons « + Nouvelle organisation » et « + Nouveau lieu et espaces » sans quitter le formulaire.',
 
-      'Événement ouvert : onglets Aperçu, Équipe et Agenda. Équipe — bouton « Gérer l’équipe » : choisir une fiche dans l’annuaire puis « Ajouter depuis l’annuaire », ou créer une nouvelle fiche (enregistrée dans l’annuaire et ajoutée à l’équipe). Un message confirme l’ajout ; la liste « Équipe assignée » est en bas de l’écran (faites défiler si besoin). L’événement doit avoir un lieu renseigné pour créer une fiche depuis cet écran. Depuis une fiche personnel (Contacts / Équipe) : section « Ajouter à un événement » — la fiche est enregistrée automatiquement si elle est nouvelle. Annuaire (Contacts) — équipe du lieu, contacts organisation et externes ; les membres permanents sont surlignés et en tête de liste. Agenda — créneaux horaires (qui, quoi, où) ; icône poubelle pour supprimer une plage.',
+      'Événement ouvert : onglets Aperçu, Équipe et Agenda. Équipe — bouton « Gérer l’équipe » : choisir une fiche dans l’annuaire puis « Ajouter depuis l’annuaire », ou créer une nouvelle fiche (enregistrée dans l’annuaire et ajoutée à l’équipe). « SMS à toute l’équipe » (onglet Équipe ou écran Gérer l’équipe) : rédigez un message (ex. pause repas) ; l’app Messages s’ouvre avec tous les mobiles renseignés — vous validez l’envoi sur le téléphone. Un message confirme l’ajout ; la liste « Équipe assignée » est en bas de l’écran (faites défiler si besoin). L’événement doit avoir un lieu renseigné pour créer une fiche depuis cet écran. Depuis une fiche personnel (Contacts / Équipe) : section « Ajouter à un événement » — la fiche est enregistrée automatiquement si elle est nouvelle. Annuaire (Contacts) — équipe du lieu, contacts organisation et externes ; les membres permanents sont surlignés et en tête de liste. Agenda — créneaux horaires (qui, quoi, où) ; icône poubelle pour supprimer une plage.',
 
       'Planning du jour : Accueil Pro → Planning du jour (raccourci sur l’accueil). Chaque plage horaire affiche une icône poubelle à droite pour la supprimer (confirmation). Touchez la ligne pour la modifier ; bouton « + » en haut pour ajouter un créneau.',
 

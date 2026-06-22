@@ -2,9 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as Sharing from 'expo-sharing';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AccueilProColors } from './AccueilProUI';
 import { useLanguage } from '../../context/LanguageContext';
 import { loadLocalPdfPreviewHtml } from '../../lib/localPdfWebViewHtml';
+import { effectiveBottomInset, effectiveTopInset } from '../../lib/deviceSafeArea';
 
 type Props = {
   visible: boolean;
@@ -15,6 +17,9 @@ type Props = {
 
 export function AccueilProPdfPreviewModal({ visible, title, uri, onClose }: Props) {
   const { t } = useLanguage();
+  const insets = useSafeAreaInsets();
+  const topInset = effectiveTopInset(insets.top);
+  const bottomInset = effectiveBottomInset(insets.bottom);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -39,7 +44,7 @@ export function AccueilProPdfPreviewModal({ visible, title, uri, onClose }: Prop
       .catch((e: unknown) => {
         if (!cancelled) {
           const msg = e instanceof Error ? e.message : String(e);
-          setLoadError(msg === 'PDF_NOT_FOUND' ? t('accueilpro.conventions.pdfMissing') : msg);
+          setLoadError(msg === 'PDF_NOT_FOUND' ? t('accueilpro.conventions.pdfMissing') : msg === 'PDF_EMPTY' ? t('accueilpro.conventions.pdfMissing') : msg);
         }
       })
       .finally(() => {
@@ -69,7 +74,7 @@ export function AccueilProPdfPreviewModal({ visible, title, uri, onClose }: Prop
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={styles.root}>
+      <View style={[styles.root, { paddingTop: topInset, paddingBottom: bottomInset }]}>
         <View style={styles.topBar}>
           <Text style={styles.title} numberOfLines={2}>
             {title}
@@ -95,12 +100,15 @@ export function AccueilProPdfPreviewModal({ visible, title, uri, onClose }: Prop
           : previewHtml ?
             <WebView
               originWhitelist={['*']}
-              source={{ html: previewHtml, baseUrl: '' }}
+              source={{ html: previewHtml, baseUrl: 'https://cdnjs.cloudflare.com' }}
               style={styles.webview}
               setBuiltInZoomControls
               setDisplayZoomControls
-              javaScriptEnabled={false}
+              javaScriptEnabled
+              domStorageEnabled
               mixedContentMode="always"
+              allowFileAccess
+              allowUniversalAccessFromFileURLs
             />
           : null}
         </View>

@@ -2,16 +2,16 @@
  * Outils de test : notification locale, push Expo (équipe), e-mail SMTP via le même endpoint que les alertes auto.
  */
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
-import {
-  SchedulableTriggerInputTypes,
-  type TimeIntervalTriggerInput,
-} from 'expo-notifications';
 import { getResolvedApiBase, stageStockApiHeadersAsync, checkServerReachableQuick } from '../config/stageStockApi';
 import { getAlertesEmail } from '../db/metadataDb';
 import { getStaffExpoPushTokens } from '../db/userDb';
 import { loadMailRecipientAlerteIds } from './notificationPrefs';
-import { ensureTrayAndroidChannels, TRAY_CHANNEL_PRETS } from './systemNotificationSetup';
+import { requestNotificationPermission } from './pretNotifications';
+import {
+  ensureTrayAndroidChannels,
+  scheduleTrayNotificationAt,
+  TRAY_CHANNEL_PRETS,
+} from './systemNotificationSetup';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
@@ -32,24 +32,29 @@ export async function scheduleTestLocalNotification(
   title: string,
   body: string
 ): Promise<{ ok: boolean; message: string }> {
+  const granted = await requestNotificationPermission();
+  if (!granted) {
+    return {
+      ok: false,
+      message: 'Autorisez les notifications dans les réglages Android, puis réessayez.',
+    };
+  }
+
   const t = title.trim() || 'CATRACK Pro — test';
   const b = (body.trim() || 'Notification locale de test.').slice(0, 400);
   await ensureTrayAndroidChannels();
-  const trigger: TimeIntervalTriggerInput = {
-    type: SchedulableTriggerInputTypes.TIME_INTERVAL,
-    seconds: 2,
-    repeats: false,
-    ...(Platform.OS === 'android' ? { channelId: TRAY_CHANNEL_PRETS } : {}),
-  };
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title: t,
-      body: b,
-      sound: true,
-      data: { kind: 'stagestock_test_local' },
-    },
-    trigger,
-  });
+  const fireAt = new Date(Date.now() + 2000);
+  try {
+    await scheduleTrayNotificationAt(TRAY_CHANNEL_PRETS, t, b, { kind: 'stagestock_test_local' }, fireAt);
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      message: detail.includes('JSONObject')
+        ? 'Échec de planification sur cet appareil. Vérifiez que les notifications sont autorisées et réessayez.'
+        : detail,
+    };
+  }
   return {
     ok: true,
     message: 'Une notification locale est programmée dans environ 2 secondes.',

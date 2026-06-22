@@ -3,7 +3,13 @@
  * de notifications / volet système (Android + iOS), pas seulement en bannière in-app.
  */
 import * as Notifications from 'expo-notifications';
-import type { NotificationContentInput } from 'expo-notifications';
+import {
+  SchedulableTriggerInputTypes,
+  type DateTriggerInput,
+  type NotificationContentInput,
+  type NotificationTriggerInput,
+  type TimeIntervalTriggerInput,
+} from 'expo-notifications';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
@@ -71,6 +77,59 @@ export function trayScheduledNotificationContentExtras(): Pick<
     priority: Notifications.AndroidNotificationPriority.HIGH,
     interruptionLevel: 'active',
   };
+}
+
+/** Contenu notification locale (canal Android explicite). */
+export function buildTrayNotificationContent(
+  channelId: string,
+  title: string,
+  body: string,
+  data: Record<string, string>
+): NotificationContentInput {
+  return {
+    ...trayScheduledNotificationContentExtras(),
+    title,
+    body,
+    data,
+    ...(Platform.OS === 'android' ? { channelId } : {}),
+  };
+}
+
+/**
+ * Planifie une notification locale. Sur Android, les délais sous 60 s utilisent un trigger DATE
+ * (TIME_INTERVAL court provoque souvent « Failed to schedule… JSONObject »).
+ */
+export function buildTrayNotificationTrigger(channelId: string, fireAt: Date): NotificationTriggerInput {
+  const secondsUntil = Math.max(1, Math.ceil((fireAt.getTime() - Date.now()) / 1000));
+  if (Platform.OS === 'android' && secondsUntil < 60) {
+    const trigger: DateTriggerInput = {
+      type: SchedulableTriggerInputTypes.DATE,
+      date: fireAt,
+      channelId,
+    };
+    return trigger;
+  }
+  const trigger: TimeIntervalTriggerInput = {
+    type: SchedulableTriggerInputTypes.TIME_INTERVAL,
+    seconds: Math.max(60, secondsUntil),
+    repeats: false,
+    ...(Platform.OS === 'android' ? { channelId } : {}),
+  };
+  return trigger;
+}
+
+export async function scheduleTrayNotificationAt(
+  channelId: string,
+  title: string,
+  body: string,
+  data: Record<string, string>,
+  fireAt: Date
+): Promise<string> {
+  await ensureTrayAndroidChannels();
+  return Notifications.scheduleNotificationAsync({
+    content: buildTrayNotificationContent(channelId, title, body, data),
+    trigger: buildTrayNotificationTrigger(channelId, fireAt),
+  });
 }
 
 configureNotificationsForSystemTray();

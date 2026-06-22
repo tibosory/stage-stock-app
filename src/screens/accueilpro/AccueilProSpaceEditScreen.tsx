@@ -4,12 +4,13 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { AccueilProFormCard, AccueilProInput } from '../../components/accueilpro/AccueilProUI';
 import {
   AccueilProPrimaryButton,
+  AccueilProLinkButton,
   AccueilProScreenLayout,
   apStyles,
 } from '../../components/accueilpro/AccueilProUI';
 import { SpaceControlPointsEditor } from '../../components/accueilpro/SpaceControlPointsEditor';
 import { useLanguage } from '../../context/LanguageContext';
-import { generateApId, getApSpace, saveApSpace } from '../../db/accueilProDb';
+import { generateApId, getApSpace, saveApSpace, deleteApSpace } from '../../db/accueilProDb';
 import type { ApInspectionControlPoint } from '../../types/accueilPro';
 
 export default function AccueilProSpaceEditScreen() {
@@ -70,6 +71,18 @@ export default function AccueilProSpaceEditScreen() {
     }
   }, [spaceId, venueId, name, type, capacity, description, controlPoints, navigation, t, returnToEvent, route.params?.eventEditId]);
 
+  const onDelete = useCallback(() => {
+    if (!spaceId) return;
+    Alert.alert(t('accueilpro.deleteConfirmTitle'), t('accueilpro.venues.deleteSpaceBody'), [
+      { text: t('accueilpro.cancel'), style: 'cancel' },
+      {
+        text: t('accueilpro.delete'),
+        style: 'destructive',
+        onPress: () => void deleteApSpace(spaceId).then(() => navigation.goBack()),
+      },
+    ]);
+  }, [spaceId, navigation, t]);
+
   return (
     <AccueilProScreenLayout
       backLabel={t('accueilpro.back')}
@@ -116,6 +129,10 @@ export default function AccueilProSpaceEditScreen() {
           }}
         />
       </AccueilProFormCard>
+
+      {spaceId ?
+        <AccueilProLinkButton label={t('accueilpro.venues.deleteSpace')} onPress={onDelete} />
+      : null}
     </AccueilProScreenLayout>
   );
 }

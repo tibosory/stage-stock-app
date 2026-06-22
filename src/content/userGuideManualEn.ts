@@ -8,7 +8,7 @@ export const USER_GUIDE_META_EN = {
   title: 'CATRACK Pro — User guide',
   subtitle: 'Step-by-step guide with practical examples',
   versionLabel:
-    'May 21, 2026 (v1.0.77: delete day-plan time slots)',
+    'May 20, 2026 (v1.0.82: agreements linked to events, delete from Agreements tab)',
 };
 
 export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
@@ -154,10 +154,11 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     paragraphs: [
       'Module for front-of-house and room hire. Accueil Pro banner on the home screen.',
       'Venues, events, agreements, association portal. Hire requests are not handled in the app — create events directly. Separate sync: Network → Accueil Pro card.',
-      'Venues: Accueil Pro → Venues. Each venue appears as a bubble; select it to show its spaces (rooms) as bubbles. Select a space to view or edit it, or “+ New space” to create one. Venue plan: when creating or editing, use “Venue plan” to import a PDF or DWG; view it from the venue record (Regulations tab) or while editing. PDF opens in-app; DWG via Share (AutoCAD, etc.). After saving, use “Rental agreement” to attach a PDF template or text (also under the venue Regulations tab).',
+      'Agreements: Agreements tab — each row shows the linked event (name and date). “+ New” requires picking an event. Delete via “Delete” on the row or at the bottom of the edit screen. You can also add agreements from the event detail (Agreements section).',
+      'Venues: Accueil Pro → Venues. Each venue appears as a bubble; select it to show its spaces (rooms) as bubbles. Select a space to view or edit it, or “+ New space” to create one. Delete: “Delete venue” or “Delete space” on the bubble card, button at the bottom of the edit screen, or trash icon in “Manage spaces”. Venue plan: when creating or editing, use “Venue plan” to import a PDF or DWG; view it from the venue record (Regulations tab) or while editing. PDF opens in-app; DWG via Share (AutoCAD, etc.). After saving, use “Rental agreement” to attach a PDF template or text (also under the venue Regulations tab).',
       'Organizations: Accueil Pro → Organizations. Saved list with edit (details, contacts, documents). “Create event” under each row or on the organization record — organization is pre-selected in the event form.',
       'Inspections: Accueil Pro → Inspections → “By event” tab. Select an event; for each space, check-in and check-out buttons (checklist + photos). History tab for past records. Issues report: PDF (print/share) or email summary (failed checks, comments, missing inspections).',
-      'Open event: Overview, Team and Agenda tabs. Team — create a staff record or pick from directory. Contacts — venue, organization and external contacts. Agenda — time slots (who, what, where); trash icon to delete a slot.',
+      'Open event: Overview, Team and Agenda tabs. Team — “Manage team”: pick from directory or create a record. “SMS whole team” (Team tab or Manage team screen): write a message (e.g. meal break); Messages opens with all listed mobiles — you confirm sending on the phone. Contacts — venue, organization and external contacts. Agenda — time slots (who, what, where); trash icon to delete a slot.',
       'Day plan: Accueil Pro → Day plan (home shortcut). Each row has a trash icon on the right to delete (with confirmation). Tap the row to edit; “+” at top to add a slot.',
       'Run sheet: Accueil Pro → Run sheet. One sheet per event (title = name + dates), list sorted chronologically. Tap a row for the synthesis (organization, venue, spaces, times, equipment per space, team, agenda, agreements, inspections, regisseur notes) and PDF export. “Open run sheet” on the event record (Overview tab). Information sheet: from the event or run sheet, enter equipment needed per room (e.g. “Room A: 80 chairs, 2 wireless mics”) — text appears on the run sheet and PDF. Day schedule remains under Day plan.',
       'Organization portal: Accueil Pro → Association portal. Lists organizations with at least one created event; events appear under each name. Tap an event to add PDF, audio or video files (programme, rider, sound tracks…). For association users (client portal), the profile form and general organization documents remain at the bottom.',

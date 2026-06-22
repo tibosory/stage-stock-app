@@ -44,16 +44,17 @@ function unreachableMessage(language: 'fr' | 'en', testedBase: string, detail: s
     return (
       `${friendly}\n\n` +
       `Tested: ${testedBase}/health\n\n` +
-      `Same Wi‑Fi as the PC? StageStock Local open? Windows firewall may block TCP port ${port}. ` +
-      `On the PC, run backend\\windows\\Fix-StageStockFirewall.ps1 (Administrator).`
+      `Same Wi‑Fi as the PC? On the phone browser open ${testedBase}/health (expect status ok). ` +
+      `On the PC: StageStock Local running; Docker up if using the full installer. ` +
+      `Firewall: backend\\windows\\Fix-StageStockFirewall.ps1 (Administrator).`
     );
   }
   return (
     `${friendly}\n\n` +
     `Test : ${testedBase}/health\n\n` +
-    `Même Wi‑Fi que le PC ? « StageStock Local » est bien ouvert ? ` +
-    `Le pare-feu Windows peut bloquer le port TCP ${port}. ` +
-    `Sur le PC : exécutez backend\\windows\\Fix-StageStockFirewall.ps1 (Administrateur).`
+    `Même Wi‑Fi que le PC ? Testez dans le navigateur du téléphone : ${testedBase}/health (doit afficher status ok). ` +
+    `Sur le PC : « StageStock Local » ouvert, Docker vert si installateur complet. ` +
+    `Pare-feu : backend\\windows\\Fix-StageStockFirewall.ps1 (Administrateur).`
   );
 }
 
@@ -93,13 +94,13 @@ export async function completePairingFromScan(
     };
   }
 
-  // Ping direct d’abord : si le QR est bon, pas de balayage 8090–8110 (~15 s perdus).
-  const pairingPingOpts = { attempts: 2, timeoutMs: 7_000 };
+  // Ping direct puis balayage des ports si le serveur a basculé (8092…) ou démarre encore.
+  const pairingPingOpts = { attempts: 3, timeoutMs: 10_000 };
   let ping = await pairingPingHealthBase(baseUrl, pairingPingOpts);
   if (!ping.ok) {
     const probed = await resolveStageStockBaseFromHealthProbe(baseUrl, {
-      maxExtraPorts: 8,
-      timeoutMs: 3_000,
+      maxExtraPorts: 20,
+      timeoutMs: 4_500,
     });
     if (probed) {
       if (probed !== baseUrl) {

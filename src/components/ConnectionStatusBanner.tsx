@@ -12,6 +12,7 @@ import { Colors } from '../theme/colors';
 import { Typography } from '../theme/typography';
 import { Spacing } from '../theme/spacing';
 import { isConsumerApp } from '../config/appMode';
+import { effectiveTopInset } from '../lib/deviceSafeArea';
 import { useConnection } from '../context/ConnectionContext';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -37,7 +38,7 @@ export function ConnectionStatusBanner() {
       style={({ pressed }) => [
         styles.wrap,
         {
-          paddingTop: Math.max(insets.top, Spacing.sm),
+          paddingTop: effectiveTopInset(insets.top) + Spacing.sm,
           opacity: pressed ? 0.92 : 1,
           maxWidth: width,
         },

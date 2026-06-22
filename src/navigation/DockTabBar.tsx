@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import type { Route } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,7 +13,7 @@ import {
   staffVisibleTabNames,
 } from './mainMenuConfig';
 
-const ANDROID_BOTTOM_NAV_MIN_DP = 64;
+import { effectiveBottomInset } from '../lib/deviceSafeArea';
 
 type TabRoute = Route<string>;
 
@@ -29,10 +29,7 @@ export function DockTabBar({
   const insets = useSafeAreaInsets();
   const { user } = useAppAuth();
 
-  const bottomPad =
-    Platform.OS === 'android'
-      ? Math.max(insets.bottom, ANDROID_BOTTOM_NAV_MIN_DP)
-      : Math.max(insets.bottom, 12);
+  const bottomPad = effectiveBottomInset(insets.bottom);
   const tabBarHeight = 60 + bottomPad;
 
   const visibleNames = useMemo(() => {

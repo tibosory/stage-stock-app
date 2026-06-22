@@ -1,15 +1,16 @@
 import React, { useCallback, useState } from 'react';
-import { Text, FlatList, RefreshControl } from 'react-native';
+import { Text, FlatList, RefreshControl, Alert } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import {
   AccueilProEmpty,
   AccueilProListRow,
   AccueilProScreenLayout,
   AccueilProColors,
+  AccueilProDeleteIconButton,
   apStyles,
 } from '../../components/accueilpro/AccueilProUI';
 import { useLanguage } from '../../context/LanguageContext';
-import { listApSpaces } from '../../db/accueilProDb';
+import { deleteApSpace, listApSpaces } from '../../db/accueilProDb';
 import type { ApSpace } from '../../types/accueilPro';
 
 export default function AccueilProVenueSpacesScreen() {
@@ -36,6 +37,17 @@ export default function AccueilProVenueSpacesScreen() {
     setRefreshing(true);
     await load();
     setRefreshing(false);
+  };
+
+  const confirmDeleteSpace = (item: ApSpace) => {
+    Alert.alert(t('accueilpro.deleteConfirmTitle'), t('accueilpro.venues.deleteSpaceBody'), [
+      { text: t('accueilpro.cancel'), style: 'cancel' },
+      {
+        text: t('accueilpro.delete'),
+        style: 'destructive',
+        onPress: () => void deleteApSpace(item.id).then(load),
+      },
+    ]);
   };
 
   return (
@@ -66,6 +78,12 @@ export default function AccueilProVenueSpacesScreen() {
             title={item.name}
             meta={[item.type, item.capacity ? `${item.capacity} pl.` : ''].filter(Boolean).join(' · ')}
             onPress={() => navigation.navigate('AccueilProSpaceEdit', { venueId, id: item.id })}
+            rightAccessory={
+              <AccueilProDeleteIconButton
+                accessibilityLabel={t('accueilpro.venues.deleteSpaceSlot')}
+                onPress={() => confirmDeleteSpace(item)}
+              />
+            }
           />
         )}
       />

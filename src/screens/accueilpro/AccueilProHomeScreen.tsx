@@ -210,7 +210,12 @@ export default function AccueilProHomeScreen() {
                   { label: t('accueilpro.nav.dayPlan'), icon: '🗓', color: AccueilProColors.navy, onPress: () => nav('AccueilProDayPlan', { date: todayIsoDate() }) },
                   { label: t('accueilpro.home.newVenue'), icon: '🏛', color: AccueilProColors.navy, onPress: () => nav('AccueilProVenueEdit', {}) },
                   { label: t('accueilpro.home.newEdl'), icon: '📋', color: AccueilProColors.eventSpectacle, onPress: () => nav('AccueilProInspections') },
-                  { label: t('accueilpro.home.newConvention'), icon: '📄', color: AccueilProColors.statusConfirme, onPress: () => nav('AccueilProConventionEdit', {}) },
+                  {
+                    label: t('accueilpro.home.newConvention'),
+                    icon: '📄',
+                    color: AccueilProColors.statusConfirme,
+                    onPress: () => nav('AccueilProConventionEdit', { requireEvent: true }),
+                  },
                 ]
               : [
                   { label: t('accueilpro.nav.portal'), icon: '🤝', color: AccueilProColors.gold, onPress: () => nav('AccueilAssociation') },

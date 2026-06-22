@@ -1,8 +1,14 @@
-import React from 'react';
-import { View, Pressable, Text, StyleSheet, Platform } from 'react-native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import React, { useMemo } from 'react';
+import { View, Pressable, Text, StyleSheet } from 'react-native';
+import { createBottomTabNavigator, type BottomTabNavigationOptions } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow, AccueilProColors } from '../theme/colors';
+import {
+  effectiveBottomInset,
+  effectiveTopInset,
+  workspaceFabBottomOffset,
+  workspaceTabBarContentHeight,
+} from '../lib/deviceSafeArea';
 import ScannerScreen from '../screens/ScannerScreen';
 import PretsScreen from '../screens/PretsScreen';
 import ParamsScreen from '../screens/ParamsScreen';
@@ -36,26 +42,42 @@ import { AccueilProStackNavigator } from './AccueilProStackNavigator';
 
 const Tab = createBottomTabNavigator();
 
-const WS_TAB_BAR = {
+const WS_TAB_BAR_BASE: Omit<BottomTabNavigationOptions, 'tabBarStyle'> & {
+  tabBarStyle: Omit<NonNullable<BottomTabNavigationOptions['tabBarStyle']>, 'paddingBottom' | 'height'>;
+} = {
   headerShown: false as const,
   tabBarStyle: {
     backgroundColor: Colors.tabBar,
     borderTopColor: Colors.border,
     borderTopWidth: 1,
-    minHeight: Platform.OS === 'android' ? 56 : 52,
-    paddingBottom: 6,
-    paddingTop: 6,
+    paddingTop: 8,
   },
   tabBarActiveTintColor: Colors.green,
   tabBarInactiveTintColor: Colors.tabBarInactive,
   tabBarLabelStyle: { fontSize: 12, fontWeight: '600' as const },
 };
 
+function workspaceTabScreenOptions(
+  insets: { top: number; bottom: number },
+  variant: 'default' | 'accueilPro' = 'default'
+): BottomTabNavigationOptions {
+  const bottomPad = effectiveBottomInset(insets.bottom);
+  const barH = workspaceTabBarContentHeight(variant);
+  const base = variant === 'accueilPro' ? AP_TAB_BAR_BASE : WS_TAB_BAR_BASE;
+  return {
+    ...base,
+    tabBarStyle: {
+      ...base.tabBarStyle,
+      paddingBottom: bottomPad + 8,
+      height: barH + bottomPad + 8,
+    },
+  };
+}
+
 function WorkspaceHomeFab() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  /** Haut gauche : ne recouvre plus la zone de défilement des listes. */
-  const top = Math.max(insets.top, 8) + 10;
+  const top = effectiveTopInset(insets.top) + 10;
   return (
     <Pressable
       onPress={() => goActivityHome(navigation)}
@@ -77,7 +99,7 @@ function WorkspaceHomeFab() {
 function AccueilProHomeFab() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const bottom = Math.max(insets.bottom, Platform.OS === 'android' ? 56 : 52) + 12;
+  const bottom = workspaceFabBottomOffset(insets.bottom, 'accueilPro');
   return (
     <Pressable
       onPress={() => goActivityHome(navigation)}
@@ -156,23 +178,29 @@ function shellAccueilPro(Ws: React.ComponentType) {
   };
 }
 
-const AP_TAB_BAR = {
-  ...WS_TAB_BAR,
+const AP_TAB_BAR_BASE: Omit<BottomTabNavigationOptions, 'tabBarStyle'> & {
+  tabBarStyle: Omit<NonNullable<BottomTabNavigationOptions['tabBarStyle']>, 'paddingBottom' | 'height'>;
+} = {
+  ...WS_TAB_BAR_BASE,
   tabBarStyle: {
-    ...WS_TAB_BAR.tabBarStyle,
+    ...WS_TAB_BAR_BASE.tabBarStyle,
     backgroundColor: AccueilProColors.navy,
     borderTopColor: 'rgba(255,255,255,0.08)',
-    minHeight: Platform.OS === 'android' ? 60 : 56,
-    paddingBottom: Platform.OS === 'android' ? 8 : 6,
   },
   tabBarActiveTintColor: AccueilProColors.gold,
   tabBarInactiveTintColor: 'rgba(255,255,255,0.72)',
   tabBarLabelStyle: { fontSize: 13, fontWeight: '600' as const },
 };
 
+function useWorkspaceTabOptions(variant: 'default' | 'accueilPro' = 'default') {
+  const insets = useSafeAreaInsets();
+  return useMemo(() => workspaceTabScreenOptions(insets, variant), [insets.bottom, insets.top, variant]);
+}
+
 function StockWorkspaceTabs() {
+  const screenOptions = useWorkspaceTabOptions();
   return (
-    <Tab.Navigator screenOptions={WS_TAB_BAR}>
+    <Tab.Navigator screenOptions={screenOptions}>
       <Tab.Screen
         name="WsStock"
         component={StockStackNavigator}
@@ -194,8 +222,9 @@ function StockWorkspaceTabs() {
 }
 
 function ConsoWorkspaceTabs() {
+  const screenOptions = useWorkspaceTabOptions();
   return (
-    <Tab.Navigator screenOptions={WS_TAB_BAR}>
+    <Tab.Navigator screenOptions={screenOptions}>
       <Tab.Screen
         name="WsConso"
         component={ConsommablesScreen}
@@ -217,8 +246,9 @@ function ConsoWorkspaceTabs() {
 }
 
 function PretWorkspaceTabs() {
+  const screenOptions = useWorkspaceTabOptions();
   return (
-    <Tab.Navigator screenOptions={WS_TAB_BAR}>
+    <Tab.Navigator screenOptions={screenOptions}>
       <Tab.Screen
         name="WsPret"
         component={PretsScreen}
@@ -240,8 +270,9 @@ function PretWorkspaceTabs() {
 }
 
 function VgpWorkspaceTabs() {
+  const screenOptions = useWorkspaceTabOptions();
   return (
-    <Tab.Navigator screenOptions={WS_TAB_BAR}>
+    <Tab.Navigator screenOptions={screenOptions}>
       <Tab.Screen
         name="WsVgp"
         component={VgpStackNavigator}
@@ -263,8 +294,9 @@ function VgpWorkspaceTabs() {
 }
 
 function ParamsWithScan() {
+  const screenOptions = useWorkspaceTabOptions();
   return (
-    <Tab.Navigator screenOptions={WS_TAB_BAR}>
+    <Tab.Navigator screenOptions={screenOptions}>
       <Tab.Screen
         name="WsParamsMain"
         component={ParamsScreen}
@@ -286,8 +318,9 @@ function ParamsWithScan() {
 }
 
 function AlertesWithScan() {
+  const screenOptions = useWorkspaceTabOptions();
   return (
-    <Tab.Navigator screenOptions={WS_TAB_BAR}>
+    <Tab.Navigator screenOptions={screenOptions}>
       <Tab.Screen
         name="WsAlertesMain"
         component={AlertesScreen}
@@ -309,8 +342,9 @@ function AlertesWithScan() {
 }
 
 function ImportWithScan() {
+  const screenOptions = useWorkspaceTabOptions();
   return (
-    <Tab.Navigator screenOptions={WS_TAB_BAR}>
+    <Tab.Navigator screenOptions={screenOptions}>
       <Tab.Screen
         name="WsImportMain"
         component={ImportExportScreen}
@@ -332,8 +366,9 @@ function ImportWithScan() {
 }
 
 function PrintWithScan() {
+  const screenOptions = useWorkspaceTabOptions();
   return (
-    <Tab.Navigator screenOptions={WS_TAB_BAR}>
+    <Tab.Navigator screenOptions={screenOptions}>
       <Tab.Screen
         name="WsPrintMain"
         component={PrintHubScreen}
@@ -355,8 +390,9 @@ function PrintWithScan() {
 }
 
 function AssistantWithScan() {
+  const screenOptions = useWorkspaceTabOptions();
   return (
-    <Tab.Navigator screenOptions={WS_TAB_BAR}>
+    <Tab.Navigator screenOptions={screenOptions}>
       <Tab.Screen
         name="WsIaMain"
         component={AssistantScreen}
@@ -378,8 +414,9 @@ function AssistantWithScan() {
 }
 
 function NoticeWithScan() {
+  const screenOptions = useWorkspaceTabOptions();
   return (
-    <Tab.Navigator screenOptions={WS_TAB_BAR}>
+    <Tab.Navigator screenOptions={screenOptions}>
       <Tab.Screen
         name="WsNoticeMain"
         component={NoticeUtilisateurScreen}
@@ -401,8 +438,9 @@ function NoticeWithScan() {
 }
 
 function AccueilProWorkspaceTabs() {
+  const screenOptions = useWorkspaceTabOptions('accueilPro');
   return (
-    <Tab.Navigator screenOptions={AP_TAB_BAR}>
+    <Tab.Navigator screenOptions={screenOptions}>
       <Tab.Screen
         name="WsAccueilProMain"
         component={AccueilProStackNavigator}
@@ -424,8 +462,9 @@ function AccueilProWorkspaceTabs() {
 }
 
 function ReseauWorkspaceTabs() {
+  const screenOptions = useWorkspaceTabOptions();
   return (
-    <Tab.Navigator screenOptions={WS_TAB_BAR}>
+    <Tab.Navigator screenOptions={screenOptions}>
       <Tab.Screen
         name="WsReseau"
         component={NetworkScreen}
@@ -447,8 +486,9 @@ function ReseauWorkspaceTabs() {
 }
 
 function CompteEmprunteurWithScan() {
+  const screenOptions = useWorkspaceTabOptions();
   return (
-    <Tab.Navigator screenOptions={WS_TAB_BAR}>
+    <Tab.Navigator screenOptions={screenOptions}>
       <Tab.Screen
         name="WsCompte"
         component={EmprunteurCompteScreen}

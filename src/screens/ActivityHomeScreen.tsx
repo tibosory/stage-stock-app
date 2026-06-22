@@ -247,6 +247,31 @@ export default function ActivityHomeScreen() {
           </TouchableOpacity>
         ) : null}
 
+        <View style={[s.regieRow, { width: width - 32 }]}>
+          <TouchableOpacity
+            style={s.regieCard}
+            onPress={() => navigation.navigate('ConduiteList' as never)}
+            activeOpacity={0.88}
+            accessibilityRole="button"
+            accessibilityLabel="Ouvrir les conduites techniques"
+          >
+            <Text style={s.regieEmoji}>🎬</Text>
+            <Text style={s.regieTitle}>Conduites</Text>
+            <Text style={s.regieSub}>Tops & mode live</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.regieCard}
+            onPress={() => navigation.navigate('MiseTechniqueList' as never)}
+            activeOpacity={0.88}
+            accessibilityRole="button"
+            accessibilityLabel="Ouvrir la mise technique"
+          >
+            <Text style={s.regieEmoji}>🗺️</Text>
+            <Text style={s.regieTitle}>Mise technique</Text>
+            <Text style={s.regieSub}>Plan de scène & photos</Text>
+          </TouchableOpacity>
+        </View>
+
         <View style={[s.grid, { width: width - 32 }]}>
           {tiles.map(tile => (
             <TouchableOpacity
@@ -424,6 +449,21 @@ const s = StyleSheet.create({
     borderWidth: 2,
     ...Shadow.card,
   },
+  regieRow: { flexDirection: 'row', gap: 12, marginBottom: 12, alignSelf: 'center' },
+  regieCard: {
+    flex: 1,
+    backgroundColor: Colors.bgCard,
+    borderWidth: 1,
+    borderColor: Colors.green,
+    borderRadius: 16,
+    padding: 16,
+    minHeight: 96,
+    justifyContent: 'center',
+    ...Shadow.card,
+  },
+  regieEmoji: { fontSize: 24, marginBottom: 6 },
+  regieTitle: { ...Typography.sectionTitle, color: Colors.green },
+  regieSub: { ...Typography.caption, marginTop: 2 },
   tileAll: { width: '100%', padding: 0, overflow: 'hidden', borderColor: 'rgba(255,255,255,0.2)' },
   tileAllGrad: { flex: 1, minHeight: 88, padding: 14, justifyContent: 'center', alignItems: 'center' },
   tileAccentDot: {

@@ -11,6 +11,7 @@ import { format, parseISO, isValid } from 'date-fns';
 import { Colors, Shadow } from '../theme/colors';
 import { HitSlop, Radius, Spacing } from '../theme/spacing';
 import { Typography } from '../theme/typography';
+import { effectiveBottomInset, effectiveTopInset } from '../lib/deviceSafeArea';
 import { EtatMateriel, StatutMateriel, StatutPret } from '../types';
 import { getDateFnsLocale, getDatePickerLocaleTag } from '../i18n/dateLocales';
 import { getRuntimeLanguage, tRuntime } from '../i18n/runtime';
@@ -19,13 +20,9 @@ import { getRuntimeLanguage, tRuntime } from '../i18n/runtime';
  * Même logique que DockTabBar : sur Android (souvent 3 boutons), `insets.bottom` peut être 0
  * alors que la zone système existe — les modales plein écran doivent quand même dégager le bas.
  */
-const ANDROID_BOTTOM_INSET_MIN_DP = 64;
-
 function useModalBottomInset(): number {
   const insets = useSafeAreaInsets();
-  return Platform.OS === 'android'
-    ? Math.max(insets.bottom, ANDROID_BOTTOM_INSET_MIN_DP)
-    : Math.max(insets.bottom, 12);
+  return effectiveBottomInset(insets.bottom);
 }
 
 // ── Badge état ──────────────────────────────────────────────────────
@@ -138,11 +135,14 @@ export function TabScreenSafeArea({
 }: {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
-  /** Par défaut : haut + côtés (pas le bas). */
+  /** Par défaut : haut + côtés (pas le bas — barre d’onglets). */
   edges?: SafeAreaEdges;
 }) {
+  const insets = useSafeAreaInsets();
+  const edgeList = edges ?? ['top', 'left', 'right'];
+  const extraTop = edgeList.includes('top') ? Math.max(0, effectiveTopInset(insets.top) - insets.top) : 0;
   return (
-    <SafeAreaView style={style} edges={edges ?? ['top', 'left', 'right']}>
+    <SafeAreaView style={[style, extraTop > 0 ? { paddingTop: extraTop } : null]} edges={edgeList}>
       {children}
     </SafeAreaView>
   );
@@ -158,8 +158,19 @@ export function FullScreenSafeArea({
   style?: StyleProp<ViewStyle>;
   edges?: SafeAreaEdges;
 }) {
+  const insets = useSafeAreaInsets();
+  const edgeList = edges ?? ['top', 'right', 'bottom', 'left'];
+  const extraTop = edgeList.includes('top') ? Math.max(0, effectiveTopInset(insets.top) - insets.top) : 0;
+  const extraBottom = edgeList.includes('bottom') ? Math.max(0, effectiveBottomInset(insets.bottom) - insets.bottom) : 0;
   return (
-    <SafeAreaView style={style} edges={edges ?? ['top', 'right', 'bottom', 'left']}>
+    <SafeAreaView
+      style={[
+        style,
+        extraTop > 0 ? { paddingTop: extraTop } : null,
+        extraBottom > 0 ? { paddingBottom: extraBottom } : null,
+      ]}
+      edges={edgeList}
+    >
       {children}
     </SafeAreaView>
   );

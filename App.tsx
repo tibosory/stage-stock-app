@@ -139,8 +139,7 @@ const Tab = createBottomTabNavigator();
 const RootStack = createStackNavigator();
 const SAAS_MODE_ENABLED = process.env.EXPO_PUBLIC_SAAS_MODE === 'true';
 
-/** Android (3 boutons / gestes) : marge renforcée pour éviter tout chevauchement avec la barre système. */
-const ANDROID_BOTTOM_NAV_MIN_DP = 64;
+import { effectiveBottomInset } from './src/lib/deviceSafeArea';
 
 type TabBarIconNodeProps = {
   routeName: string;
@@ -233,10 +232,7 @@ function MainTabs() {
   const { user } = useAppAuth();
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
-  const bottomPad =
-    Platform.OS === 'android'
-      ? Math.max(insets.bottom, ANDROID_BOTTOM_NAV_MIN_DP)
-      : Math.max(insets.bottom, 12);
+  const bottomPad = effectiveBottomInset(insets.bottom);
   const tabBarHeight = 60 + bottomPad;
 
   const screenOptions = useCallback(
@@ -250,7 +246,7 @@ function MainTabs() {
         borderTopWidth: 0,
         minHeight: tabBarHeight,
         height: tabBarHeight,
-        paddingBottom: bottomPad,
+        paddingBottom: 0,
         paddingTop: 0,
         paddingHorizontal: 0,
       },
@@ -433,6 +429,11 @@ function LoggedInNavigator() {
       <RootStack.Screen name="TourDetail" getComponent={() => require('./src/screens/TourDetailScreen').default} />
       <RootStack.Screen name="Tracking" getComponent={() => require('./src/screens/TrackingScreen').default} />
       <RootStack.Screen name="ActivityLog" getComponent={() => require('./src/screens/ActivityLogScreen').default} />
+      <RootStack.Screen name="ConduiteList" getComponent={() => require('./src/screens/ConduiteListScreen').default} />
+      <RootStack.Screen name="ConduiteDetail" getComponent={() => require('./src/screens/ConduiteDetailScreen').default} />
+      <RootStack.Screen name="ConduiteLive" getComponent={() => require('./src/screens/ConduiteLiveScreen').default} />
+      <RootStack.Screen name="MiseTechniqueList" getComponent={() => require('./src/screens/MiseTechniqueListScreen').default} />
+      <RootStack.Screen name="MiseTechniqueDetail" getComponent={() => require('./src/screens/MiseTechniqueDetailScreen').default} />
       <RootStack.Screen name="WorkspaceStock" component={WorkspaceStock} />
       <RootStack.Screen name="WorkspaceConsommable" component={WorkspaceConsommable} />
       <RootStack.Screen name="WorkspacePret" component={WorkspacePret} />
