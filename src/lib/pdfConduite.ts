@@ -2,7 +2,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { COULEURS_TOP, LABELS_DEPARTEMENT, LABELS_TYPE_TOP } from '../types';
+import { COULEURS_TOP, LABELS_DEPARTEMENT, LABELS_LOCALISATION_TOP, LABELS_TYPE_TOP } from '../types';
 import type { Conduite, Top } from '../types';
 
 function esc(s: string): string {
@@ -22,6 +22,9 @@ export async function exportConduitePdf(conduite: Conduite, tops: Top[]): Promis
       <td style="text-align:center;font-weight:700;">${esc(String(t.numero))}</td>
       <td style="text-align:center;">${esc(t.minutage || '—')}</td>
       <td style="color:${c.text};font-weight:600;">${esc(LABELS_TYPE_TOP[t.departement])}</td>
+      <td>${esc(t.localisation ? LABELS_LOCALISATION_TOP[t.localisation] : '—')}</td>
+      <td>${esc(t.repere || '—')}</td>
+      <td>${esc(t.action || '—')}</td>
       <td>${esc(t.description)}</td>
       <td style="color:#374151;">${esc(t.detail || '—')}</td>
     </tr>`;
@@ -45,8 +48,8 @@ th { background: #111827; color:#fff; text-align:left; }
 <h1>Conduite — ${esc(conduite.titre)}</h1>
 <h2>${esc(conduite.nomSpectacle)} · ${esc(LABELS_DEPARTEMENT[conduite.departement])} · Généré le ${esc(generatedAt)}</h2>
 <table>
-  <thead><tr><th style="width:8%;">Top</th><th style="width:10%;">Minutage</th><th style="width:14%;">Département</th><th style="width:38%;">Description</th><th style="width:30%;">Détail</th></tr></thead>
-  <tbody>${rows || '<tr><td colspan="5">Aucun top dans cette conduite.</td></tr>'}</tbody>
+  <thead><tr><th style="width:6%;">Top</th><th style="width:8%;">Min.</th><th style="width:10%;">Dép.</th><th style="width:10%;">Loc.</th><th style="width:18%;">Repère</th><th style="width:18%;">Action</th><th style="width:16%;">Description</th><th style="width:14%;">Détail</th></tr></thead>
+  <tbody>${rows || '<tr><td colspan="8">Aucun top dans cette conduite.</td></tr>'}</tbody>
 </table>
 ${conduite.notes ? `<p class="muted"><strong>Notes :</strong> ${esc(conduite.notes)}</p>` : ''}
 <p class="muted">Document généré depuis CATRACK Pro — module Régie.</p>

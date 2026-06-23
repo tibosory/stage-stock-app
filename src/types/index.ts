@@ -346,6 +346,20 @@ export type DepartementConduite = 'lumiere' | 'son' | 'plateau' | 'video' | 'gen
 /** Type d’un top (couleur/icône) ; « autre » par défaut. */
 export type TypeTop = 'lumiere' | 'son' | 'plateau' | 'video' | 'autre';
 
+/** Localisation scénique optionnelle de l’action (côté cour, jardin…). null = aucune. */
+export type LocalisationTop =
+  | 'cour'
+  | 'jardin'
+  | 'centre'
+  | 'cour_face'
+  | 'cour_fond'
+  | 'jardin_face'
+  | 'jardin_fond'
+  | 'centre_face'
+  | 'centre_fond'
+  | 'lointain'
+  | 'avant_scene';
+
 /** Une conduite = liste ordonnée de tops pour un spectacle et un département. */
 export interface Conduite {
   id: string;
@@ -375,6 +389,12 @@ export interface Top {
   departement: TypeTop;
   description: string;
   detail: string | null;
+  /** Zone scénique où se déroule l’action (cour, jardin…). null = aucune. */
+  localisation: LocalisationTop | null;
+  /** Action à exécuter (ex. « descendre lampe »). */
+  action: string | null;
+  /** Repère / déclencheur (ex. « quand comédien dit : attention !! »). */
+  repere: string | null;
   /** Coché en mode live. */
   effectue: boolean;
   createdAt: string;
@@ -406,6 +426,28 @@ export const LABELS_TYPE_TOP: Record<TypeTop, string> = {
   video: 'Vidéo',
   autre: 'Autre',
 };
+
+export const LABELS_LOCALISATION_TOP: Record<LocalisationTop, string> = {
+  cour: 'Cour',
+  jardin: 'Jardin',
+  centre: 'Centre',
+  cour_face: 'Cour face',
+  cour_fond: 'Cour fond',
+  jardin_face: 'Jardin face',
+  jardin_fond: 'Jardin fond',
+  centre_face: 'Centre face',
+  centre_fond: 'Centre fond',
+  lointain: 'Lointain',
+  avant_scene: 'Avant-scène',
+};
+
+/** Options du sélecteur de localisation dans le formulaire top. */
+export const LOCALISATIONS_TOP_OPTIONS: { label: string; value: LocalisationTop | '' }[] = [
+  { label: '— Aucune —', value: '' },
+  ...(
+    Object.entries(LABELS_LOCALISATION_TOP) as [LocalisationTop, string][]
+  ).map(([value, label]) => ({ label, value })),
+];
 
 // ============================================================
 // Module Régie — Mise technique (plan de scène)

@@ -212,6 +212,9 @@ async function runSchemaMigrations(database: SQLite.SQLiteDatabase): Promise<voi
   await addCol('material_assignments', 'packaging_photo_local', 'TEXT');
   await addCol('tour_documents', 'mime_type', 'TEXT');
   await addCol('tour_documents', 'file_size', 'INTEGER');
+  await addCol('tops', 'localisation', 'TEXT');
+  await addCol('tops', 'action', 'TEXT');
+  await addCol('tops', 'repere', 'TEXT');
 
   await database.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_materiels_nom ON materiels(nom);

@@ -10,8 +10,8 @@ import { BottomModal, BtnPrimary, Card, FullScreenSafeArea, Input, SelectPicker 
 import { Colors, Shadow } from '../theme/colors';
 import { Typography } from '../theme/typography';
 import { Spacing } from '../theme/spacing';
-import { COULEURS_TOP, LABELS_DEPARTEMENT, LABELS_TYPE_TOP } from '../types';
-import type { Conduite, Top, TypeTop } from '../types';
+import { COULEURS_TOP, LABELS_DEPARTEMENT, LABELS_LOCALISATION_TOP, LABELS_TYPE_TOP, LOCALISATIONS_TOP_OPTIONS } from '../types';
+import type { Conduite, LocalisationTop, Top, TypeTop } from '../types';
 import {
   addTop,
   deleteConduite,
@@ -48,6 +48,9 @@ type TopDraft = {
   departement: TypeTop;
   description: string;
   detail: string;
+  localisation: LocalisationTop | '';
+  action: string;
+  repere: string;
 };
 
 const EMPTY_DRAFT: TopDraft = {
@@ -57,6 +60,9 @@ const EMPTY_DRAFT: TopDraft = {
   departement: 'autre',
   description: '',
   detail: '',
+  localisation: '',
+  action: '',
+  repere: '',
 };
 
 /** Ligne d’un top, avec poignée de réordonnancement (drag) quand l’ordre est libre. */
@@ -99,6 +105,21 @@ const TopItem = React.memo(function TopItem({
             </View>
           </View>
           <Text style={s.topDesc}>{top.description}</Text>
+          {top.localisation ? (
+            <View style={s.locBadge}>
+              <Text style={s.locBadgeText}>📍 {LABELS_LOCALISATION_TOP[top.localisation]}</Text>
+            </View>
+          ) : null}
+          {top.repere ? (
+            <Text style={s.topRepere} numberOfLines={2}>
+              Repère : {top.repere}
+            </Text>
+          ) : null}
+          {top.action ? (
+            <Text style={s.topAction} numberOfLines={2}>
+              Action : {top.action}
+            </Text>
+          ) : null}
           {top.detail ? (
             <Text style={s.topDetail} numberOfLines={2}>
               {top.detail}
@@ -163,6 +184,9 @@ export default function ConduiteDetailScreen() {
       departement: top.departement,
       description: top.description,
       detail: top.detail ?? '',
+      localisation: top.localisation ?? '',
+      action: top.action ?? '',
+      repere: top.repere ?? '',
     });
     setModalOpen(true);
   }, []);
@@ -180,6 +204,9 @@ export default function ConduiteDetailScreen() {
         departement: draft.departement,
         description: draft.description,
         detail: draft.detail,
+        localisation: draft.localisation || null,
+        action: draft.action,
+        repere: draft.repere,
       };
       if (draft.id) {
         await updateTop(draft.id, payload);
@@ -375,8 +402,28 @@ export default function ConduiteDetailScreen() {
           options={TYPE_OPTIONS}
           onChange={v => setDraft(d => ({ ...d, departement: v as TypeTop }))}
         />
+        <SelectPicker
+          label="Localisation de l'action"
+          value={draft.localisation}
+          options={LOCALISATIONS_TOP_OPTIONS.map(o => ({ label: o.label, value: o.value }))}
+          onChange={v => setDraft(d => ({ ...d, localisation: v as LocalisationTop | '' }))}
+        />
         <Input
-          label="Description"
+          label="Repère (déclencheur)"
+          value={draft.repere}
+          onChangeText={v => setDraft(d => ({ ...d, repere: v }))}
+          placeholder='Ex. quand comédien dit : « attention !! »'
+          multiline
+        />
+        <Input
+          label="Action"
+          value={draft.action}
+          onChangeText={v => setDraft(d => ({ ...d, action: v }))}
+          placeholder="Ex. descendre lampe, ouvrir rideau n°2"
+          multiline
+        />
+        <Input
+          label="Description (intitulé court)"
           value={draft.description}
           onChangeText={v => setDraft(d => ({ ...d, description: v }))}
           placeholder="Ex. Black total fin acte 1"
@@ -452,6 +499,19 @@ const s = StyleSheet.create({
   typeBadge: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2 },
   typeBadgeText: { fontSize: 10, fontWeight: '700' },
   topDesc: { ...Typography.body, fontWeight: '600' },
+  locBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: Colors.borderStrong,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    backgroundColor: Colors.bg,
+  },
+  locBadgeText: { ...Typography.caption, color: Colors.textSecondary, fontWeight: '600' },
+  topRepere: { ...Typography.bodySecondary, marginTop: 4, fontStyle: 'italic' },
+  topAction: { ...Typography.body, marginTop: 2, fontWeight: '600', color: Colors.textPrimary },
   topDetail: { ...Typography.bodySecondary, marginTop: 2 },
   delTop: { color: Colors.red, fontSize: 16, fontWeight: '700', paddingLeft: 6 },
   formRow: { flexDirection: 'row', gap: Spacing.md },

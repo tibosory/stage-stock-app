@@ -1,4 +1,4 @@
-import type { Conduite, DepartementConduite, Top, TypeTop } from '../types';
+import type { Conduite, DepartementConduite, LocalisationTop, Top, TypeTop } from '../types';
 import { generateId, getDB } from './database';
 
 // ── Mappers SQL → modèle ─────────────────────────────────────
@@ -28,6 +28,9 @@ function mapTopRow(r: any): Top {
     departement: r.departement as TypeTop,
     description: r.description,
     detail: r.detail ?? null,
+    localisation: (r.localisation as LocalisationTop | null) ?? null,
+    action: r.action ?? null,
+    repere: r.repere ?? null,
     effectue: !!r.effectue,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -164,8 +167,8 @@ export async function dupliquerConduite(input: {
   for (const t of tops) {
     const topId = generateId();
     await database.runAsync(
-      `INSERT INTO tops (id, conduite_id, numero, minutage, minutage_secondes, departement, description, detail, effectue, created_at, updated_at, synced)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0)`,
+      `INSERT INTO tops (id, conduite_id, numero, minutage, minutage_secondes, departement, description, detail, localisation, action, repere, effectue, created_at, updated_at, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0)`,
       [
         topId,
         newId,
@@ -175,6 +178,9 @@ export async function dupliquerConduite(input: {
         t.departement,
         t.description,
         t.detail,
+        t.localisation,
+        t.action,
+        t.repere,
         now,
         now,
       ]
@@ -212,6 +218,9 @@ export async function addTop(input: {
   departement: TypeTop;
   description: string;
   detail?: string | null;
+  localisation?: LocalisationTop | null;
+  action?: string | null;
+  repere?: string | null;
 }): Promise<Top> {
   const database = await getDB();
   const now = new Date().toISOString();
@@ -219,8 +228,8 @@ export async function addTop(input: {
   const minutage = input.minutage?.trim() || null;
   const minutageSecondes = minutage ? minutageEnSecondes(minutage) : null;
   await database.runAsync(
-    `INSERT INTO tops (id, conduite_id, numero, minutage, minutage_secondes, departement, description, detail, effectue, created_at, updated_at, synced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0)`,
+    `INSERT INTO tops (id, conduite_id, numero, minutage, minutage_secondes, departement, description, detail, localisation, action, repere, effectue, created_at, updated_at, synced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0)`,
     [
       id,
       input.conduiteId,
@@ -230,6 +239,9 @@ export async function addTop(input: {
       input.departement,
       input.description.trim(),
       input.detail?.trim() || null,
+      input.localisation ?? null,
+      input.action?.trim() || null,
+      input.repere?.trim() || null,
       now,
       now,
     ]
@@ -246,6 +258,9 @@ export async function updateTop(
     departement?: TypeTop;
     description?: string;
     detail?: string | null;
+    localisation?: LocalisationTop | null;
+    action?: string | null;
+    repere?: string | null;
   }
 ): Promise<Top> {
   const database = await getDB();
@@ -260,9 +275,12 @@ export async function updateTop(
   const description = input.description !== undefined ? input.description.trim() : existing.description;
   if (!description) throw new Error('La description est obligatoire.');
   const detail = input.detail !== undefined ? input.detail?.trim() || null : existing.detail;
+  const localisation = input.localisation !== undefined ? input.localisation : existing.localisation;
+  const action = input.action !== undefined ? input.action?.trim() || null : existing.action;
+  const repere = input.repere !== undefined ? input.repere?.trim() || null : existing.repere;
   await database.runAsync(
-    `UPDATE tops SET numero = ?, minutage = ?, minutage_secondes = ?, departement = ?, description = ?, detail = ?, updated_at = ?, synced = 0 WHERE id = ?`,
-    [numero, minutage, minutageSecondes, departement, description, detail, now, id]
+    `UPDATE tops SET numero = ?, minutage = ?, minutage_secondes = ?, departement = ?, description = ?, detail = ?, localisation = ?, action = ?, repere = ?, updated_at = ?, synced = 0 WHERE id = ?`,
+    [numero, minutage, minutageSecondes, departement, description, detail, localisation, action, repere, now, id]
   );
   const row = await database.getFirstAsync<any>('SELECT * FROM tops WHERE id = ?', [id]);
   return mapTopRow(row);

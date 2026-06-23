@@ -3,7 +3,7 @@ import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { useKeepAwake } from 'expo-keep-awake';
 import { FullScreenSafeArea } from '../components/UI';
-import { COULEURS_TOP, LABELS_TYPE_TOP } from '../types';
+import { COULEURS_TOP, LABELS_LOCALISATION_TOP, LABELS_TYPE_TOP } from '../types';
 import type { Conduite, Top } from '../types';
 import { getConduite, listTops, resetTopsEffectues, toggleTopEffectue } from '../db/conduiteDb';
 
@@ -95,6 +95,11 @@ export default function ConduiteLiveScreen() {
               TOP {current.numero}
               {current.minutage ? `  ·  ${current.minutage}` : ''}
             </Text>
+            {current.localisation ? (
+              <Text style={s.currentLoc}>📍 {LABELS_LOCALISATION_TOP[current.localisation]}</Text>
+            ) : null}
+            {current.repere ? <Text style={s.currentRepere}>{current.repere}</Text> : null}
+            {current.action ? <Text style={s.currentAction}>{current.action}</Text> : null}
             <Text style={s.currentDesc}>{current.description}</Text>
             {current.detail ? <Text style={s.currentDetail}>{current.detail}</Text> : null}
             <View style={[s.depDot, { backgroundColor: accent.border }]}>
@@ -147,8 +152,11 @@ const s = StyleSheet.create({
   peekDone: { color: '#6B7280', textDecorationLine: 'line-through' },
   peekMuted: { color: '#4B5563', fontSize: 16, fontStyle: 'italic' },
   current: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 },
-  currentTop: { color: '#F9FAFB', fontSize: 34, fontWeight: '800', letterSpacing: 1, marginBottom: 18, textAlign: 'center' },
-  currentDesc: { color: '#FFFFFF', fontSize: 44, fontWeight: '900', textAlign: 'center', lineHeight: 50 },
+  currentTop: { color: '#F9FAFB', fontSize: 34, fontWeight: '800', letterSpacing: 1, marginBottom: 12, textAlign: 'center' },
+  currentLoc: { color: '#9CA3AF', fontSize: 22, fontWeight: '700', marginBottom: 14, textAlign: 'center' },
+  currentRepere: { color: '#FCD34D', fontSize: 30, fontWeight: '800', textAlign: 'center', lineHeight: 38, marginBottom: 16 },
+  currentAction: { color: '#FFFFFF', fontSize: 44, fontWeight: '900', textAlign: 'center', lineHeight: 50, marginBottom: 12 },
+  currentDesc: { color: '#D1D5DB', fontSize: 28, fontWeight: '700', textAlign: 'center', lineHeight: 34 },
   currentDetail: { color: '#E5E7EB', fontSize: 24, textAlign: 'center', marginTop: 22, lineHeight: 32 },
   depDot: { marginTop: 28, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
   depDotText: { color: '#000', fontSize: 16, fontWeight: '800' },
