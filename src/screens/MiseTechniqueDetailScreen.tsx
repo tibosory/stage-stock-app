@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
@@ -10,6 +10,7 @@ import { LABELS_ZONE } from '../types';
 import type { Etape, MiseTechnique, Position, ZoneScene } from '../types';
 import {
   addPositionPhoto,
+  copierPositionVersEtape,
   createEtape,
   createPosition,
   deleteEtape,
@@ -21,6 +22,7 @@ import {
   getMiseTechnique,
   listEtapes,
   listPositions,
+  movePositionVersEtape,
   updateEtape,
   updatePosition,
 } from '../db/miseTechniqueDb';
@@ -38,6 +40,23 @@ type PositionDraft = {
   zone: ZoneScene;
   notes: string;
 };
+
+const ZONE_ORDER: ZoneScene[] = ZONE_OPTIONS.map(o => o.value);
+
+function groupPositionsByZone(items: Position[]): { zone: ZoneScene; items: Position[] }[] {
+  const buckets = new Map<ZoneScene, Position[]>();
+  for (const pos of items) {
+    const list = buckets.get(pos.zone) ?? [];
+    list.push(pos);
+    buckets.set(pos.zone, list);
+  }
+  const ordered: { zone: ZoneScene; items: Position[] }[] = [];
+  for (const zone of ZONE_ORDER) {
+    const list = buckets.get(zone);
+    if (list?.length) ordered.push({ zone, items: list });
+  }
+  return ordered;
+}
 
 const EMPTY_POSITION: PositionDraft = {
   id: null,
@@ -67,6 +86,9 @@ export default function MiseTechniqueDetailScreen() {
   const [savingPos, setSavingPos] = useState(false);
   const [lierStock, setLierStock] = useState(false);
   const [materiels, setMateriels] = useState<{ id: string; nom: string }[]>([]);
+  const [materielNames, setMaterielNames] = useState<Record<string, string>>({});
+  /** Position copiée en mémoire pour coller dans une autre étape. */
+  const [clipboardPosition, setClipboardPosition] = useState<Position | null>(null);
 
   const [etapeModal, setEtapeModal] = useState(false);
   const [etapeMode, setEtapeMode] = useState<'create' | 'rename'>('create');
@@ -96,6 +118,10 @@ export default function MiseTechniqueDetailScreen() {
   useFocusEffect(
     useCallback(() => {
       void load();
+      void getMaterielsPourLiaison().then(list => {
+        setMateriels(list);
+        setMaterielNames(Object.fromEntries(list.map(m => [m.id, m.nom])));
+      });
     }, [load])
   );
 
@@ -106,6 +132,162 @@ export default function MiseTechniqueDetailScreen() {
       setChecked({});
     }, [activeEtapeId, loadPositions])
   );
+
+  const positionsByZone = useMemo(() => groupPositionsByZone(positions), [positions]);
+
+  const pasteClipboard = async () => {
+    if (!clipboardPosition || !activeEtapeId) return;
+    try {
+      await copierPositionVersEtape(clipboardPosition.id, activeEtapeId);
+      await loadPositions(activeEtapeId);
+    } catch (e: unknown) {
+      Alert.alert('Collage impossible', e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const pickEtapeCible = (
+    title: string,
+    onPick: (etapeId: string) => void,
+    opts?: { excludeActive?: boolean }
+  ) => {
+    const choices = opts?.excludeActive
+      ? etapes.filter(e => e.id !== activeEtapeId)
+      : etapes;
+    if (choices.length === 0) {
+      Alert.alert('Aucune étape', 'Créez une étape pour y reporter des objets.');
+      return;
+    }
+    Alert.alert(
+      title,
+      undefined,
+      [
+        ...choices.map(e => ({
+          text: e.nom,
+          onPress: () => onPick(e.id),
+        })),
+        { text: 'Annuler', style: 'cancel' as const },
+      ]
+    );
+  };
+
+  const onPositionLongPress = (pos: Position) => {
+    if (montage) return;
+    Alert.alert(pos.nomObjet, undefined, [
+      { text: 'Modifier', onPress: () => openEditPosition(pos) },
+      {
+        text: 'Copier',
+        onPress: () => setClipboardPosition(pos),
+      },
+      ...(clipboardPosition
+        ? [
+            {
+              text: 'Coller ici',
+              onPress: () => void pasteClipboard(),
+            },
+          ]
+        : []),
+      {
+        text: 'Copier vers une étape…',
+        onPress: () =>
+          pickEtapeCible('Copier vers quelle étape ?', targetId => {
+            void copierPositionVersEtape(pos.id, targetId)
+              .then(async () => {
+                if (targetId === activeEtapeId) await loadPositions(activeEtapeId);
+                Alert.alert('Copié', `« ${pos.nomObjet} » a été copié.`);
+              })
+              .catch((e: unknown) => Alert.alert('Copie impossible', e instanceof Error ? e.message : String(e)));
+          }),
+      },
+      {
+        text: 'Déplacer vers une étape…',
+        onPress: () =>
+          pickEtapeCible(
+            'Déplacer vers quelle étape ?',
+            targetId => {
+              void movePositionVersEtape(pos.id, targetId)
+                .then(async () => {
+                  await loadPositions(activeEtapeId);
+                  Alert.alert('Déplacé', `« ${pos.nomObjet} » a été déplacé.`);
+                })
+                .catch((e: unknown) => Alert.alert('Déplacement impossible', e instanceof Error ? e.message : String(e)));
+            },
+            { excludeActive: true }
+          ),
+      },
+      { text: 'Supprimer', style: 'destructive', onPress: () => confirmDeletePosition(pos) },
+      { text: 'Annuler', style: 'cancel' },
+    ]);
+  };
+
+  const renderPositionCard = (pos: Position) => {
+    const thumb = pos.photos?.[0]?.localUri;
+    const stockNom = pos.materielId ? materielNames[pos.materielId] : null;
+    const notes = pos.notes?.trim();
+    return (
+      <Card key={pos.id}>
+        <View style={s.posRow}>
+          {montage && (
+            <TouchableOpacity
+              style={[s.check, checked[pos.id] && s.checkOn]}
+              onPress={() => setChecked(c => ({ ...c, [pos.id]: !c[pos.id] }))}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: !!checked[pos.id] }}
+            >
+              <Text style={s.checkMark}>{checked[pos.id] ? '✓' : ''}</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            onPress={() => (thumb ? setViewer(thumb) : undefined)}
+            activeOpacity={thumb ? 0.8 : 1}
+            accessibilityRole={thumb ? 'imagebutton' : 'image'}
+          >
+            {thumb ? (
+              <Image source={{ uri: thumb }} style={s.thumb} />
+            ) : (
+              <View style={[s.thumb, s.thumbEmpty]}>
+                <Text style={s.thumbEmptyText}>📷</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={{ flex: 1, minWidth: 0 }}
+            onPress={() => (montage ? (thumb ? setViewer(thumb) : undefined) : openEditPosition(pos))}
+            onLongPress={() => onPositionLongPress(pos)}
+            delayLongPress={400}
+            activeOpacity={0.85}
+          >
+            <Text style={[s.posName, checked[pos.id] && s.posNameDone]} numberOfLines={1}>
+              {pos.nomObjet}
+            </Text>
+            <Text style={s.posEmpl} numberOfLines={2}>
+              {pos.descriptionEmplacement}
+            </Text>
+            {notes ? (
+              <Text style={s.posNotes} numberOfLines={2}>
+                {notes}
+              </Text>
+            ) : null}
+            <View style={s.posMeta}>
+              {stockNom ? <Text style={s.posLink}>🔗 {stockNom}</Text> : pos.materielId ? <Text style={s.posLink}>🔗 Stock</Text> : null}
+              {pos.photos && pos.photos.length > 1 ? (
+                <Text style={s.posZone}>📷 {pos.photos.length}</Text>
+              ) : null}
+            </View>
+          </TouchableOpacity>
+          {!montage && (
+            <TouchableOpacity
+              onPress={() => confirmDeletePosition(pos)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityRole="button"
+              accessibilityLabel={`Supprimer ${pos.nomObjet}`}
+            >
+              <Text style={s.delTopMark}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </Card>
+    );
+  };
 
   // ── Étapes ──────────────────────────────────────────────────
   const openCreateEtape = () => {
@@ -358,6 +540,20 @@ export default function MiseTechniqueDetailScreen() {
             </TouchableOpacity>
           </View>
 
+          {clipboardPosition && !montage ? (
+            <View style={s.clipboardBar}>
+              <Text style={s.clipboardText} numberOfLines={1}>
+                📋 « {clipboardPosition.nomObjet} » copié
+              </Text>
+              <TouchableOpacity style={s.clipboardBtn} onPress={() => void pasteClipboard()}>
+                <Text style={s.clipboardBtnText}>Coller ici</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setClipboardPosition(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.clipboardClear}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
           <ScrollView contentContainerStyle={s.scroll}>
             {montage && (
               <Text style={s.montageHint}>
@@ -369,67 +565,17 @@ export default function MiseTechniqueDetailScreen() {
                 <Text style={s.emptyBody}>Aucun objet dans cette étape. Ajoutez-en avec « ＋ Objet ».</Text>
               </Card>
             ) : (
-              positions.map(pos => {
-                const thumb = pos.photos?.[0]?.localUri;
-                return (
-                  <Card key={pos.id}>
-                    <View style={s.posRow}>
-                      {montage && (
-                        <TouchableOpacity
-                          style={[s.check, checked[pos.id] && s.checkOn]}
-                          onPress={() => setChecked(c => ({ ...c, [pos.id]: !c[pos.id] }))}
-                          accessibilityRole="checkbox"
-                          accessibilityState={{ checked: !!checked[pos.id] }}
-                        >
-                          <Text style={s.checkMark}>{checked[pos.id] ? '✓' : ''}</Text>
-                        </TouchableOpacity>
-                      )}
-                      <TouchableOpacity
-                        onPress={() => (thumb ? setViewer(thumb) : undefined)}
-                        activeOpacity={thumb ? 0.8 : 1}
-                        accessibilityRole={thumb ? 'imagebutton' : 'image'}
-                      >
-                        {thumb ? (
-                          <Image source={{ uri: thumb }} style={s.thumb} />
-                        ) : (
-                          <View style={[s.thumb, s.thumbEmpty]}>
-                            <Text style={s.thumbEmptyText}>📷</Text>
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={{ flex: 1, minWidth: 0 }}
-                        onPress={() => (montage ? (thumb ? setViewer(thumb) : undefined) : openEditPosition(pos))}
-                        activeOpacity={0.85}
-                      >
-                        <Text style={[s.posName, checked[pos.id] && s.posNameDone]} numberOfLines={1}>
-                          {pos.nomObjet}
-                        </Text>
-                        <Text style={s.posEmpl} numberOfLines={2}>
-                          {pos.descriptionEmplacement}
-                        </Text>
-                        <View style={s.posMeta}>
-                          <Text style={s.posZone}>{LABELS_ZONE[pos.zone]}</Text>
-                          {pos.materielId ? <Text style={s.posLink}>🔗 Stock</Text> : null}
-                          {pos.photos && pos.photos.length > 1 ? (
-                            <Text style={s.posZone}>📷 {pos.photos.length}</Text>
-                          ) : null}
-                        </View>
-                      </TouchableOpacity>
-                      {!montage && (
-                        <TouchableOpacity
-                          onPress={() => confirmDeletePosition(pos)}
-                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Supprimer ${pos.nomObjet}`}
-                        >
-                          <Text style={s.delTopMark}>✕</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </Card>
-                );
-              })
+              positionsByZone.map(group => (
+                <View key={group.zone} style={s.zoneGroup}>
+                  <View style={s.zoneHeader}>
+                    <Text style={s.zoneHeaderText}>{LABELS_ZONE[group.zone]}</Text>
+                    <Text style={s.zoneHeaderCount}>
+                      {group.items.length} objet{group.items.length > 1 ? 's' : ''}
+                    </Text>
+                  </View>
+                  {group.items.map(pos => renderPositionCard(pos))}
+                </View>
+              ))
             )}
           </ScrollView>
         </>
@@ -592,9 +738,42 @@ const s = StyleSheet.create({
   posName: { ...Typography.body, fontWeight: '700' },
   posNameDone: { textDecorationLine: 'line-through', color: Colors.textMuted },
   posEmpl: { ...Typography.bodySecondary, marginTop: 2 },
-  posMeta: { flexDirection: 'row', gap: 12, marginTop: 4 },
+  posNotes: { ...Typography.caption, color: Colors.textMuted, marginTop: 4, fontStyle: 'italic' },
+  posMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 4 },
   posZone: { ...Typography.caption },
   posLink: { ...Typography.caption, color: Colors.green },
+  zoneGroup: { marginBottom: Spacing.lg },
+  zoneHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.sm,
+    paddingHorizontal: 4,
+  },
+  zoneHeaderText: { ...Typography.sectionTitle, color: Colors.green, fontSize: 14 },
+  zoneHeaderCount: { ...Typography.caption, color: Colors.textMuted },
+  clipboardBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: Spacing.xl,
+    marginBottom: Spacing.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: Colors.greenMuted,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.35)',
+  },
+  clipboardText: { flex: 1, ...Typography.caption, color: Colors.green, fontWeight: '600' },
+  clipboardBtn: {
+    backgroundColor: Colors.green,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  clipboardBtnText: { color: Colors.white, fontSize: 12, fontWeight: '700' },
+  clipboardClear: { color: Colors.textMuted, fontSize: 16, fontWeight: '700', paddingHorizontal: 4 },
   delTopMark: { color: Colors.red, fontSize: 16, fontWeight: '700', paddingLeft: 6 },
   toggleRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   toggleBtn: { flex: 1, borderWidth: 1, borderColor: Colors.borderStrong, borderRadius: 12, paddingVertical: 11, alignItems: 'center' },

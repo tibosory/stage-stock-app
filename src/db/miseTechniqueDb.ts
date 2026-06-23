@@ -1,6 +1,6 @@
 import type { Etape, MiseTechnique, Position, PositionPhoto, ZoneScene } from '../types';
 import { generateId, getDB } from './database';
-import { removePositionPhotoLocal } from '../lib/miseTechniquePhotoStorage';
+import { removePositionPhotoLocal, persistPositionPhotoCopy } from '../lib/miseTechniquePhotoStorage';
 
 // ── Mappers SQL → modèle ─────────────────────────────────────
 
@@ -308,6 +308,51 @@ export async function deletePosition(id: string): Promise<void> {
   const photos = await listPositionPhotos(id);
   await database.runAsync('DELETE FROM positions WHERE id = ?', [id]);
   for (const p of photos) await removePositionPhotoLocal(p.localUri);
+}
+
+/** Déplace une position vers une autre étape (même mise technique implicite). */
+export async function movePositionVersEtape(positionId: string, targetEtapeId: string): Promise<Position> {
+  const database = await getDB();
+  const row0 = await database.getFirstAsync<any>('SELECT * FROM positions WHERE id = ?', [positionId]);
+  if (!row0) throw new Error('Position introuvable.');
+  const existing = mapPositionRow(row0);
+  if (existing.etapeId === targetEtapeId) return existing;
+  const now = new Date().toISOString();
+  await database.runAsync(
+    'UPDATE positions SET etape_id = ?, updated_at = ?, synced = 0 WHERE id = ?',
+    [targetEtapeId, now, positionId]
+  );
+  const row = await database.getFirstAsync<any>('SELECT * FROM positions WHERE id = ?', [positionId]);
+  const pos = mapPositionRow(row);
+  pos.photos = await listPositionPhotos(pos.id);
+  return pos;
+}
+
+/** Duplique une position (et ses photos) vers une autre étape ou la même. */
+export async function copierPositionVersEtape(positionId: string, targetEtapeId: string): Promise<Position> {
+  const database = await getDB();
+  const row0 = await database.getFirstAsync<any>('SELECT * FROM positions WHERE id = ?', [positionId]);
+  if (!row0) throw new Error('Position introuvable.');
+  const source = mapPositionRow(row0);
+  source.photos = await listPositionPhotos(source.id);
+
+  const created = await createPosition({
+    etapeId: targetEtapeId,
+    materielId: source.materielId,
+    nomObjet: source.nomObjet,
+    descriptionEmplacement: source.descriptionEmplacement,
+    zone: source.zone,
+    notes: source.notes,
+    ordre: source.ordre,
+  });
+
+  for (const ph of source.photos ?? []) {
+    const local = await persistPositionPhotoCopy(created.id, ph.localUri);
+    await addPositionPhoto(created.id, local);
+  }
+
+  created.photos = await listPositionPhotos(created.id);
+  return created;
 }
 
 /** Matériels du stock pour le sélecteur de liaison (id + nom). */
