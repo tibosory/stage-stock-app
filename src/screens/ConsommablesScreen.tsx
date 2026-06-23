@@ -23,6 +23,7 @@ import {
 } from '../components/UI';
 import { useAppAuth } from '../context/AuthContext';
 import ShelfLabelsModal from '../components/ShelfLabelsModal';
+import { quickPrintConsommableQr } from '../lib/labelCustomPdf';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 import { uploadConsommablePhoto } from '../lib/supabase';
 import {
@@ -58,6 +59,7 @@ export default function ConsommablesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState<Consommable | null>(null);
+  const [qrBusyId, setQrBusyId] = useState<string | null>(null);
   const [categories, setCategories] = useState<Categorie[]>([]);
   const [localisations, setLocalisations] = useState<Localisation[]>([]);
   const [showShelfModal, setShowShelfModal] = useState(false);
@@ -244,6 +246,17 @@ export default function ConsommablesScreen() {
     ]);
   }, [editOk, load]);
 
+  const onPrintQr = useCallback(async (item: Consommable) => {
+    setQrBusyId(prev => prev ?? item.id);
+    try {
+      await quickPrintConsommableQr(item);
+    } catch (e: any) {
+      Alert.alert('Impression QR', e?.message ?? 'Échec de la génération du PDF.');
+    } finally {
+      setQrBusyId(null);
+    }
+  }, []);
+
   const renderItem = useCallback(({ item }: { item: Consommable }) => {
     const stockBas = item.stock_actuel <= item.seuil_minimum;
     const photoUri = item.photo_local ?? item.photo_url;
@@ -302,6 +315,15 @@ export default function ConsommablesScreen() {
         </View>
 
         <View style={s.actions}>
+          <TouchableOpacity
+            onPress={() => onPrintQr(item)}
+            style={s.qrBtn}
+            disabled={qrBusyId === item.id}
+            accessibilityRole="button"
+            accessibilityLabel={`Imprimer le QR de ${item.nom}`}
+          >
+            <Text style={s.qrBtnText}>{qrBusyId === item.id ? '…' : 'QR'}</Text>
+          </TouchableOpacity>
           {editOk && (
             <TouchableOpacity onPress={() => handleAjusterStock(item)} style={s.adjBtn}>
               <Text style={{ color: Colors.white, fontSize: 12 }}>{t('consumables.adjust')}</Text>
@@ -322,7 +344,7 @@ export default function ConsommablesScreen() {
         </View>
       </Card>
     );
-  }, [editOk, handleAjusterStock, handleDelete]);
+  }, [editOk, handleAjusterStock, handleDelete, onPrintQr, qrBusyId, t]);
 
   const keyExtractor = useCallback((item: Consommable) => item.id, []);
 
@@ -811,6 +833,8 @@ const s = StyleSheet.create({
   },
   shelfBtnText: { color: Colors.white, fontSize: 13, fontWeight: '700', textAlign: 'center' },
   adjBtn: { backgroundColor: Colors.green, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, marginRight: 4 },
+  qrBtn: { borderWidth: 1, borderColor: Colors.green, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, marginRight: 4 },
+  qrBtnText: { color: Colors.green, fontSize: 12, fontWeight: '700' },
   iconBtn: { padding: 6 },
   empty: { alignItems: 'center', marginTop: 60 },
   consoSectionLabel: { color: Colors.textPrimary, fontSize: 13, fontWeight: '600', marginBottom: 4, marginTop: 8 },

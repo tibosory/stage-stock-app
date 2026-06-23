@@ -1,6 +1,6 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { Materiel } from '../types';
+import { Materiel, Consommable } from '../types';
 import { qrCodeImgTagForHtml } from './qrHtml';
 import {
   buildPdfOrgHeaderHtml,
@@ -8,7 +8,11 @@ import {
   getPdfBranding,
   type PdfBranding,
 } from './theatreBranding';
-import type { UserLabelFormat } from './labelUserFormatsStorage';
+import {
+  getFormatsByKind,
+  loadUserLabelFormats,
+  type UserLabelFormat,
+} from './labelUserFormatsStorage';
 import type { BulkLayoutMode, BulkPaperSize } from './pdfEtiquetteBulk';
 
 export { type UserLabelFormat } from './labelUserFormatsStorage';
@@ -457,15 +461,17 @@ export function buildCustomBulkQrHtml(
   return buildCustomBulkQrHtmlFlex(items, paper, brand);
 }
 
-export function buildCustomMaterielLabelHtml(
-  mat: Materiel,
+/** Cœur générique d'une étiquette QR (nom + méta + code) réutilisé pour matériel et consommable. */
+function buildCustomQrLabelHtmlCore(
+  nom: string,
+  code: string,
+  metaText: string,
   f: UserLabelFormat,
   brand: PdfBranding
 ): string {
   const m = marginMmFromLabelPercent(f.widthMm, f.marginPercent);
   const innerW = Math.max(2, f.widthMm - 2 * m);
   const innerH = Math.max(2, f.heightMm - 2 * m);
-  const code = mat.qr_code?.trim() || mat.id;
   const microK = microKindForLabel(f.widthMm, f.heightMm);
   const micro = buildPdfOrgMicroForLabel(brand, microK);
   const minSide = Math.min(innerW, innerH);
@@ -473,9 +479,8 @@ export function buildCustomMaterielLabelHtml(
   const cell = Math.max(2, Math.min(8, Math.round(minSide / 7)));
   const qMargin = Math.max(1, Math.min(3, Math.round(cell / 2)));
   const qrTag = qrCodeImgTagForHtml(code, cell, qMargin);
-  const metaText = [mat.marque, mat.type].filter(Boolean).join(' · ');
   const h1Pt = maximizeFontPt(5, 26, pt => {
-    const nameLines = estimateLineCount(mat.nom, pt, innerW);
+    const nameLines = estimateLineCount(nom, pt, innerW);
     const metaPt = Math.max(4, pt * 0.72);
     const codePt = Math.max(4, pt * 0.65);
     const metaLines = estimateLineCount(metaText || ' ', metaPt, innerW);
@@ -540,13 +545,33 @@ export function buildCustomMaterielLabelHtml(
 <body>
   ${micro}
   <div class="wrap">
-    <h1>${esc(mat.nom)}</h1>
-    <div class="meta">${esc([mat.marque, mat.type].filter(Boolean).join(' · '))}</div>
+    <h1>${esc(nom)}</h1>
+    <div class="meta">${esc(metaText)}</div>
     ${qrTag}
     <div class="code" style="font-weight:${f.bold ? 600 : 500};">${esc(code)}</div>
   </div>
 </body>
 </html>`;
+}
+
+export function buildCustomMaterielLabelHtml(
+  mat: Materiel,
+  f: UserLabelFormat,
+  brand: PdfBranding
+): string {
+  const code = mat.qr_code?.trim() || mat.id;
+  const metaText = [mat.marque, mat.type].filter(Boolean).join(' · ');
+  return buildCustomQrLabelHtmlCore(mat.nom, code, metaText, f, brand);
+}
+
+export function buildCustomConsommableLabelHtml(
+  conso: Consommable,
+  f: UserLabelFormat,
+  brand: PdfBranding
+): string {
+  const code = conso.qr_code?.trim() || conso.id;
+  const metaText = [conso.reference, conso.fournisseur].filter(Boolean).join(' · ');
+  return buildCustomQrLabelHtmlCore(conso.nom, code, metaText, f, brand);
 }
 
 export type CustomShelfLabelRow = {
@@ -713,6 +738,54 @@ export async function exportEtiquetteMaterielPdfCustom(
       dialogTitle: `Étiquette — ${f.name.trim() || 'personnalisé'}`,
     });
   }
+}
+
+export async function exportEtiquetteConsommablePdfCustom(
+  conso: Consommable,
+  f: UserLabelFormat
+): Promise<void> {
+  const brand = await getPdfBranding();
+  const html = buildCustomConsommableLabelHtml(conso, f, brand);
+  const { uri } = await Print.printToFileAsync({ html, base64: false });
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(uri, {
+      mimeType: 'application/pdf',
+      dialogTitle: `Étiquette QR — ${conso.nom.trim() || f.name.trim() || 'consommable'}`,
+    });
+  }
+}
+
+/** Format QR de repli quand l'utilisateur n'en a encore enregistré aucun. */
+export function defaultQrLabelFormat(): UserLabelFormat {
+  return {
+    id: 'builtin_qr_default',
+    name: 'QR (par défaut)',
+    widthMm: 70,
+    heightMm: 40,
+    marginPercent: 30,
+    fontId: 'inter',
+    textColor: '#111111',
+    bold: true,
+    kind: 'qr',
+  };
+}
+
+/** Renvoie le premier format QR enregistré, sinon un format par défaut intégré. */
+export async function resolveDefaultQrFormat(): Promise<UserLabelFormat> {
+  const all = await loadUserLabelFormats();
+  return getFormatsByKind(all, 'qr')[0] ?? defaultQrLabelFormat();
+}
+
+/** Impression QR en un tap pour un article du stock (matériel). */
+export async function quickPrintMaterielQr(mat: Materiel): Promise<void> {
+  const f = await resolveDefaultQrFormat();
+  await exportEtiquetteMaterielPdfCustom(mat, f);
+}
+
+/** Impression QR en un tap pour un consommable. */
+export async function quickPrintConsommableQr(conso: Consommable): Promise<void> {
+  const f = await resolveDefaultQrFormat();
+  await exportEtiquetteConsommablePdfCustom(conso, f);
 }
 
 export async function exportBulkQrLabelsPdfCustom(

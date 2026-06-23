@@ -37,6 +37,7 @@ import ShelfLabelsModal from '../components/ShelfLabelsModal';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 import { countMaterielSameNameEnStock } from '../lib/materielSameName';
 import { exportMaterielFichesPdf } from '../lib/pdfMaterielFiche';
+import { quickPrintMaterielQr } from '../lib/labelCustomPdf';
 import { getMaterielsCached, invalidateInventorySnapshotCache } from '../db/materialRepository';
 import { useStockListViewModel } from '../ui/hooks/useStockListViewModel';
 import { listTours } from '../db/trackingDb';
@@ -69,6 +70,8 @@ export default function StockScreen({ navigation, route }: any) {
   const loadGenerationRef = useRef(0);
   /** Dernière fiche « sélectionnée » (tap sur la ligne) : affichage du décompte par libellé. */
   const [infoFocusItem, setInfoFocusItem] = useState<Materiel | null>(null);
+  /** Article dont le QR est en cours de génération (désactive le bouton le temps du partage). */
+  const [qrBusyId, setQrBusyId] = useState<string | null>(null);
   /** Sélection (appui long) pour export PDF fiches matériel (photo + infos). */
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -306,6 +309,18 @@ export default function StockScreen({ navigation, route }: any) {
     );
   }
 
+  const onPrintQr = async (item: Materiel) => {
+    if (qrBusyId) return;
+    setQrBusyId(item.id);
+    try {
+      await quickPrintMaterielQr(item);
+    } catch (e: any) {
+      Alert.alert('Impression QR', e?.message ?? 'Échec de la génération du PDF.');
+    } finally {
+      setQrBusyId(null);
+    }
+  };
+
   const renderItem = ({ item }: { item: Materiel }) => {
     const isFocused = !selectMode && infoFocusItem?.id === item.id;
     const isSelected = selectMode && selectedSet.has(item.id);
@@ -362,6 +377,15 @@ export default function StockScreen({ navigation, route }: any) {
 
       {!selectMode && (
         <View style={s.actions}>
+          <TouchableOpacity
+            onPress={() => onPrintQr(item)}
+            style={s.qrBtn}
+            disabled={qrBusyId === item.id}
+            accessibilityRole="button"
+            accessibilityLabel={`Imprimer le QR de ${item.nom}`}
+          >
+            <Text style={s.qrBtnText}>{qrBusyId === item.id ? '…' : 'QR'}</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={() => {
               setInfoFocusItem(item);
@@ -817,8 +841,10 @@ const s = StyleSheet.create({
   },
   name: { color: Colors.white, fontSize: 16, fontWeight: '600' },
   sub: { color: Colors.textSecondary, fontSize: 12, marginTop: 2 },
-  actions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8, gap: 4 },
+  actions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 8, gap: 4 },
   iconBtn: { padding: 6 },
+  qrBtn: { borderWidth: 1, borderColor: Colors.green, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
+  qrBtnText: { color: Colors.green, fontSize: 12, fontWeight: '700' },
   empty: { alignItems: 'center', marginTop: 60 },
   cardFocused: {
     borderColor: 'rgba(52, 211, 153, 0.45)',
