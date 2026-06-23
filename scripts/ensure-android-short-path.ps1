@@ -51,12 +51,18 @@ function Ensure-Deps {
     $stamp = Join-Path $Root 'node_modules\.stagestock-lock-stamp'
     $lock = Join-Path $Root 'package-lock.json'
     $need = -not (Test-Path (Join-Path $Root 'node_modules\expo\package.json'))
-    if (-not $need -and (Test-Path $stamp) -and (Test-Path $lock)) {
-        $need = (Get-Item $lock).LastWriteTimeUtc -gt (Get-Item $stamp).LastWriteTimeUtc
+    if (-not $need) {
+        if (-not (Test-Path $stamp)) {
+            # Aucun temoin fiable : impossible de garantir que node_modules reflete
+            # package-lock.json (ex. dependance ajoutee depuis le dernier build) -> on reinstalle.
+            $need = $true
+        } elseif (Test-Path $lock) {
+            $need = (Get-Item $lock).LastWriteTimeUtc -gt (Get-Item $stamp).LastWriteTimeUtc
+        }
     }
     if ($need) {
         Write-Host "[short-path] npm ci..."
-        npm ci
+        npm ci --legacy-peer-deps
         if ($LASTEXITCODE -ne 0) { throw 'npm ci a echoue.' }
         Copy-Item $lock $stamp -Force
     }
