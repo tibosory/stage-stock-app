@@ -17,6 +17,41 @@ import type { BulkLayoutMode, BulkPaperSize } from './pdfEtiquetteBulk';
 
 export { type UserLabelFormat } from './labelUserFormatsStorage';
 
+/** Entrée unifiée pour l’impression QR groupée (stock + consommable). */
+export type BulkQrPrintItem = {
+  id: string;
+  nom: string;
+  qrCode: string;
+  /** Ligne secondaire sous le nom (S/N, référence, unité…). */
+  metaLine: string;
+  kind: 'materiel' | 'consommable';
+};
+
+export function bulkQrItemFromMateriel(m: Materiel): BulkQrPrintItem {
+  const sn = m.numero_serie?.trim() || '—';
+  return {
+    id: m.id,
+    nom: m.nom?.trim() || 'Sans nom',
+    qrCode: m.qr_code?.trim() || m.id,
+    metaLine: `S/N ${sn}`,
+    kind: 'materiel',
+  };
+}
+
+export function bulkQrItemFromConsommable(c: Consommable): BulkQrPrintItem {
+  const ref = c.reference?.trim();
+  const meta = ref ? `Réf. ${ref}` : c.unite ? `Unité ${c.unite}` : '—';
+  return {
+    id: c.id,
+    nom: c.nom?.trim() || 'Sans nom',
+    qrCode: c.qr_code?.trim() || c.id,
+    metaLine: meta,
+    kind: 'consommable',
+  };
+}
+
+export type BulkQrLabelEntry = { item: BulkQrPrintItem; format: UserLabelFormat };
+
 export const LABEL_FONT_CHOICES: { id: string; label: string; css: string }[] = [
   { id: 'inter', label: 'Arial (administratif)', css: 'Arial, "Times New Roman", serif' },
   { id: 'arial', label: 'Arial', css: 'Arial, Helvetica, sans-serif' },
@@ -174,28 +209,27 @@ export function getCustomBulkTileSpec(
 }
 
 export function buildCustomBulkTileHtml(
-  m: Materiel,
+  item: BulkQrPrintItem,
   f: UserLabelFormat
 ): string {
-  const spec = getCustomBulkTileSpec(f, m.nom ?? '');
-  const code = m.qr_code?.trim() || m.id;
+  const spec = getCustomBulkTileSpec(f, item.nom ?? '');
+  const code = item.qrCode.trim() || item.id;
   const qrTag = qrCodeImgTagForHtml(code, spec.cell, spec.margin);
-  const sn = m.numero_serie?.trim() ? m.numero_serie : '—';
+  const meta = item.metaLine.trim() || '—';
   const font = fontCssFor(f);
   const color = esc(f.textColor);
   const fw = f.bold ? 800 : 600;
   const innerW = Math.max(4, spec.boxWmm - 2 * spec.padMm);
   const innerH = Math.max(4, spec.boxHmm - 2 * spec.padMm);
-  const name = m.nom?.trim() || 'Sans nom';
-  const snText = `S/N ${sn}`;
+  const name = item.nom?.trim() || 'Sans nom';
   const namePt = maximizeFontPt(5, 22, pt => {
     const nameLines = estimateLineCount(name, pt, innerW);
-    const snPt = Math.max(4, pt * 0.72);
-    const snLines = estimateLineCount(snText, snPt, innerW);
-    const textHmm = ptToMm(pt) * 1.14 * nameLines + ptToMm(snPt) * 1.1 * snLines + 1.4;
+    const metaPt = Math.max(4, pt * 0.72);
+    const metaLines = estimateLineCount(meta, metaPt, innerW);
+    const textHmm = ptToMm(pt) * 1.14 * nameLines + ptToMm(metaPt) * 1.1 * metaLines + 1.4;
     return spec.imgMaxMm + 2 + textHmm <= innerH;
   });
-  const snPt = Math.max(4, Math.round(namePt * 0.72 * 10) / 10);
+  const metaPt = Math.max(4, Math.round(namePt * 0.72 * 10) / 10);
   return `
   <div class="tile" style="width:${spec.boxWmm}mm;height:${spec.boxHmm}mm;padding:${spec.padMm}mm;">
     <div class="tile-inner" style="font-family:${font};color:${color};">
@@ -203,12 +237,12 @@ export function buildCustomBulkTileHtml(
         ${qrTag}
       </div>
       <div class="name" style="font-size:${namePt}pt;font-weight:${fw};">${esc(
-        m.nom
+        name
       )}</div>
-      <div class="sn" style="font-size:${snPt}pt;color:${hexToRgba(
+      <div class="meta" style="font-size:${metaPt}pt;color:${hexToRgba(
         f.textColor,
         0.88
-      )};font-weight:${f.bold ? 650 : 500};">S/N ${esc(sn)}</div>
+      )};font-weight:${f.bold ? 650 : 500};">${esc(meta)}</div>
     </div>
   </div>`;
 }
@@ -245,7 +279,7 @@ const CUSTOM_TILE_STYLES = `
       margin-top: 0.5mm;
       letter-spacing: .12px;
     }
-    .sn {
+    .sn, .meta {
       line-height: 1.1;
       margin-top: 0.8mm;
       word-break: break-all;
@@ -268,11 +302,11 @@ function printableInnerMm(paper: BulkPaperSize): { w: number; h: number } {
 }
 
 function computeCustomGridPages(
-  items: { materiel: Materiel; format: UserLabelFormat }[],
+  items: BulkQrLabelEntry[],
   paper: BulkPaperSize,
   headReserveMm: number
 ): {
-  pages: { materiel: Materiel; format: UserLabelFormat }[][];
+  pages: BulkQrLabelEntry[][];
   cols: number;
   maxW: number;
   maxH: number;
@@ -289,7 +323,7 @@ function computeCustomGridPages(
   const perFirst = cols * rowsFirst;
   const perRest = cols * rowsRest;
 
-  const pages: { materiel: Materiel; format: UserLabelFormat }[][] = [];
+  const pages: BulkQrLabelEntry[][] = [];
   let i = 0;
   let first = true;
   while (i < items.length) {
@@ -303,14 +337,14 @@ function computeCustomGridPages(
 }
 
 function buildCustomBulkQrHtmlFlex(
-  items: { materiel: Materiel; format: UserLabelFormat }[],
+  items: BulkQrLabelEntry[],
   paper: BulkPaperSize,
   brand: PdfBranding
 ): string {
   const pageDecl = paper === 'A3' ? 'A3 portrait' : 'A4 portrait';
   const { html: headerBlock } = buildOrgHeaderHtml(brand);
   const bodyTiles = items
-    .map(({ materiel, format }) => buildCustomBulkTileHtml(materiel, format))
+    .map(({ item, format }) => buildCustomBulkTileHtml(item, format))
     .join('\n');
 
   return `<!DOCTYPE html>
@@ -361,7 +395,7 @@ function buildCustomBulkQrHtmlFlex(
 }
 
 function buildCustomBulkQrHtmlGridStrict(
-  items: { materiel: Materiel; format: UserLabelFormat }[],
+  items: BulkQrLabelEntry[],
   paper: BulkPaperSize,
   brand: PdfBranding
 ): string {
@@ -378,8 +412,8 @@ function buildCustomBulkQrHtmlGridStrict(
       const head = pageIndex === 0 ? headerBlock : '';
       const cells = pageItems
         .map(
-          ({ materiel, format }) =>
-            `<div class="cell">${buildCustomBulkTileHtml(materiel, format)}</div>`
+          ({ item, format }) =>
+            `<div class="cell">${buildCustomBulkTileHtml(item, format)}</div>`
         )
         .join('\n');
       return `
@@ -450,7 +484,7 @@ function buildCustomBulkQrHtmlGridStrict(
 }
 
 export function buildCustomBulkQrHtml(
-  items: { materiel: Materiel; format: UserLabelFormat }[],
+  items: BulkQrLabelEntry[],
   paper: BulkPaperSize,
   brand: PdfBranding,
   layout: BulkLayoutMode
@@ -789,7 +823,7 @@ export async function quickPrintConsommableQr(conso: Consommable): Promise<void>
 }
 
 export async function exportBulkQrLabelsPdfCustom(
-  items: { materiel: Materiel; format: UserLabelFormat }[],
+  items: BulkQrLabelEntry[],
   paper: BulkPaperSize,
   layout: BulkLayoutMode
 ): Promise<void> {

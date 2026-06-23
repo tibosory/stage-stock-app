@@ -5,16 +5,20 @@ import {
   Modal,
   TouchableOpacity,
   StyleSheet,
-  FlatList,
+  SectionList,
   Alert,
   ActivityIndicator,
 } from 'react-native';
 import { SelectPicker, TabScreenSafeArea } from './UI';
 import { Colors } from '../theme/colors';
-import { Materiel } from '../types';
+import { Consommable, Materiel } from '../types';
 import {
   exportBulkQrLabelsPdfCustom,
   buildCustomBulkQrHtml,
+  bulkQrItemFromConsommable,
+  bulkQrItemFromMateriel,
+  type BulkQrLabelEntry,
+  type BulkQrPrintItem,
 } from '../lib/labelCustomPdf';
 import { getPdfBranding } from '../lib/theatreBranding';
 import {
@@ -43,9 +47,17 @@ type Props = {
   visible: boolean;
   onClose: () => void;
   materiels: Materiel[];
+  consommables?: Consommable[];
 };
 
-export default function BulkQrPrintModal({ visible, onClose, materiels }: Props) {
+type ListSection = { title: string; data: BulkQrPrintItem[] };
+
+export default function BulkQrPrintModal({
+  visible,
+  onClose,
+  materiels,
+  consommables = [],
+}: Props) {
   const [paper, setPaper] = useState<BulkPaperSize>('A4');
   const [defaultFormatId, setDefaultFormatId] = useState<string>('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -57,6 +69,23 @@ export default function BulkQrPrintModal({ visible, onClose, materiels }: Props)
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewLoad, setPreviewLoad] = useState(false);
+
+  const printItems = useMemo(
+    (): BulkQrPrintItem[] => [
+      ...materiels.map(bulkQrItemFromMateriel),
+      ...consommables.map(bulkQrItemFromConsommable),
+    ],
+    [materiels, consommables]
+  );
+
+  const sections = useMemo((): ListSection[] => {
+    const out: ListSection[] = [];
+    const matItems = materiels.map(bulkQrItemFromMateriel);
+    const consoItems = consommables.map(bulkQrItemFromConsommable);
+    if (matItems.length) out.push({ title: 'Stock (matériel)', data: matItems });
+    if (consoItems.length) out.push({ title: 'Consommables', data: consoItems });
+    return out;
+  }, [materiels, consommables]);
 
   const loadFormats = useCallback(async () => {
     const all = await loadUserLabelFormats();
@@ -112,8 +141,8 @@ export default function BulkQrPrintModal({ visible, onClose, materiels }: Props)
   }, []);
 
   const selectAll = useCallback(() => {
-    setSelectedIds(new Set(materiels.map(m => m.id)));
-  }, [materiels]);
+    setSelectedIds(new Set(printItems.map(i => i.id)));
+  }, [printItems]);
 
   const selectNone = useCallback(() => {
     setSelectedIds(new Set());
@@ -134,9 +163,20 @@ export default function BulkQrPrintModal({ visible, onClose, materiels }: Props)
     setFormatById(prev => ({ ...prev, [id]: fmt }));
   }, []);
 
+  const buildSelectedEntries = useCallback((): BulkQrLabelEntry[] => {
+    const entries: BulkQrLabelEntry[] = [];
+    for (const item of printItems) {
+      if (!selectedIds.has(item.id)) continue;
+      const f = resolveFormat(item.id);
+      if (!f) continue;
+      entries.push({ item, format: f });
+    }
+    return entries;
+  }, [printItems, selectedIds, resolveFormat]);
+
   const runPreview = useCallback(async () => {
     if (selectedIds.size === 0) {
-      Alert.alert('Sélection', 'Cochez au moins un matériel.');
+      Alert.alert('Sélection', 'Cochez au moins un article (stock ou consommable).');
       return;
     }
     if (!defaultFormatId || qrFormats.length === 0) {
@@ -147,13 +187,8 @@ export default function BulkQrPrintModal({ visible, onClose, materiels }: Props)
     setPreviewLoad(true);
     setPreviewHtml(null);
     try {
-      const items = materiels
-        .filter(m => selectedIds.has(m.id))
-        .map(m => {
-          const f = resolveFormat(m.id);
-          if (!f) throw new Error('Format manquant');
-          return { materiel: m, format: f };
-        });
+      const items = buildSelectedEntries();
+      if (!items.length) throw new Error('Format manquant');
       const brand = await getPdfBranding();
       const html = buildCustomBulkQrHtml(items, paper, brand, layoutMode);
       setPreviewHtml(html);
@@ -162,24 +197,25 @@ export default function BulkQrPrintModal({ visible, onClose, materiels }: Props)
     } finally {
       setPreviewLoad(false);
     }
-  }, [selectedIds, materiels, defaultFormatId, qrFormats.length, resolveFormat, paper, layoutMode]);
+  }, [
+    selectedIds,
+    buildSelectedEntries,
+    defaultFormatId,
+    qrFormats.length,
+    paper,
+    layoutMode,
+  ]);
 
   const handleExport = async () => {
     if (selectedIds.size === 0) {
-      Alert.alert('Sélection', 'Cochez au moins un matériel.');
+      Alert.alert('Sélection', 'Cochez au moins un article (stock ou consommable).');
       return;
     }
     if (!defaultFormatId || qrFormats.length === 0) {
       Alert.alert('Formats', 'Créez d’abord un format d’étiquette (QR).');
       return;
     }
-    const items: { materiel: Materiel; format: UserLabelFormat }[] = [];
-    for (const m of materiels) {
-      if (!selectedIds.has(m.id)) continue;
-      const f = resolveFormat(m.id);
-      if (!f) continue;
-      items.push({ materiel: m, format: f });
-    }
+    const items = buildSelectedEntries();
     if (!items.length) {
       Alert.alert('PDF', 'Aucun format valide pour la sélection.');
       return;
@@ -206,7 +242,7 @@ export default function BulkQrPrintModal({ visible, onClose, materiels }: Props)
   );
 
   const renderRow = useCallback(
-    ({ item }: { item: Materiel }) => {
+    ({ item }: { item: BulkQrPrintItem }) => {
       const on = selectedIds.has(item.id);
       return (
         <View style={s.row}>
@@ -222,11 +258,9 @@ export default function BulkQrPrintModal({ visible, onClose, materiels }: Props)
             <Text style={s.rowName} numberOfLines={2}>
               {item.nom}
             </Text>
-            {item.numero_serie ? (
-              <Text style={s.rowSub} numberOfLines={1}>
-                S/N {item.numero_serie}
-              </Text>
-            ) : null}
+            <Text style={s.rowSub} numberOfLines={1}>
+              {item.metaLine}
+            </Text>
           </View>
           <View style={s.rowPicker}>
             {formatOptions.length ? (
@@ -242,6 +276,16 @@ export default function BulkQrPrintModal({ visible, onClose, materiels }: Props)
       );
     },
     [selectedIds, toggle, formatById, defaultFormatId, setFormatFor, formatOptions]
+  );
+
+  const renderSectionHeader = useCallback(
+    ({ section }: { section: ListSection }) => (
+      <View style={s.sectionHeader}>
+        <Text style={s.sectionTitle}>{section.title}</Text>
+        <Text style={s.sectionCount}>{section.data.length}</Text>
+      </View>
+    ),
+    []
   );
 
   return (
@@ -293,7 +337,7 @@ export default function BulkQrPrintModal({ visible, onClose, materiels }: Props)
               </TouchableOpacity>
             </View>
             <Text style={s.hint}>
-              Chaque matériel peut utiliser l’un de tes formats enregistrés. Texte le long de la largeur, taille et style selon le format. Vérifie d’abord l’aperçu, puis génère le PDF.
+              Chaque article (stock ou consommable) peut utiliser l’un de tes formats enregistrés. Vérifie d’abord l’aperçu, puis génère le PDF.
             </Text>
             <Text style={s.hint}>
               {layoutMode === 'grid_strict'
@@ -302,15 +346,17 @@ export default function BulkQrPrintModal({ visible, onClose, materiels }: Props)
             </Text>
           </View>
 
-          <FlatList
-            data={materiels}
-            keyExtractor={m => m.id}
+          <SectionList
+            sections={sections}
+            keyExtractor={item => item.id}
             renderItem={renderRow}
+            renderSectionHeader={renderSectionHeader}
             style={s.list}
             contentContainerStyle={s.listContent}
             keyboardShouldPersistTaps="handled"
+            stickySectionHeadersEnabled
             ListEmptyComponent={
-              <Text style={s.empty}>Aucun matériel dans la liste filtrée.</Text>
+              <Text style={s.empty}>Aucun article dans le stock ni les consommables.</Text>
             }
           />
 
@@ -417,6 +463,17 @@ const s = StyleSheet.create({
   },
   list: { flex: 1 },
   listContent: { paddingHorizontal: 12, paddingBottom: 12 },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    marginTop: 4,
+    backgroundColor: Colors.bg,
+  },
+  sectionTitle: { color: Colors.green, fontSize: 13, fontWeight: '700' },
+  sectionCount: { color: Colors.textMuted, fontSize: 12, fontWeight: '600' },
   row: {
     flexDirection: 'row',
     alignItems: 'flex-start',

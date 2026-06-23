@@ -69,7 +69,12 @@ export default function PrintHubScreen() {
             <TouchableOpacity style={[s.card, s.cardPrimary]} onPress={() => setShowBulk(true)} activeOpacity={0.85}>
               <Text style={s.cardIcon}>🖨</Text>
               <Text style={s.cardTitle}>{t('print.qrBulk')}</Text>
-              <Text style={s.cardSub}>{t('print.qrBulkSub')}</Text>
+              <Text style={s.cardSub}>
+                {t('print.qrBulkSub', {
+                  mat: materiels.length,
+                  conso: consos.length,
+                })}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.card} onPress={() => setShowShelfMat(true)} activeOpacity={0.85}>
               <Text style={s.cardIcon}>🏷</Text>
@@ -89,7 +94,12 @@ export default function PrintHubScreen() {
         )}
       </ScrollView>
 
-      <BulkQrPrintModal visible={showBulk} onClose={() => setShowBulk(false)} materiels={materiels} />
+      <BulkQrPrintModal
+        visible={showBulk}
+        onClose={() => setShowBulk(false)}
+        materiels={materiels}
+        consommables={consos}
+      />
       <ShelfLabelsModal
         visible={showShelfMat}
         onClose={() => setShowShelfMat(false)}

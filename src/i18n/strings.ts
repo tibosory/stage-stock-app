@@ -1602,8 +1602,8 @@ const fr: Dict = {
   'print.hubTitle': 'Impression',
   'print.hubIntro':
     'Même rendu qu’en liste stock ou consommables : étiquettes matériel (QR), bacs, formats courants, rayonnage.',
-  'print.qrBulk': 'Impression QR (plusieurs matériels)',
-  'print.qrBulkSub': 'Sélection, formats d’étiquettes, A4 / A3',
+  'print.qrBulk': 'Impression QR groupée (stock + consommables)',
+  'print.qrBulkSub': '{mat} matériel(s) · {conso} consommable(s) — sélection, formats, A4 / A3',
   'print.shelfMat': 'Étiquettes rayonnage (matériel)',
   'print.shelfMatSub': '{count} ligne(s) disponible(s) depuis le stock',
   'print.shelfConso': 'Étiquettes rayonnage (consommables)',
@@ -3459,8 +3459,8 @@ const en: Dict = {
   'print.hubTitle': 'Printing',
   'print.hubIntro':
     'Same output as stock or consumables lists: equipment labels (QR), bins, common formats, shelving.',
-  'print.qrBulk': 'Bulk QR print (multiple items)',
-  'print.qrBulkSub': 'Selection, label formats, A4 / A3',
+  'print.qrBulk': 'Bulk QR print (stock + consumables)',
+  'print.qrBulkSub': '{mat} item(s) · {conso} consumable(s) — selection, formats, A4 / A3',
   'print.shelfMat': 'Shelf labels (equipment)',
   'print.shelfMatSub': '{count} row(s) available from stock',
   'print.shelfConso': 'Shelf labels (consumables)',
