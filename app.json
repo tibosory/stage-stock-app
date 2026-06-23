@@ -3,7 +3,7 @@
     "name": "CATRACK Pro",
     "slug": "stage-stock",
     "scheme": "stagestock",
-    "version": "1.0.9",
+    "version": "1.0.20",
     "jsEngine": "hermes",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -132,7 +132,7 @@
       "privacyPolicyUrl": "",
       "termsOfServiceUrl": ""
     },
-    "runtimeVersion": "1.0.9",
+    "runtimeVersion": "1.0.20",
     "updates": {
       "enabled": false
     },
