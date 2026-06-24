@@ -270,14 +270,32 @@ export default function ConsommablesScreen() {
     }
   }, []);
 
+  const openConsoFromSearch = useCallback(
+    (item: Consommable) => {
+      if (editOk) {
+        setEditItem(item);
+        setShowModal(true);
+        return;
+      }
+      setSearch(item.nom);
+    },
+    [editOk]
+  );
+
   const renderItem = useCallback(({ item }: { item: Consommable }) => {
     const stockBas = item.stock_actuel <= item.seuil_minimum;
     const photoUri = item.photo_local ?? item.photo_url;
     const hasGel = !!(item.gel_brand && item.gel_code?.trim());
     const preferGel = !!(item.gel_instead_of_photo && hasGel);
     const gelSw = hasGel ? getGelSwatch(item.gel_brand, item.gel_code!.trim()) : null;
+    const searchPick = Boolean(debouncedSearch.trim());
     return (
       <Card style={stockBas ? { borderWidth: 1, borderColor: Colors.red } : {}}>
+        <TouchableOpacity
+          activeOpacity={searchPick ? 0.88 : 1}
+          onPress={searchPick ? () => openConsoFromSearch(item) : undefined}
+          disabled={!searchPick}
+        >
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View style={{ flexDirection: 'row', flex: 1, marginRight: 8, alignItems: 'flex-start' }}>
             {preferGel && gelSw ? (
@@ -326,6 +344,7 @@ export default function ConsommablesScreen() {
             {stockBas && <Text style={{ color: Colors.red, fontSize: 11, fontWeight: '600' }}>{t('consumables.lowStock')}</Text>}
           </View>
         </View>
+        </TouchableOpacity>
 
         <View style={s.actions}>
           <TouchableOpacity
@@ -357,7 +376,7 @@ export default function ConsommablesScreen() {
         </View>
       </Card>
     );
-  }, [editOk, handleAjusterStock, handleDelete, onPrintQr, qrBusyId, t]);
+  }, [debouncedSearch, editOk, handleAjusterStock, handleDelete, onPrintQr, openConsoFromSearch, qrBusyId, t]);
 
   const keyExtractor = useCallback((item: Consommable) => item.id, []);
 

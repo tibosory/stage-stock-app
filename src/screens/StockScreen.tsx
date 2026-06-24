@@ -227,8 +227,16 @@ export default function StockScreen({ navigation, route }: any) {
         return;
       }
       setInfoFocusItem(item);
+      if (debouncedSearch.trim()) {
+        if (editOk) {
+          setEditItem(item);
+          setShowModal(true);
+        } else {
+          navigation.navigate('MaterielDetail', { materielId: item.id });
+        }
+      }
     },
-    [selectMode, toggleSelect]
+    [selectMode, toggleSelect, debouncedSearch, editOk, navigation]
   );
 
   const handleExportFichesPdf = useCallback(async () => {
@@ -374,7 +382,11 @@ export default function StockScreen({ navigation, route }: any) {
         accessibilityLabel={
           selectMode
             ? `${isSelected ? t('stock.a11y.unselect') : t('stock.a11y.select')} ${item.nom} pour l’export PDF`
-            : `Sélectionner ${item.nom} pour afficher le décompte par libellé — appui long : mode PDF`
+            : debouncedSearch.trim()
+              ? editOk
+                ? `Ouvrir la fiche de ${item.nom} pour modification`
+                : `Ouvrir la fiche de ${item.nom}`
+              : `Sélectionner ${item.nom} pour afficher le décompte par libellé — appui long : mode PDF`
         }
       >
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>

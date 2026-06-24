@@ -36,7 +36,7 @@ export const USER_GUIDE_META = {
 
   versionLabel:
 
-    '24 juin 2026 (v1.0.23 : sync Supabase complète — inventaire, Régie, photos)',
+    '24 juin 2026 (v1.0.24 : recherche → ouverture fiche éditable)',
 
 };
 
@@ -170,7 +170,7 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
     paragraphs: [
 
-      'Liste filtrable par statut et recherche texte (matériel et consommables depuis la barre de recherche). Appui long pour sélectionner plusieurs fiches et exporter un PDF.',
+      'Liste filtrable par statut et recherche texte (matériel et consommables depuis la barre de recherche). Touchez un résultat de recherche pour ouvrir sa fiche et la modifier. Appui long pour sélectionner plusieurs fiches et exporter un PDF.',
 
       'À l’ajout ou la modification d’une fiche : choisissez une catégorie existante ou créez-en une (parent optionnel pour une sous-catégorie, ex. Éclairage › LED).',
 

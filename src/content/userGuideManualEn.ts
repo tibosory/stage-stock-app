@@ -8,7 +8,7 @@ export const USER_GUIDE_META_EN = {
   title: 'CATRACK Pro — User guide',
   subtitle: 'Step-by-step guide with practical examples',
   versionLabel:
-    'June 24, 2026 (v1.0.23: full Supabase sync — inventory, Régie, photos)',
+    'June 24, 2026 (v1.0.24: search opens editable record)',
 };
 
 export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
@@ -75,7 +75,7 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     icon: '📦',
     title: 'Equipment stock',
     paragraphs: [
-      'Filterable list by status and text search (equipment and consumables from the search bar). Long-press to select several records and export a PDF.',
+      'Filterable list by status and text search (equipment and consumables from the search bar). Tap a search result to open and edit its record. Long-press to select several records and export a PDF.',
       'When adding or editing a record: pick an existing category or create one (optional parent for a subcategory, e.g. Lighting › LED).',
       'Print labels and A4 sheets from the printing area.',
       'The detail view shows only filled fields.',
@@ -85,7 +85,7 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     icon: '🛒',
     title: 'Consumables',
     paragraphs: [
-      'List with low-stock filter and search bar (name, reference, category, QR…). When adding a record: subcategories and locations can be created inline (same as Stock). Movements from the record, Scanner or spreadsheet import.',
+      'List with low-stock filter and search bar (name, reference, category, QR…). Tap a search result to open the edit form. When adding a record: subcategories and locations can be created inline (same as Stock). Movements from the record, Scanner or spreadsheet import.',
     ],
   },
   {
