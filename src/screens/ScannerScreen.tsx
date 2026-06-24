@@ -1,7 +1,7 @@
 // src/screens/ScannerScreen.tsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Alert, TextInput,
+  View, Text, StyleSheet, TouchableOpacity, Pressable, Alert, TextInput,
   ScrollView, Vibration,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,6 +17,7 @@ import {
 import { getStats } from '../db/metadataDb';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 import { triggerScanMatchHaptic } from '../lib/scanHaptic';
+import { pickBarcodeAtTap, rememberDetectedBarcode } from '../lib/tapToScanBarcode';
 import { openMaterielFicheFromAlerte, openConsoFicheFromAlerte } from '../navigation/openFicheFromAlerte';
 import { completePairingFromScan } from '../lib/completePairingFromScan';
 import { useConnection } from '../context/ConnectionContext';
@@ -66,6 +67,7 @@ export default function ScannerScreen() {
   const { nfcSupported, nfcEnabled, scanning: nfcScanning, readNfcTag } = useNfc();
   const manualInputRef = useRef<TextInput>(null);
   const manualSearchDidMount = useRef(false);
+  const detectedBarcodesRef = useRef<Map<string, BarcodeScanningResult>>(new Map());
 
   useEffect(() => {
     loadRecent();
@@ -217,7 +219,19 @@ export default function ScannerScreen() {
     }
   }, [lastConsoMove, undoBusy]);
 
-  const handleBarcode = useCallback(async (result: BarcodeScanningResult) => {
+  const clearDetectedBarcodes = useCallback(() => {
+    detectedBarcodesRef.current.clear();
+  }, []);
+
+  const onBarcodeDetected = useCallback(
+    (result: BarcodeScanningResult) => {
+      if (scanned || burstNumpadConso) return;
+      rememberDetectedBarcode(detectedBarcodesRef.current, result);
+    },
+    [scanned, burstNumpadConso]
+  );
+
+  const processBarcode = useCallback(async (result: BarcodeScanningResult) => {
     if (scanned) return;
     if (burstNumpadConso) return;
     setScanned(true);
@@ -337,6 +351,23 @@ export default function ScannerScreen() {
     refreshConnection,
     language,
   ]);
+
+  const onCameraTap = useCallback(
+    (locationX: number, locationY: number) => {
+      if (scanned || burstNumpadConso) return;
+      const picked = pickBarcodeAtTap(
+        Array.from(detectedBarcodesRef.current.values()),
+        locationX,
+        locationY
+      );
+      if (picked) {
+        void processBarcode(picked);
+      } else {
+        Vibration.vibrate(40);
+      }
+    },
+    [scanned, burstNumpadConso, processBarcode]
+  );
 
   const handleNfcScan = async () => {
     const tagValue = await readNfcTag();
@@ -523,27 +554,36 @@ export default function ScannerScreen() {
 
     return (
       <View style={{ flex: 1, backgroundColor: '#000' }}>
-        <CameraView
-          style={StyleSheet.absoluteFillObject}
-          facing="back"
-          barcodeScannerSettings={{
-            barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'upc_a', 'upc_e', 'pdf417', 'aztec', 'datamatrix'],
-          }}
-          onBarcodeScanned={handleBarcode}
-        />
+        <Pressable
+          style={{ flex: 1 }}
+          onPress={event => onCameraTap(event.nativeEvent.locationX, event.nativeEvent.locationY)}
+          accessibilityRole="button"
+          accessibilityLabel={t('scanner.cameraHint')}
+        >
+          <CameraView
+            style={StyleSheet.absoluteFillObject}
+            facing="back"
+            barcodeScannerSettings={{
+              barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'upc_a', 'upc_e', 'pdf417', 'aztec', 'datamatrix'],
+            }}
+            onBarcodeScanned={onBarcodeDetected}
+          />
 
-        {/* Viseur */}
-        <View style={s.scanOverlay}>
-          <View style={s.scanFrame}>
-            <View style={[s.corner, { top: 0, left: 0 }]} />
-            <View style={[s.corner, { top: 0, right: 0, transform: [{ scaleX: -1 }] }]} />
-            <View style={[s.corner, { bottom: 0, left: 0, transform: [{ scaleY: -1 }] }]} />
-            <View style={[s.corner, { bottom: 0, right: 0, transform: [{ scale: -1 }] }]} />
+          {/* Viseur */}
+          <View style={s.scanOverlay} pointerEvents="none">
+            <View style={s.scanFrame}>
+              <View style={[s.corner, { top: 0, left: 0 }]} />
+              <View style={[s.corner, { top: 0, right: 0, transform: [{ scaleX: -1 }] }]} />
+              <View style={[s.corner, { bottom: 0, left: 0, transform: [{ scaleY: -1 }] }]} />
+              <View style={[s.corner, { bottom: 0, right: 0, transform: [{ scale: -1 }] }]} />
+            </View>
+            <Text style={s.scanHint}>
+              {mode === 'batch'
+                ? t('scanner.cameraHintBatch', { count: batchResults.length })
+                : t('scanner.cameraHint')}
+            </Text>
           </View>
-          <Text style={s.scanHint}>
-            {mode === 'batch' ? `Mode lot — ${batchResults.length} scannés` : 'Pointez vers un QR code ou code-barres'}
-          </Text>
-        </View>
+        </Pressable>
 
         {/* Barre du bas — au-dessus de la barre de navigation système Android */}
         <View style={[s.scanBottom, { bottom: 16 + Math.max(insets.bottom, 8) }]}>
@@ -574,6 +614,7 @@ export default function ScannerScreen() {
               setScanned(false);
               setBatchResults([]);
               setBurstNumpadConso(null);
+              clearDetectedBarcodes();
             }}
           >
             <Text style={{ color: Colors.white, fontWeight: '600' }}>{t('scanner.close')}</Text>

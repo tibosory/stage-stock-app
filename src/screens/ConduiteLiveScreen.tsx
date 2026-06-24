@@ -6,6 +6,7 @@ import { FullScreenSafeArea } from '../components/UI';
 import { COULEURS_TOP, LABELS_LOCALISATION_TOP, LABELS_TYPE_TOP } from '../types';
 import type { Conduite, Top } from '../types';
 import { getConduite, listTops, resetTopsEffectues, toggleTopEffectue } from '../db/conduiteDb';
+import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 
 /**
  * Mode live plein écran pour la régie pendant la représentation.
@@ -50,6 +51,7 @@ export default function ConduiteLiveScreen() {
     const newVal = !current.effectue;
     setTops(ts => ts.map((t, i) => (i === index ? { ...t, effectue: newVal } : t)));
     await toggleTopEffectue(current.id, newVal);
+    void triggerSyncAfterActionIfEnabled();
     if (newVal && index < tops.length - 1) goNext();
   };
 
@@ -80,7 +82,7 @@ export default function ConduiteLiveScreen() {
       <View style={s.peek}>
         {prev ? (
           <Text style={[s.peekText, prev.effectue && s.peekDone]} numberOfLines={1}>
-            ↑ {prev.numero} · {prev.minutage || '—'} · {prev.description}
+            ↑ {prev.numero} · {prev.minutage || '—'} · {prev.description?.trim() || `Top ${prev.numero}`}
           </Text>
         ) : (
           <Text style={s.peekMuted}>— début —</Text>
@@ -100,7 +102,7 @@ export default function ConduiteLiveScreen() {
             ) : null}
             {current.repere ? <Text style={s.currentRepere}>{current.repere}</Text> : null}
             {current.action ? <Text style={s.currentAction}>{current.action}</Text> : null}
-            <Text style={s.currentDesc}>{current.description}</Text>
+            <Text style={s.currentDesc}>{current.description?.trim() || '—'}</Text>
             {current.detail ? <Text style={s.currentDetail}>{current.detail}</Text> : null}
             <View style={[s.depDot, { backgroundColor: accent.border }]}>
               <Text style={s.depDotText}>{LABELS_TYPE_TOP[current.departement]}</Text>
@@ -116,7 +118,7 @@ export default function ConduiteLiveScreen() {
       <View style={s.peek}>
         {next ? (
           <Text style={s.peekText} numberOfLines={1}>
-            ↓ {next.numero} · {next.minutage || '—'} · {next.description}
+            ↓ {next.numero} · {next.minutage || '—'} · {next.description?.trim() || `Top ${next.numero}`}
           </Text>
         ) : (
           <Text style={s.peekMuted}>— fin —</Text>

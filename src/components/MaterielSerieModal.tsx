@@ -1,12 +1,13 @@
 // src/components/MaterielSerieModal.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
 import { Colors } from '../theme/colors';
 import { insertMaterielsSerieBatch } from '../db/inventoryOpsDb';
-import { insertCategorie, insertLocalisation } from '../db/catalogDb';
+import { insertCategorie, insertLocalisation, categoryPathById } from '../db/catalogDb';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 import { Categorie, Localisation, EtatMateriel, StatutMateriel } from '../types';
 import { Input, SelectPicker, BottomModal, FormButtons, DateField } from './UI';
+import { useLanguage } from '../context/LanguageContext';
 
 interface Props {
   visible: boolean;
@@ -62,6 +63,7 @@ export default function MaterielSerieModal({
   localisations,
   onMetaRefresh,
 }: Props) {
+  const { t } = useLanguage();
   const [nomBase, setNomBase] = useState('');
   const [marque, setMarque] = useState('');
   const [type, setType] = useState('');
@@ -79,6 +81,7 @@ export default function MaterielSerieModal({
   const [technicien, setTechnicien] = useState('');
   const [saving, setSaving] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCatParentId, setNewCatParentId] = useState('');
   const [newLocalisationName, setNewLocalisationName] = useState('');
 
   useEffect(() => {
@@ -99,6 +102,7 @@ export default function MaterielSerieModal({
     setDateAchat('');
     setTechnicien('');
     setNewCategoryName('');
+    setNewCatParentId('');
     setNewLocalisationName('');
   }, [visible]);
 
@@ -119,25 +123,56 @@ export default function MaterielSerieModal({
   };
 
   const handleAddCategory = async () => {
-    const t = newCategoryName.trim();
-    if (!t) {
-      Alert.alert('Catégorie', 'Saisissez un nom pour la nouvelle catégorie.');
+    const name = newCategoryName.trim();
+    if (!name) {
+      Alert.alert(t('consumables.category.nameRequired'), t('consumables.category.nameRequiredBody'));
       return;
     }
     try {
-      const id = await insertCategorie(t);
+      const pid = newCatParentId.trim() || null;
+      const id = await insertCategorie(name, pid);
       setNewCategoryName('');
+      setNewCatParentId('');
       setCategorieId(id);
       await onMetaRefresh?.();
-    } catch (e: any) {
-      Alert.alert('Erreur', e?.message ?? 'Impossible de créer la catégorie');
+      Alert.alert('✓', t('consumables.category.created'));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert(t('scanner.error'), msg);
     }
   };
 
-  const catOptions = [
-    { label: 'Aucune', value: '' },
-    ...categories.map(c => ({ label: c.nom, value: c.id })),
-  ];
+  const sortedCats = useMemo(
+    () =>
+      [...categories].sort((a, b) =>
+        categoryPathById(categories, a.id).localeCompare(categoryPathById(categories, b.id), 'fr', {
+          sensitivity: 'base',
+        })
+      ),
+    [categories]
+  );
+
+  const catOptions = useMemo(
+    () => [
+      { label: t('common.none'), value: '' },
+      ...sortedCats.map(c => ({
+        label: categoryPathById(categories, c.id) || c.nom,
+        value: c.id,
+      })),
+    ],
+    [categories, sortedCats, t]
+  );
+
+  const parentCreateOptions = useMemo(
+    () => [
+      { label: t('consumables.category.rootMain'), value: '' },
+      ...sortedCats.map(c => ({
+        label: categoryPathById(categories, c.id) || c.nom,
+        value: c.id,
+      })),
+    ],
+    [categories, sortedCats, t]
+  );
   const locOptions = [
     { label: 'Aucune', value: '' },
     ...localisations.map(l => ({ label: l.nom, value: l.id })),
@@ -250,19 +285,24 @@ export default function MaterielSerieModal({
         </View>
       </View>
 
-      <View style={styles.newCatRow}>
-        <View style={{ flex: 1 }}>
-          <Input
-            label="Nouvelle catégorie"
-            value={newCategoryName}
-            onChangeText={setNewCategoryName}
-            placeholder="Nom puis « Créer »"
-            onSubmitEditing={handleAddCategory}
-            returnKeyType="done"
-          />
-        </View>
-        <TouchableOpacity style={styles.newCatBtn} onPress={handleAddCategory}>
-          <Text style={styles.newCatBtnText}>Créer</Text>
+      <View style={styles.newCatBlock}>
+        <Text style={styles.newCatHint}>{t('consumables.category.createHint')}</Text>
+        <SelectPicker
+          label={t('consumables.category.parentOptional')}
+          value={newCatParentId}
+          options={parentCreateOptions}
+          onChange={setNewCatParentId}
+        />
+        <Input
+          label={t('consumables.category.newName')}
+          value={newCategoryName}
+          onChangeText={setNewCategoryName}
+          placeholder={t('consumables.category.newPlaceholder')}
+          onSubmitEditing={handleAddCategory}
+          returnKeyType="done"
+        />
+        <TouchableOpacity style={styles.newCatCreateBtn} onPress={handleAddCategory}>
+          <Text style={styles.newCatBtnText}>{t('consumables.category.create')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -344,7 +384,24 @@ export default function MaterielSerieModal({
 }
 
 const styles = StyleSheet.create({
+  newCatBlock: {
+    marginTop: 4,
+    marginBottom: 8,
+    padding: 12,
+    backgroundColor: Colors.bgCard,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  newCatHint: { color: Colors.textMuted, fontSize: 12, marginBottom: 10 },
   newCatRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-end', marginBottom: 12 },
+  newCatCreateBtn: {
+    backgroundColor: Colors.green,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
   newCatBtn: {
     backgroundColor: Colors.green,
     borderRadius: 10,

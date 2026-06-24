@@ -1,5 +1,6 @@
 import type { Conduite, DepartementConduite, LocalisationTop, Top, TypeTop } from '../types';
 import { generateId, getDB } from './database';
+import { logRegieDeletion } from './regieDeletionSyncDb';
 
 // ── Mappers SQL → modèle ─────────────────────────────────────
 
@@ -122,7 +123,6 @@ export async function updateConduite(
   const now = new Date().toISOString();
   const nomSpectacle = input.nomSpectacle !== undefined ? input.nomSpectacle.trim() : existing.nomSpectacle;
   const titre = input.titre !== undefined ? input.titre.trim() : existing.titre;
-  if (!nomSpectacle || !titre) throw new Error('Le spectacle et le titre sont obligatoires.');
   const departement = input.departement ?? existing.departement;
   const notes = input.notes !== undefined ? input.notes?.trim() || null : existing.notes;
   await database.runAsync(
@@ -135,6 +135,7 @@ export async function updateConduite(
 
 export async function deleteConduite(id: string): Promise<void> {
   const database = await getDB();
+  await logRegieDeletion('conduites', id);
   await database.runAsync('DELETE FROM conduites WHERE id = ?', [id]);
 }
 
@@ -273,7 +274,6 @@ export async function updateTop(
   const minutageSecondes = minutage ? minutageEnSecondes(minutage) : null;
   const departement = input.departement ?? existing.departement;
   const description = input.description !== undefined ? input.description.trim() : existing.description;
-  if (!description) throw new Error('La description est obligatoire.');
   const detail = input.detail !== undefined ? input.detail?.trim() || null : existing.detail;
   const localisation = input.localisation !== undefined ? input.localisation : existing.localisation;
   const action = input.action !== undefined ? input.action?.trim() || null : existing.action;
@@ -288,6 +288,7 @@ export async function updateTop(
 
 export async function deleteTop(id: string): Promise<void> {
   const database = await getDB();
+  await logRegieDeletion('tops', id);
   await database.runAsync('DELETE FROM tops WHERE id = ?', [id]);
 }
 

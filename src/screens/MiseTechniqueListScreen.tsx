@@ -7,6 +7,7 @@ import { Typography } from '../theme/typography';
 import { Spacing } from '../theme/spacing';
 import type { MiseTechnique } from '../types';
 import { createMiseTechnique, listMisesTechniques } from '../db/miseTechniqueDb';
+import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 
 export default function MiseTechniqueListScreen() {
   const navigation = useNavigation<any>();
@@ -26,13 +27,13 @@ export default function MiseTechniqueListScreen() {
   );
 
   const create = async () => {
-    if (!nomSpectacle.trim() || !titre.trim()) return;
     setCreating(true);
     try {
       const created = await createMiseTechnique({ nomSpectacle: nomSpectacle.trim(), titre: titre.trim() });
       setNomSpectacle('');
       setTitre('');
       await load();
+      void triggerSyncAfterActionIfEnabled();
       navigation.navigate('MiseTechniqueDetail', { miseId: created.id });
     } catch (e: unknown) {
       const { Alert } = await import('react-native');
@@ -53,8 +54,8 @@ export default function MiseTechniqueListScreen() {
 
         <Card>
           <Text style={s.step}>Nouvelle mise technique</Text>
-          <Input label="Spectacle" value={nomSpectacle} onChangeText={setNomSpectacle} placeholder="Ex. Le Cid — Tournée 2026" required />
-          <Input label="Titre" value={titre} onChangeText={setTitre} placeholder="Ex. Implantation — Tournée 2026" required />
+          <Input label="Spectacle" value={nomSpectacle} onChangeText={setNomSpectacle} placeholder="Ex. Le Cid — Tournée 2026" />
+          <Input label="Titre" value={titre} onChangeText={setTitre} placeholder="Ex. Implantation — Tournée 2026" />
           <TouchableOpacity
             style={[s.createBtn, creating && s.createBtnDisabled]}
             onPress={() => void create()}
@@ -77,9 +78,9 @@ export default function MiseTechniqueListScreen() {
           items.map(item => (
             <Card key={item.id} onPress={() => navigation.navigate('MiseTechniqueDetail', { miseId: item.id })}>
               <Text style={s.name} numberOfLines={2}>
-                {item.titre}
+                {item.titre?.trim() || 'Sans titre'}
               </Text>
-              <Text style={s.sub}>{item.nomSpectacle}</Text>
+              <Text style={s.sub}>{item.nomSpectacle?.trim() || '—'}</Text>
               <Text style={s.tapHint}>
                 {item.etapesCount ?? 0} étape{(item.etapesCount ?? 0) > 1 ? 's' : ''} · Ouvrir →
               </Text>

@@ -1,7 +1,7 @@
 // src/screens/ConsommablesScreen.tsx
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput,
   Alert, RefreshControl, Platform, Image,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -14,7 +14,7 @@ import {
   insertConsommable, updateConsommable, getConsommableById,
 } from '../db/inventoryDb';
 import {
-  getCategories, getLocalisations, insertCategorie, categoryPathById,
+  getCategories, getLocalisations, insertCategorie, insertLocalisation, categoryPathById,
 } from '../db/catalogDb';
 import { Consommable, Categorie, Localisation } from '../types';
 import {
@@ -33,6 +33,8 @@ import {
   type GelBrand,
 } from '../lib/gelFilters';
 import { getConsommablesCached, invalidateInventorySnapshotCache } from '../db/materialRepository';
+import { useDebouncedValue } from '../ui/hooks/useDebouncedValue';
+import { filterConsommableList } from '../core/stock/stockListFilters';
 import { useLanguage } from '../context/LanguageContext';
 
 const CONSOMMABLE_UNITE_OPTIONS = [
@@ -64,6 +66,8 @@ export default function ConsommablesScreen() {
   const [localisations, setLocalisations] = useState<Localisation[]>([]);
   const [showShelfModal, setShowShelfModal] = useState(false);
   const [visibleCount, setVisibleCount] = useState(CONSO_LIST_PAGE_SIZE);
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 220);
 
   const load = useCallback(async () => {
     const [data, cats, locs] = await Promise.all([
@@ -92,8 +96,8 @@ export default function ConsommablesScreen() {
 
   const filterLowStock = route.params?.filterLowStock === true;
   const displayedItems = useMemo(
-    () => (filterLowStock ? items.filter(c => c.stock_actuel <= c.seuil_minimum) : items),
-    [items, filterLowStock]
+    () => filterConsommableList(items, debouncedSearch, filterLowStock),
+    [items, debouncedSearch, filterLowStock]
   );
   const visibleDisplayedItems = useMemo(
     () => displayedItems.slice(0, visibleCount),
@@ -102,7 +106,16 @@ export default function ConsommablesScreen() {
 
   useEffect(() => {
     setVisibleCount(CONSO_LIST_PAGE_SIZE);
-  }, [displayedItems.length, filterLowStock]);
+  }, [displayedItems.length, filterLowStock, debouncedSearch]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const initialSearch = route.params?.initialSearch as string | undefined;
+      if (!initialSearch?.trim()) return;
+      setSearch(initialSearch.trim());
+      navigation.setParams({ initialSearch: undefined } as never);
+    }, [route.params?.initialSearch, navigation])
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -374,6 +387,19 @@ export default function ConsommablesScreen() {
             </TouchableOpacity>
           </View>
         ) : null}
+        <View style={s.searchRow}>
+          <Text style={{ position: 'absolute', left: 14, zIndex: 1, color: Colors.textMuted }}>🔍</Text>
+          <TextInput
+            style={s.searchInput}
+            placeholder={t('consumables.searchPlaceholder')}
+            placeholderTextColor={Colors.textMuted}
+            value={search}
+            onChangeText={setSearch}
+            autoCorrect={false}
+            autoCapitalize="none"
+            clearButtonMode="while-editing"
+          />
+        </View>
       </View>
 
       <FlatList
@@ -396,7 +422,11 @@ export default function ConsommablesScreen() {
           <View style={s.empty}>
             <Text style={{ fontSize: 40 }}>🛒</Text>
             <Text style={{ color: Colors.textMuted, marginTop: 12 }}>
-              {filterLowStock ? t('consumables.emptyLow') : t('consumables.empty')}
+              {filterLowStock
+                ? t('consumables.emptyLow')
+                : debouncedSearch.trim()
+                  ? t('consumables.emptySearch')
+                  : t('consumables.empty')}
             </Text>
           </View>
         }
@@ -468,6 +498,7 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
   const [saving, setSaving] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [newCatParentId, setNewCatParentId] = useState('');
+  const [newLocalisationName, setNewLocalisationName] = useState('');
   const [photoLocal, setPhotoLocal] = useState('');
   const [gelBrand, setGelBrand] = useState<'' | GelBrand>('');
   const [gelCode, setGelCode] = useState('');
@@ -519,6 +550,7 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
     if (!visible) return;
     setNewCatName('');
     setNewCatParentId('');
+    setNewLocalisationName('');
     if (item) {
       setNom(item.nom); setReference(item.reference ?? ''); setUnite(item.unite);
       setStockActuel(item.stock_actuel.toString()); setSeuilMin(item.seuil_minimum.toString());
@@ -579,6 +611,24 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
       setNewCatName('');
       setNewCatParentId('');
       Alert.alert('✓', t('consumables.category.created'));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert(t('scanner.error'), msg);
+    }
+  };
+
+  const handleCreateLocalisation = async () => {
+    const name = newLocalisationName.trim();
+    if (!name) {
+      Alert.alert(t('consumables.location.nameRequired'), t('consumables.location.nameRequiredBody'));
+      return;
+    }
+    try {
+      const id = await insertLocalisation(name);
+      await onCategoriesRefresh?.();
+      setLocalisationId(id);
+      setNewLocalisationName('');
+      Alert.alert('✓', t('consumables.location.created'));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       Alert.alert(t('scanner.error'), msg);
@@ -671,20 +721,8 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
         </View>
       </View>
 
-      <View
-        style={{
-          marginTop: 4,
-          marginBottom: 8,
-          padding: 12,
-          backgroundColor: Colors.bgCard,
-          borderRadius: 12,
-          borderWidth: 1,
-          borderColor: Colors.border,
-        }}
-      >
-        <Text style={{ color: Colors.textMuted, fontSize: 12, marginBottom: 10 }}>
-          {t('consumables.category.createHint')}
-        </Text>
+      <View style={s.consoMetaBlock}>
+        <Text style={s.consoMetaHint}>{t('consumables.category.createHint')}</Text>
         <SelectPicker
           label={t('consumables.category.parentOptional')}
           value={newCatParentId}
@@ -699,17 +737,23 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
           onSubmitEditing={handleCreateCategory}
           returnKeyType="done"
         />
-        <TouchableOpacity
-          style={{
-            backgroundColor: Colors.green,
-            borderRadius: 10,
-            paddingVertical: 12,
-            alignItems: 'center',
-            marginTop: 8,
-          }}
-          onPress={handleCreateCategory}
-        >
-          <Text style={{ color: Colors.white, fontWeight: '700' }}>{t('consumables.category.create')}</Text>
+        <TouchableOpacity style={s.consoMetaBtn} onPress={handleCreateCategory}>
+          <Text style={s.consoMetaBtnText}>{t('consumables.category.create')}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={s.consoMetaBlock}>
+        <Text style={s.consoMetaHint}>{t('consumables.location.createHint')}</Text>
+        <Input
+          label={t('consumables.location.newName')}
+          value={newLocalisationName}
+          onChangeText={setNewLocalisationName}
+          placeholder={t('consumables.location.newPlaceholder')}
+          onSubmitEditing={handleCreateLocalisation}
+          returnKeyType="done"
+        />
+        <TouchableOpacity style={s.consoMetaBtn} onPress={handleCreateLocalisation}>
+          <Text style={s.consoMetaBtnText}>{t('consumables.location.create')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -818,6 +862,18 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
+  searchRow: { position: 'relative', marginTop: 10, marginBottom: 4 },
+  searchInput: {
+    backgroundColor: Colors.bgCard,
+    borderRadius: 10,
+    paddingLeft: 38,
+    paddingRight: 12,
+    paddingVertical: 9,
+    color: Colors.white,
+    fontSize: 13,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
   name: { color: Colors.white, fontSize: 16, fontWeight: '600' },
   sub: { color: Colors.textSecondary, fontSize: 12, marginTop: 2 },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8, gap: 4, alignItems: 'center' },
@@ -837,6 +893,24 @@ const s = StyleSheet.create({
   qrBtnText: { color: Colors.green, fontSize: 12, fontWeight: '700' },
   iconBtn: { padding: 6 },
   empty: { alignItems: 'center', marginTop: 60 },
+  consoMetaBlock: {
+    marginTop: 4,
+    marginBottom: 8,
+    padding: 12,
+    backgroundColor: Colors.bgCard,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  consoMetaHint: { color: Colors.textMuted, fontSize: 12, marginBottom: 10 },
+  consoMetaBtn: {
+    backgroundColor: Colors.green,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  consoMetaBtnText: { color: Colors.white, fontWeight: '700' },
   consoSectionLabel: { color: Colors.textPrimary, fontSize: 13, fontWeight: '600', marginBottom: 4, marginTop: 8 },
   consoSectionHint: { color: Colors.textMuted, fontSize: 11, marginBottom: 10, lineHeight: 15 },
   consoPhotoBox: { borderRadius: 12, overflow: 'hidden', marginBottom: 12, height: 140 },

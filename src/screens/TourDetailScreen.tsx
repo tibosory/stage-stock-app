@@ -4,6 +4,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  Pressable,
   View,
   Modal,
   Alert,
@@ -11,6 +12,7 @@ import {
   Platform,
   Image,
   Linking,
+  Vibration,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -54,6 +56,7 @@ import {
   tourStatusLabel,
 } from '../lib/tourTrackingLabels';
 import { triggerScanMatchHaptic } from '../lib/scanHaptic';
+import { pickBarcodeAtTap, rememberDetectedBarcode } from '../lib/tapToScanBarcode';
 import { showTourLifecycleMenu } from '../lib/tourLifecyclePrompt';
 import { exportFlightcaseContentPdf, exportFlightcaseQrLabelsPdf } from '../lib/pdfTourFlightcases';
 
@@ -139,6 +142,7 @@ export default function TourDetailScreen() {
   const [renameDoc, setRenameDoc] = useState<TourDocument | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const scanLockRef = useRef(false);
+  const detectedBarcodesRef = useRef<Map<string, BarcodeScanningResult>>(new Map());
   const { nfcSupported, nfcEnabled, scanning: nfcBusy, readNfcTag, readNfcTagId } = useNfc();
   const materialById = new Map(materials.map(m => [m.id, m] as const));
 
@@ -234,65 +238,99 @@ export default function TourDetailScreen() {
     setQrModalOpen(true);
   }, [permission?.granted, requestPermission]);
 
-  const onBarcodeScanned = useCallback(
+  useEffect(() => {
+    if (!qrModalOpen) detectedBarcodesRef.current.clear();
+  }, [qrModalOpen]);
+
+  const onBarcodeDetected = useCallback(
     (res: BarcodeScanningResult) => {
       if (!qrModalOpen || scanLockRef.current) return;
+      rememberDetectedBarcode(detectedBarcodesRef.current, res);
+    },
+    [qrModalOpen]
+  );
+
+  const processTourScan = useCallback(
+    async (res: BarcodeScanningResult) => {
+      const data = res.data?.trim() ?? '';
+      const scannedFlightcase = await findTourFlightcaseByScan(data);
+      if (scannedFlightcase && scannedFlightcase.tourId === tourId) {
+        const inCase = assignments.filter(
+          a =>
+            a.flightcaseId === scannedFlightcase.id &&
+            (a.status === 'assigned' || a.status === 'in_use' || a.status === 'damaged')
+        );
+        const totalWeightKg = inCase.reduce((sum, a) => sum + assignmentWeightKg(a), 0);
+        const lines =
+          inCase.length === 0
+            ? t('tour.detail.noMaterialAssignedInFlightcase')
+            : inCase
+                .slice(0, 12)
+                .map(a => {
+                  const lineWeight = assignmentWeightKg(a);
+                  return `• ${(materials.find(m => m.id === a.materialId)?.nom ?? a.materialId)} x${a.quantity}${
+                    lineWeight > 0 ? ` · ${formatWeightKg(lineWeight)}` : ''
+                  }`;
+                })
+                .join('\n');
+        setQrModalOpen(false);
+        Alert.alert(
+          `Flightcase ${scannedFlightcase.label}`,
+          `${lines}\n\n${t('tour.detail.totalWeight')}: ${formatWeightKg(totalWeightKg)}`
+        );
+        return;
+      }
+      const m = await findMaterielForTourScan(data);
+      if (!m) {
+        Alert.alert(t('tour.detail.unknownCodeTitle'), t('tour.detail.unknownCodeBody'));
+        return;
+      }
+      void triggerScanMatchHaptic();
+      if (burstMode) {
+        const created = await assignWithMaterialId(m.id);
+        setRecentAssignmentIds(prev => [created.id, ...prev].slice(0, 20));
+        setBurstRemaining(prev => {
+          const next = Math.max(0, prev - 1);
+          if (next === 0) {
+            setQrModalOpen(false);
+            setBurstMode(false);
+            Alert.alert(t('tour.detail.scanFinishedTitle'), t('tour.detail.scanFinishedBody'));
+          }
+          return next;
+        });
+        return;
+      }
+      setQrModalOpen(false);
+      proposeAssignAfterResolve(m.nom, m.id);
+    },
+    [
+      assignWithMaterialId,
+      assignmentWeightKg,
+      assignments,
+      burstMode,
+      materials,
+      proposeAssignAfterResolve,
+      t,
+      tourId,
+    ]
+  );
+
+  const onCameraTap = useCallback(
+    (locationX: number, locationY: number) => {
+      if (!qrModalOpen || scanLockRef.current) return;
+      const picked = pickBarcodeAtTap(
+        Array.from(detectedBarcodesRef.current.values()),
+        locationX,
+        locationY
+      );
+      if (!picked) {
+        Vibration.vibrate(40);
+        return;
+      }
       scanLockRef.current = true;
       void (async () => {
         try {
-          const data = res.data?.trim() ?? '';
-          const scannedFlightcase = await findTourFlightcaseByScan(data);
-          if (scannedFlightcase && scannedFlightcase.tourId === tourId) {
-            const inCase = assignments.filter(
-              a =>
-                a.flightcaseId === scannedFlightcase.id &&
-                (a.status === 'assigned' || a.status === 'in_use' || a.status === 'damaged')
-            );
-            const totalWeightKg = inCase.reduce((sum, a) => sum + assignmentWeightKg(a), 0);
-            const lines =
-              inCase.length === 0
-                ? t('tour.detail.noMaterialAssignedInFlightcase')
-                : inCase
-                    .slice(0, 12)
-                    .map(a => {
-                      const lineWeight = assignmentWeightKg(a);
-                      return `• ${(materials.find(m => m.id === a.materialId)?.nom ?? a.materialId)} x${a.quantity}${
-                        lineWeight > 0 ? ` · ${formatWeightKg(lineWeight)}` : ''
-                      }`;
-                    })
-                    .join('\n');
-            setQrModalOpen(false);
-            Alert.alert(
-              `Flightcase ${scannedFlightcase.label}`,
-              `${lines}\n\n${t('tour.detail.totalWeight')}: ${formatWeightKg(totalWeightKg)}`
-            );
-            return;
-          }
-          const m = await findMaterielForTourScan(data);
-          if (!m) {
-            Alert.alert(
-              t('tour.detail.unknownCodeTitle'),
-              t('tour.detail.unknownCodeBody')
-            );
-            return;
-          }
-          void triggerScanMatchHaptic();
-          if (burstMode) {
-            const created = await assignWithMaterialId(m.id);
-            setRecentAssignmentIds(prev => [created.id, ...prev].slice(0, 20));
-            setBurstRemaining(prev => {
-              const next = Math.max(0, prev - 1);
-              if (next === 0) {
-                setQrModalOpen(false);
-                setBurstMode(false);
-                Alert.alert(t('tour.detail.scanFinishedTitle'), t('tour.detail.scanFinishedBody'));
-              }
-              return next;
-            });
-            return;
-          }
-          setQrModalOpen(false);
-          proposeAssignAfterResolve(m.nom, m.id);
+          await processTourScan(picked);
         } finally {
           setTimeout(() => {
             scanLockRef.current = false;
@@ -300,7 +338,7 @@ export default function TourDetailScreen() {
         }
       })();
     },
-    [assignWithMaterialId, assignments, burstMode, materials, proposeAssignAfterResolve, qrModalOpen, tourId]
+    [processTourScan, qrModalOpen]
   );
 
   const exportFlightcaseContent = useCallback(
@@ -1080,25 +1118,32 @@ export default function TourDetailScreen() {
       <Modal visible={qrModalOpen} animationType="slide" onRequestClose={() => setQrModalOpen(false)}>
         <View style={s.modalRoot}>
           {permission?.granted ? (
-            <CameraView
-              style={StyleSheet.absoluteFillObject}
-              facing="back"
-              barcodeScannerSettings={{
-                barcodeTypes: [
-                  'qr',
-                  'ean13',
-                  'ean8',
-                  'code128',
-                  'code39',
-                  'upc_a',
-                  'upc_e',
-                  'pdf417',
-                  'aztec',
-                  'datamatrix',
-                ],
-              }}
-              onBarcodeScanned={onBarcodeScanned}
-            />
+            <Pressable
+              style={{ flex: 1 }}
+              onPress={event => onCameraTap(event.nativeEvent.locationX, event.nativeEvent.locationY)}
+              accessibilityRole="button"
+              accessibilityLabel={t('tour.detail.scanModalHint')}
+            >
+              <CameraView
+                style={StyleSheet.absoluteFillObject}
+                facing="back"
+                barcodeScannerSettings={{
+                  barcodeTypes: [
+                    'qr',
+                    'ean13',
+                    'ean8',
+                    'code128',
+                    'code39',
+                    'upc_a',
+                    'upc_e',
+                    'pdf417',
+                    'aztec',
+                    'datamatrix',
+                  ],
+                }}
+                onBarcodeScanned={onBarcodeDetected}
+              />
+            </Pressable>
           ) : (
             <View style={s.modalCenter}>
               <Text style={s.modalHint}>{t('scanner.cameraPermission')}</Text>

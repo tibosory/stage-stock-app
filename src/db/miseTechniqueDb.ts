@@ -1,6 +1,7 @@
 import type { Etape, MiseTechnique, Position, PositionPhoto, ZoneScene } from '../types';
 import { generateId, getDB } from './database';
 import { removePositionPhotoLocal, persistPositionPhotoCopy } from '../lib/miseTechniquePhotoStorage';
+import { logRegieDeletion } from './regieDeletionSyncDb';
 
 // ── Mappers SQL → modèle ─────────────────────────────────────
 
@@ -52,6 +53,7 @@ function mapPhotoRow(r: any): PositionPhoto {
     id: r.id,
     positionId: r.position_id,
     localUri: r.local_uri,
+    photoUrl: r.photo_url ?? null,
     ordre: Number(r.ordre ?? 0),
     createdAt: r.created_at,
   };
@@ -102,7 +104,6 @@ export async function updateMiseTechnique(
   const now = new Date().toISOString();
   const nomSpectacle = input.nomSpectacle !== undefined ? input.nomSpectacle.trim() : existing.nomSpectacle;
   const titre = input.titre !== undefined ? input.titre.trim() : existing.titre;
-  if (!nomSpectacle || !titre) throw new Error('Le spectacle et le titre sont obligatoires.');
   const notes = input.notes !== undefined ? input.notes?.trim() || null : existing.notes;
   await database.runAsync(
     `UPDATE mises_techniques SET nom_spectacle = ?, titre = ?, notes = ?, updated_at = ?, synced = 0 WHERE id = ?`,
@@ -122,8 +123,9 @@ export async function deleteMiseTechnique(id: string): Promise<void> {
      WHERE e.mise_technique_id = ?`,
     [id]
   );
-  await database.runAsync('DELETE FROM mises_techniques WHERE id = ?', [id]);
   for (const p of photos) await removePositionPhotoLocal(p.local_uri);
+  await logRegieDeletion('mises_techniques', id);
+  await database.runAsync('DELETE FROM mises_techniques WHERE id = ?', [id]);
 }
 
 // ── Étapes ───────────────────────────────────────────────────
@@ -175,7 +177,6 @@ export async function updateEtape(
   const existing = mapEtapeRow(row0);
   const now = new Date().toISOString();
   const nom = input.nom !== undefined ? input.nom.trim() : existing.nom;
-  if (!nom) throw new Error('Le nom de l’étape est obligatoire.');
   const description = input.description !== undefined ? input.description?.trim() || null : existing.description;
   const ordre = input.ordre ?? existing.ordre;
   await database.runAsync(
@@ -194,8 +195,9 @@ export async function deleteEtape(id: string): Promise<void> {
      WHERE p.etape_id = ?`,
     [id]
   );
-  await database.runAsync('DELETE FROM etapes WHERE id = ?', [id]);
   for (const p of photos) await removePositionPhotoLocal(p.local_uri);
+  await logRegieDeletion('etapes', id);
+  await database.runAsync('DELETE FROM etapes WHERE id = ?', [id]);
 }
 
 /** Duplique une étape avec ses positions (sans les photos). */
@@ -290,9 +292,6 @@ export async function updatePosition(
   const nomObjet = input.nomObjet !== undefined ? input.nomObjet.trim() : existing.nomObjet;
   const descriptionEmplacement =
     input.descriptionEmplacement !== undefined ? input.descriptionEmplacement.trim() : existing.descriptionEmplacement;
-  if (!nomObjet || !descriptionEmplacement) {
-    throw new Error('L’objet et l’emplacement sont obligatoires.');
-  }
   const zone = input.zone ?? existing.zone;
   const notes = input.notes !== undefined ? input.notes?.trim() || null : existing.notes;
   await database.runAsync(
@@ -306,6 +305,7 @@ export async function updatePosition(
 export async function deletePosition(id: string): Promise<void> {
   const database = await getDB();
   const photos = await listPositionPhotos(id);
+  await logRegieDeletion('positions', id);
   await database.runAsync('DELETE FROM positions WHERE id = ?', [id]);
   for (const p of photos) await removePositionPhotoLocal(p.localUri);
 }
@@ -380,9 +380,11 @@ export async function addPositionPhoto(positionId: string, localUri: string): Pr
   const now = new Date().toISOString();
   const id = generateId();
   await database.runAsync(
-    `INSERT INTO position_photos (id, position_id, local_uri, ordre, created_at) VALUES (?, ?, ?, 0, ?)`,
-    [id, positionId, localUri, now]
+    `INSERT INTO position_photos (id, position_id, local_uri, ordre, created_at, updated_at, synced)
+     VALUES (?, ?, ?, 0, ?, ?, 0)`,
+    [id, positionId, localUri, now, now]
   );
+  await database.runAsync('UPDATE positions SET updated_at = ?, synced = 0 WHERE id = ?', [now, positionId]);
   const row = await database.getFirstAsync<any>('SELECT * FROM position_photos WHERE id = ?', [id]);
   return mapPhotoRow(row);
 }
@@ -391,6 +393,9 @@ export async function deletePositionPhoto(photoId: string): Promise<void> {
   const database = await getDB();
   const row = await database.getFirstAsync<any>('SELECT * FROM position_photos WHERE id = ?', [photoId]);
   if (!row) return;
+  const now = new Date().toISOString();
+  await logRegieDeletion('position_photos', photoId);
   await database.runAsync('DELETE FROM position_photos WHERE id = ?', [photoId]);
+  await database.runAsync('UPDATE positions SET updated_at = ?, synced = 0 WHERE id = ?', [now, row.position_id]);
   await removePositionPhotoLocal(row.local_uri);
 }

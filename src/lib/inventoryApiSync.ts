@@ -17,6 +17,17 @@ import { getSessionAppUserRole } from '../db/userDb';
 import { canCallApiSync, isLocalBackendDisabledReason } from './syncGuards';
 import { mergeMaterielLocalMedia, filterSnapshotRowsByUnsyncedIds, type MaterielLocalMedia } from './inventorySnapshotMerge';
 import { syncSnapshotInvalidJsonMessage } from './syncSnapshotResponseHint';
+import {
+  applyRegieSnapshotRows,
+  loadRegiePushPayload,
+  markRegieSynced,
+  regiePayloadIsEmpty,
+  reconcileRegieFromSnapshot,
+  uploadPendingRegiePhotos,
+  downloadMissingRegiePhotos,
+  clearRegieDeletionsAfterPush,
+  type RegieSnapshotSlice,
+} from './regieInventorySync';
 
 const MSG_NO_API =
   'Aucune URL d’API CATRACK Pro configurée (onglet Réseau ou EXPO_PUBLIC_API_URL au build).';
@@ -116,6 +127,13 @@ type Snapshot = {
   alertes_email?: Record<string, unknown>[];
   /** Comptes PIN (admin pousse ; autres appareils reçoivent). */
   app_users?: Record<string, unknown>[];
+  /** Module Régie — conduite et mise technique. */
+  conduites?: Record<string, unknown>[];
+  tops?: Record<string, unknown>[];
+  mises_techniques?: Record<string, unknown>[];
+  etapes?: Record<string, unknown>[];
+  positions?: Record<string, unknown>[];
+  position_photos?: Record<string, unknown>[];
 };
 
 function joinBasePath(base: string, path: string): string {
@@ -303,7 +321,7 @@ async function loadUnsyncedLocalIds(database: SqliteDb, table: 'materiels' | 'co
   return new Set(rows.map(r => String(r.id)));
 }
 
-async function applyInventorySnapshotRows(database: SqliteDb, snap: Snapshot): Promise<void> {
+export async function applyInventorySnapshotRows(database: SqliteDb, snap: Snapshot): Promise<void> {
   const cats = (snap.categories ?? []).filter((c): c is Record<string, unknown> => Boolean(c?.id && c?.nom));
   const perCat = 3;
   const catChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perCat));
@@ -415,6 +433,8 @@ async function applyInventorySnapshotRows(database: SqliteDb, snap: Snapshot): P
     ]);
     await database.runAsync(`INSERT OR REPLACE INTO alertes_email (id, nom, email, role) VALUES ${tuples}`, flat);
   }
+
+  await applyRegieSnapshotRows(database, snap as RegieSnapshotSlice);
 }
 
 export async function syncFromInventoryApi(
@@ -445,6 +465,7 @@ export async function syncFromInventoryApi(
     await database.execAsync('BEGIN IMMEDIATE;');
     try {
       await applyInventorySnapshotRows(database, snap);
+      await reconcileRegieFromSnapshot(database, snap as RegieSnapshotSlice);
 
       const appUsersSnap = snap.app_users;
       if (Array.isArray(appUsersSnap) && appUsersSnap.length > 0) {
@@ -490,6 +511,11 @@ export async function syncFromInventoryApi(
         /* ignore */
       }
       throw e;
+    }
+    try {
+      await downloadMissingRegiePhotos(database, ep);
+    } catch {
+      /* best effort */
     }
     invalidateInventorySnapshotCache();
     return { ok: true };
@@ -601,6 +627,7 @@ export async function syncToInventoryApi(
     }));
     const consommablesPayload = consoToSync.map(c => ({ ...c, synced: true }));
     const pretsPayload = pretsToSync.map(p => ({ ...p, synced: true }));
+    const regiePayload = await loadRegiePushPayload(database, 'unsynced');
 
     if (
       materielsPayload.length === 0 &&
@@ -608,7 +635,8 @@ export async function syncToInventoryApi(
       pretsPayload.length === 0 &&
       categoriesPayload.length === 0 &&
       localisationsPayload.length === 0 &&
-      appUsersPayload.length === 0
+      appUsersPayload.length === 0 &&
+      regiePayloadIsEmpty(regiePayload)
     ) {
       return { ok: true };
     }
@@ -625,6 +653,7 @@ export async function syncToInventoryApi(
       prets: pretsPayload,
       pret_materiels: pretMaterielsPayload,
       app_users: appUsersPayload,
+      ...regiePayload,
     };
 
     const res = await inventoryApiFetch(
@@ -660,6 +689,8 @@ export async function syncToInventoryApi(
         'prets',
         pretsToSync.map(p => String(p.id))
       );
+      await markRegieSynced(database, 'unsynced');
+      await clearRegieDeletionsAfterPush();
       await database.execAsync('COMMIT;');
     } catch (e) {
       try {
@@ -674,6 +705,12 @@ export async function syncToInventoryApi(
             ? e.message
             : 'Erreur locale après envoi réussi : marquage synced — vérifiez la base.',
       };
+    }
+
+    try {
+      await uploadPendingRegiePhotos(database, ep);
+    } catch {
+      /* best effort */
     }
 
     return { ok: true };
@@ -774,6 +811,7 @@ export async function pushFullInventoryToApi(
     }));
     const consommablesPayload = consoToSync.map(c => ({ ...c, synced: true }));
     const pretsPayload = pretsToSync.map(p => ({ ...p, synced: true }));
+    const regiePayload = await loadRegiePushPayload(database, 'full');
 
     if (
       materielsPayload.length === 0 &&
@@ -781,7 +819,8 @@ export async function pushFullInventoryToApi(
       pretsPayload.length === 0 &&
       categoriesPayload.length === 0 &&
       localisationsPayload.length === 0 &&
-      appUsersPayload.length === 0
+      appUsersPayload.length === 0 &&
+      regiePayloadIsEmpty(regiePayload)
     ) {
       return { ok: true };
     }
@@ -794,6 +833,7 @@ export async function pushFullInventoryToApi(
       prets: pretsPayload,
       pret_materiels: pretMaterielsPayload,
       app_users: appUsersPayload,
+      ...regiePayload,
     };
 
     const res = await inventoryApiFetch(
@@ -815,6 +855,8 @@ export async function pushFullInventoryToApi(
       await database.execAsync('UPDATE materiels SET synced = 1');
       await database.execAsync('UPDATE consommables SET synced = 1');
       await database.execAsync('UPDATE prets SET synced = 1');
+      await markRegieSynced(database, 'full');
+      await clearRegieDeletionsAfterPush();
       await database.execAsync('COMMIT;');
     } catch (e) {
       try {
@@ -829,6 +871,12 @@ export async function pushFullInventoryToApi(
             ? e.message
             : 'Erreur locale après envoi : marquage synced.',
       };
+    }
+
+    try {
+      await uploadPendingRegiePhotos(database, ep);
+    } catch {
+      /* best effort */
     }
 
     return { ok: true };

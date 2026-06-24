@@ -215,6 +215,19 @@ async function runSchemaMigrations(database: SQLite.SQLiteDatabase): Promise<voi
   await addCol('tops', 'localisation', 'TEXT');
   await addCol('tops', 'action', 'TEXT');
   await addCol('tops', 'repere', 'TEXT');
+  await addCol('position_photos', 'synced', 'INTEGER DEFAULT 0');
+  await addCol('position_photos', 'updated_at', 'TEXT');
+  await addCol('position_photos', 'photo_url', 'TEXT');
+
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS sync_regie_deletions (
+      id TEXT PRIMARY KEY,
+      table_name TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_regie_del_entity ON sync_regie_deletions(table_name, entity_id);
+  `);
 
   await database.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_materiels_nom ON materiels(nom);

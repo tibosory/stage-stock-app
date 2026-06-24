@@ -518,6 +518,8 @@ export interface PositionPhoto {
   positionId: string;
   /** URI de fichier local persistant (offline-first). */
   localUri: string;
+  /** URL API serveur après sync (`/api/regie/position-photo-files/…`). */
+  photoUrl?: string | null;
   ordre: number;
   createdAt: string;
 }

@@ -36,7 +36,7 @@ export const USER_GUIDE_META = {
 
   versionLabel:
 
-    '20 mai 2026 (v1.0.82 : conventions liées aux événements, suppression depuis l’onglet Conventions)',
+    '24 juin 2026 (v1.0.22 : sync Supabase complète — inventaire, Régie, photos)',
 
 };
 
@@ -144,6 +144,8 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'L’onglet Scanner utilise la caméra pour les QR et codes-barres, ou le NFC si le téléphone le permet.',
 
+      'Caméra : plusieurs codes visibles à l’écran — visez celui voulu, puis touchez l’écran pour lancer la lecture (plus de scan automatique sur le premier code détecté).',
+
       'QR de jumelage serveur : Connexion / Réseau → « Scanner le QR d’appairage » (ou onglet Scanner) et visez le QR affiché sur la page /pair du PC — pas l’adresse seule sous le QR. Le QR inclut l’URL et la clé API. Si « clé API requise » : rechargez /pair sur le PC et rescannez ; après réinstallation du serveur, l’ancien QR ne sert plus.',
 
       'Matériel : le code ouvre la fiche ou permet d’en créer une minimale si votre organisation l’autorise.',
@@ -168,7 +170,9 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
     paragraphs: [
 
-      'Liste filtrable par statut et recherche texte. Appui long pour sélectionner plusieurs fiches et exporter un PDF.',
+      'Liste filtrable par statut et recherche texte (matériel et consommables depuis la barre de recherche). Appui long pour sélectionner plusieurs fiches et exporter un PDF.',
+
+      'À l’ajout ou la modification d’une fiche : choisissez une catégorie existante ou créez-en une (parent optionnel pour une sous-catégorie, ex. Éclairage › LED).',
 
       'Impression d’étiquettes et fiches A4 depuis l’espace Impression.',
 
@@ -186,7 +190,7 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
     paragraphs: [
 
-      'Liste avec filtre stock sous le seuil. Mouvements depuis la fiche, le Scanner ou un import tableur.',
+      'Liste avec filtre stock sous le seuil et barre de recherche (nom, référence, catégorie, QR…). À l’ajout d’une fiche : sous-catégories et localisations créables sur place (comme dans Stock). Mouvements depuis la fiche, le Scanner ou un import tableur.',
 
     ],
 
@@ -252,6 +256,34 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
   {
 
+    icon: '🎭',
+
+    title: 'Conduite et mise technique',
+
+    paragraphs: [
+
+      'Deux outils Régie : la conduite (tops horodatés pour le live) et la mise technique (étapes, positions sur scène, photos d’implantation).',
+
+      'Les textes, tops, étapes et positions se synchronisent avec le serveur PC ou Supabase comme le stock (Envoyer ↑ / Recevoir ↓ dans Réseau).',
+
+      'Les suppressions (conduite, top, étape, objet…) sont propagées au serveur puis aux autres appareils à la prochaine synchronisation.',
+
+      'Les photos de mise technique sont téléversées vers le serveur à l’envoi ↑, puis téléchargées automatiquement sur les autres téléphones au Recevoir ↓.',
+
+      'Activez « Synchro après chaque action » dans Paramètres pour pousser automatiquement après une modification.',
+
+    ],
+
+    examples: [
+
+      'Régisseur sur tablette + chef lumière sur téléphone : même conduite après Recevoir ↓ sur les deux appareils ; le live coche les tops, l’état se propage à la prochaine sync.',
+
+    ],
+
+  },
+
+  {
+
     icon: '🌐',
 
     title: 'Réseau, connexion et synchronisation',
@@ -260,15 +292,15 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'Ouvrez l’onglet Réseau. En haut, choisissez comment synchroniser :',
 
-      '• Serveur local sur PC (Wi‑Fi ou Tailscale) — inventaire, prêts et Accueil Pro passent par le PC.',
+      '• Serveur local sur PC (Wi‑Fi ou Tailscale) — inventaire, prêts, conduites, mises techniques et Accueil Pro passent par le PC.',
 
-      '• Cloud Supabase (Internet) — inventaire, prêts et Accueil Pro passent par le cloud, sans PC serveur.',
+      '• Cloud Supabase (Internet) — inventaire, prêts, conduites, mises techniques et Accueil Pro passent par le cloud, sans PC serveur.',
 
       'Seules les cartes du mode choisi s’affichent en dessous.',
 
       'En mode local : installez le serveur, jumelez avec le QR, puis Envoyer ↑ et Recevoir ↓.',
 
-      'En mode Supabase : configurez le projet, connectez-vous, puis Envoyer ↑ et Recevoir ↓.',
+      'En mode Supabase : exportez le schéma SQL depuis Paramètres → Projet Supabase, exécutez-le une fois dans le SQL Editor Supabase, configurez URL + clé anon, puis Envoyer ↑ et Recevoir ↓.',
 
       'Tous les téléphones de l’équipe doivent utiliser le même mode.',
 

@@ -8,7 +8,6 @@ import {
   clearSupabaseOverride,
   type SupabaseOverride,
 } from './supabaseConfigStorage';
-import { getDB } from '../db/coreDb';
 import type { Materiel } from '../types';
 
 const buildUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
@@ -20,7 +19,7 @@ const PLACEHOLDER_KEY =
 
 let client: SupabaseClient;
 let effectiveConfigured = false;
-/** True when l’utilisateur a une config sur l’appareil (remplace le .env du build). */
+/** True when l'utilisateur a une config sur l'appareil (remplace le .env du build). */
 let userOverrideActive = false;
 let cachedDisplayUrl = '';
 
@@ -60,7 +59,7 @@ function applyResolvedConfig(override: SupabaseOverride | null) {
 
 applyResolvedConfig(null);
 
-/** Client Supabase courant (projet = build et/ou surcharge stockée sur l’appareil). */
+/** Client Supabase courant (projet = build et/ou surcharge stockée sur l'appareil). */
 export function getSupabase(): SupabaseClient {
   return client;
 }
@@ -80,11 +79,11 @@ async function resolveAnonKeyForSave(url: string, anonKey: string): Promise<stri
   const bu = buildUrl ?? '';
   const bk = buildAnonKey ?? '';
   if (u === bu && bk) return bk;
-  throw new Error('Clé anon requise (collez la clé du projet si vous changez d’URL).');
+  throw new Error("Clé anon requise (collez la clé du projet si vous changez d'URL).");
 }
 
 /**
- * Enregistre URL + clé anon sur l’appareil et recrée le client (déconnexion session courante).
+ * Enregistre URL + clé anon sur l'appareil et recrée le client (déconnexion session courante).
  * Si la clé est vide, réutilise la clé déjà stockée pour la même URL ou celle du build (.env).
  */
 export async function saveAndApplySupabaseConfig(url: string, anonKey: string): Promise<void> {
@@ -176,277 +175,18 @@ export async function getStocksWithMaterielsAndLieux(): Promise<{
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// SYNC : pousse les données locales non-syncées vers Supabase
+// SYNC : inventaire + Régie (supabaseMobileSync.ts)
 // ═══════════════════════════════════════════════════════════════════
 
 const STORAGE_BUCKET = 'photos';
 
-/** True si un projet Supabase est utilisable (build et/ou config sur l’appareil). */
+/** True si un projet Supabase est utilisable (build et/ou config sur l'appareil). */
 export const isSupabaseConfigured = (): boolean => effectiveConfigured;
 
 /** URL projet Supabase figée au build uniquement (diagnostic ; ne pas logger la clé). */
 export const getSupabaseProjectUrlFromBuild = (): string => buildUrl ?? '';
 
-const MSG_SUPABASE_MANQUE =
-  'Supabase n’est pas configuré. Renseignez l’URL du projet et la clé anon (Paramètres → Projet Supabase sur cet appareil), ' +
-  'ou définissez EXPO_PUBLIC_SUPABASE_URL et EXPO_PUBLIC_SUPABASE_ANON_KEY au build (EAS).';
-
-function formatSyncError(e: unknown): string {
-  const raw =
-    e instanceof Error
-      ? e.message
-      : e && typeof e === 'object' && 'message' in e
-        ? String((e as { message: unknown }).message)
-        : String(e);
-  if (/network request failed/i.test(raw)) {
-    return (
-      `${raw}\n\n` +
-      'Causes fréquentes :\n' +
-      '• Projet Supabase non configuré sur l’appareil ou variables EAS absentes.\n' +
-      '• Téléphone hors ligne, Wi‑Fi invité qui bloque les API, VPN ou DNS privé (ex. « DNS privé » Android) qui bloque supabase.co.\n' +
-      '• Projet Supabase en pause (gratuit) : réactiver sur supabase.com.\n' +
-      '• URL incorrecte (faute de frappe, espaces).'
-    );
-  }
-  return raw;
-}
-
-/** Lignes matériel pour Postgres : pas de chemins locaux (spécifiques à l’appareil). */
-function materielRowForRemote(m: Record<string, unknown>) {
-  return {
-    ...m,
-    photo_local: null,
-    notice_pdf_local: null,
-    notice_photo_local: null,
-    synced: true,
-  };
-}
-
-function extractMissingColumnName(raw: string): string | null {
-  const m =
-    /column\s+"?([a-zA-Z0-9_]+)"?\s+(?:of relation|does not exist)/i.exec(raw) ??
-    /Could not find the '([a-zA-Z0-9_]+)' column/i.exec(raw);
-  return m?.[1] ?? null;
-}
-
-function removeColumnFromRows<T extends Record<string, unknown>>(rows: T[], col: string): T[] {
-  return rows.map(row => {
-    const next = { ...row };
-    delete next[col];
-    return next;
-  });
-}
-
-async function safeUpsertWithMissingColumnRetry(
-  table: 'materiels' | 'consommables' | 'prets',
-  rows: Record<string, unknown>[]
-): Promise<{ error: PostgrestError | null; removedColumns: string[] }> {
-  let current = rows;
-  const removedColumns: string[] = [];
-  const sb = getSupabase();
-  for (let i = 0; i < 8; i += 1) {
-    const { error } = await sb.from(table).upsert(current);
-    if (!error) return { error: null, removedColumns };
-    const missing = extractMissingColumnName(error.message);
-    if (!missing) return { error, removedColumns };
-    removedColumns.push(missing);
-    current = removeColumnFromRows(current, missing);
-  }
-  return { error: { message: 'Trop de colonnes incompatibles détectées côté Supabase.' } as PostgrestError, removedColumns };
-}
-
-export const syncToSupabase = async (): Promise<{ ok: boolean; error?: string }> => {
-  if (!effectiveConfigured) {
-    return { ok: false, error: MSG_SUPABASE_MANQUE };
-  }
-  try {
-    const database = await getDB();
-    const sb = getSupabase();
-
-    const materielsToSync = await database.getAllAsync<any>(
-      'SELECT * FROM materiels WHERE synced = 0'
-    );
-    if (materielsToSync.length > 0) {
-      const { error, removedColumns } = await safeUpsertWithMissingColumnRetry(
-        'materiels',
-        materielsToSync.map(m => materielRowForRemote(m))
-      );
-      if (!error) {
-        await database.runAsync("UPDATE materiels SET synced = 1 WHERE synced = 0");
-      } else {
-        if (removedColumns.length) {
-          console.log('[supabase] syncToSupabase materiels colonnes ignorées:', removedColumns.join(', '));
-        }
-        console.log('[supabase] syncToSupabase materiels error:', error);
-        return { ok: false, error: `Supabase materiels: ${error.message}` };
-      }
-    }
-
-    const consoToSync = await database.getAllAsync<any>(
-      'SELECT * FROM consommables WHERE synced = 0'
-    );
-    if (consoToSync.length > 0) {
-      const { error, removedColumns } = await safeUpsertWithMissingColumnRetry(
-        'consommables',
-        consoToSync.map(c => ({ ...c, synced: true }))
-      );
-      if (!error) {
-        await database.runAsync("UPDATE consommables SET synced = 1 WHERE synced = 0");
-      } else {
-        if (removedColumns.length) {
-          console.log('[supabase] syncToSupabase consommables colonnes ignorées:', removedColumns.join(', '));
-        }
-        console.log('[supabase] syncToSupabase consommables error:', error);
-        return { ok: false, error: `Supabase consommables: ${error.message}` };
-      }
-    }
-
-    const pretsToSync = await database.getAllAsync<any>(
-      'SELECT * FROM prets WHERE synced = 0'
-    );
-    if (pretsToSync.length > 0) {
-      const { error, removedColumns } = await safeUpsertWithMissingColumnRetry(
-        'prets',
-        pretsToSync.map(p => ({ ...p, synced: true }))
-      );
-      if (!error) {
-        await database.runAsync("UPDATE prets SET synced = 1 WHERE synced = 0");
-      } else {
-        if (removedColumns.length) {
-          console.log('[supabase] syncToSupabase prets colonnes ignorées:', removedColumns.join(', '));
-        }
-        console.log('[supabase] syncToSupabase prets error:', error);
-        return { ok: false, error: `Supabase prets: ${error.message}` };
-      }
-    }
-
-    return { ok: true };
-  } catch (e: unknown) {
-    return { ok: false, error: formatSyncError(e) };
-  }
-};
-
-export const syncFromSupabase = async (): Promise<{ ok: boolean; error?: string }> => {
-  if (!effectiveConfigured) {
-    return { ok: false, error: MSG_SUPABASE_MANQUE };
-  }
-  try {
-    const database = await getDB();
-    const sb = getSupabase();
-
-    let { data: materiels, error: e1 } = await sb
-      .from('materiels')
-      .select('*')
-      .order('updated_at', { ascending: false });
-
-    if (
-      e1 &&
-      /does not exist/i.test(e1.message) &&
-      /updated_at/i.test(e1.message)
-    ) {
-      const retry = await sb.from('materiels').select('*');
-      materiels = retry.data;
-      e1 = retry.error;
-    }
-
-    if (e1) throw e1;
-    if (materiels) {
-      for (const m of materiels) {
-        await database.runAsync(
-          `
-          INSERT OR REPLACE INTO materiels (
-            id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id,
-            etat, statut, date_achat, date_validite, prochain_controle, intervalle_controle_jours,
-            maintenance_todo, maintenance_last_comment,
-            technicien, qr_code, nfc_tag_id, photo_url, photo_local,
-            notice_pdf_local, notice_photo_local, notice_pdf_url, notice_photo_url,
-            vgp_actif, vgp_periodicite_jours, vgp_derniere_visite, vgp_libelle, vgp_epi,
-            created_at, updated_at, synced
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-        `,
-          [
-            m.id,
-            m.nom ?? null,
-            m.type ?? null,
-            m.marque ?? null,
-            m.numero_serie ?? null,
-            m.poids_kg ?? null,
-            m.categorie_id ?? null,
-            m.localisation_id ?? null,
-            m.etat ?? 'bon',
-            m.statut ?? 'en stock',
-            m.date_achat ?? null,
-            m.date_validite ?? null,
-            m.prochain_controle ?? null,
-            m.intervalle_controle_jours ?? null,
-            (m as any).maintenance_todo ?? null,
-            (m as any).maintenance_last_comment ?? null,
-            m.technicien ?? null,
-            m.qr_code ?? null,
-            m.nfc_tag_id ?? null,
-            m.photo_url ?? null,
-            null,
-            null,
-            null,
-            m.notice_pdf_url ?? null,
-            m.notice_photo_url ?? null,
-            m.vgp_actif != null ? (m.vgp_actif ? 1 : 0) : 0,
-            m.vgp_periodicite_jours ?? null,
-            m.vgp_derniere_visite ?? null,
-            m.vgp_libelle ?? null,
-            (m as any).vgp_epi != null ? ((m as any).vgp_epi ? 1 : 0) : 0,
-            m.created_at ?? new Date().toISOString(),
-            m.updated_at ?? new Date().toISOString(),
-          ]
-        );
-      }
-    }
-
-    const { data: consommables, error: e2 } = await sb.from('consommables').select('*');
-    if (e2) throw e2;
-    if (consommables) {
-      for (const c of consommables) {
-        const row = c as Record<string, unknown>;
-        await database.runAsync(
-          `
-          INSERT OR REPLACE INTO consommables (
-            id, nom, reference, unite, stock_actuel, seuil_minimum,
-            categorie_id, localisation_id, fournisseur, prix_unitaire, qr_code, nfc_tag_id,
-            photo_local, photo_url, gel_brand, gel_code, gel_instead_of_photo,
-            created_at, updated_at, synced
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-          [
-            c.id,
-            c.nom,
-            c.reference ?? null,
-            c.unite ?? 'pièce',
-            c.stock_actuel ?? 0,
-            c.seuil_minimum ?? 5,
-            c.categorie_id ?? null,
-            c.localisation_id ?? null,
-            c.fournisseur ?? null,
-            c.prix_unitaire ?? null,
-            c.qr_code ?? null,
-            c.nfc_tag_id ?? null,
-            null,
-            row.photo_url != null ? String(row.photo_url) : null,
-            row.gel_brand != null ? String(row.gel_brand) : null,
-            row.gel_code != null ? String(row.gel_code) : null,
-            row.gel_instead_of_photo != null ? ((row.gel_instead_of_photo as number) ? 1 : 0) : 0,
-            c.created_at ?? new Date().toISOString(),
-            c.updated_at ?? new Date().toISOString(),
-            1,
-          ]
-        );
-      }
-    }
-
-    return { ok: true };
-  } catch (e: unknown) {
-    return { ok: false, error: formatSyncError(e) };
-  }
-};
+export { syncToSupabase, syncFromSupabase } from './supabaseMobileSync';
 
 export const uploadPhoto = async (localUri: string, materielId: string): Promise<string | null> => {
   try {

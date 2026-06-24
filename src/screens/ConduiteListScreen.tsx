@@ -8,6 +8,7 @@ import { Spacing } from '../theme/spacing';
 import { COULEURS_TOP, LABELS_DEPARTEMENT } from '../types';
 import type { Conduite, DepartementConduite } from '../types';
 import { createConduite, listConduites } from '../db/conduiteDb';
+import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 
 const DEPARTEMENT_OPTIONS: { label: string; value: DepartementConduite }[] = [
   { label: 'Générale (tous départements)', value: 'generale' },
@@ -52,7 +53,6 @@ export default function ConduiteListScreen() {
   );
 
   const create = async () => {
-    if (!nomSpectacle.trim() || !titre.trim()) return;
     setCreating(true);
     try {
       const created = await createConduite({
@@ -64,6 +64,7 @@ export default function ConduiteListScreen() {
       setTitre('');
       setDepartement('generale');
       await load();
+      void triggerSyncAfterActionIfEnabled();
       navigation.navigate('ConduiteDetail', { conduiteId: created.id });
     } catch (e: unknown) {
       const { Alert } = await import('react-native');
@@ -94,14 +95,12 @@ export default function ConduiteListScreen() {
             value={nomSpectacle}
             onChangeText={setNomSpectacle}
             placeholder="Ex. Le Cid — Tournée 2026"
-            required
           />
           <Input
             label="Titre de la conduite"
             value={titre}
             onChangeText={setTitre}
             placeholder="Ex. Conduite Lumière — Acte 1"
-            required
           />
           <SelectPicker
             label="Département"
@@ -146,7 +145,7 @@ export default function ConduiteListScreen() {
             <Card key={item.id} onPress={() => navigation.navigate('ConduiteDetail', { conduiteId: item.id })}>
               <View style={s.rowTop}>
                 <Text style={s.name} numberOfLines={2}>
-                  {item.titre}
+                  {item.titre?.trim() || 'Sans titre'}
                 </Text>
                 <View style={[s.pill, { borderColor: departementAccent(item.departement) }]}>
                   <Text style={[s.pillText, { color: departementAccent(item.departement) }]}>
@@ -154,7 +153,7 @@ export default function ConduiteListScreen() {
                   </Text>
                 </View>
               </View>
-              <Text style={s.sub}>{item.nomSpectacle}</Text>
+              <Text style={s.sub}>{item.nomSpectacle?.trim() || '—'}</Text>
               <Text style={s.tapHint}>
                 {item.topsCount ?? 0} top{(item.topsCount ?? 0) > 1 ? 's' : ''} · Ouvrir →
               </Text>

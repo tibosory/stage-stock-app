@@ -27,6 +27,7 @@ import {
   updatePosition,
 } from '../db/miseTechniqueDb';
 import { persistPositionPhotoCopy } from '../lib/miseTechniquePhotoStorage';
+import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 
 const ZONE_OPTIONS: { label: string; value: ZoneScene }[] = (
   Object.keys(LABELS_ZONE) as ZoneScene[]
@@ -140,6 +141,7 @@ export default function MiseTechniqueDetailScreen() {
     try {
       await copierPositionVersEtape(clipboardPosition.id, activeEtapeId);
       await loadPositions(activeEtapeId);
+      void triggerSyncAfterActionIfEnabled();
     } catch (e: unknown) {
       Alert.alert('Collage impossible', e instanceof Error ? e.message : String(e));
     }
@@ -257,10 +259,10 @@ export default function MiseTechniqueDetailScreen() {
             activeOpacity={0.85}
           >
             <Text style={[s.posName, checked[pos.id] && s.posNameDone]} numberOfLines={1}>
-              {pos.nomObjet}
+              {pos.nomObjet?.trim() || 'Objet'}
             </Text>
             <Text style={s.posEmpl} numberOfLines={2}>
-              {pos.descriptionEmplacement}
+              {pos.descriptionEmplacement?.trim() || '—'}
             </Text>
             {notes ? (
               <Text style={s.posNotes} numberOfLines={2}>
@@ -305,7 +307,6 @@ export default function MiseTechniqueDetailScreen() {
   };
 
   const saveEtape = async () => {
-    if (!etapeName.trim()) return;
     try {
       if (etapeMode === 'create') {
         const created = await createEtape({ miseTechniqueId: miseId, nom: etapeName.trim() });
@@ -317,6 +318,7 @@ export default function MiseTechniqueDetailScreen() {
         setEtapeModal(false);
         await load();
       }
+      void triggerSyncAfterActionIfEnabled();
     } catch (e: unknown) {
       Alert.alert('Enregistrement impossible', e instanceof Error ? e.message : String(e));
     }
@@ -332,6 +334,7 @@ export default function MiseTechniqueDetailScreen() {
             .then(async created => {
               await load();
               setActiveEtapeId(created.id);
+              void triggerSyncAfterActionIfEnabled();
             })
             .catch((e: unknown) => Alert.alert('Duplication impossible', e instanceof Error ? e.message : String(e))),
       },
@@ -341,7 +344,7 @@ export default function MiseTechniqueDetailScreen() {
         onPress: () =>
           Alert.alert('Supprimer cette étape ?', 'Les positions et photos de l’étape seront supprimées.', [
             { text: 'Annuler', style: 'cancel' },
-            { text: 'Supprimer', style: 'destructive', onPress: () => void deleteEtape(etape.id).then(load) },
+            { text: 'Supprimer', style: 'destructive', onPress: () => void deleteEtape(etape.id).then(load).then(() => void triggerSyncAfterActionIfEnabled()) },
           ]),
       },
       { text: 'Annuler', style: 'cancel' },
@@ -380,10 +383,6 @@ export default function MiseTechniqueDetailScreen() {
 
   const savePosition = async (): Promise<string | null> => {
     if (!activeEtapeId) return null;
-    if (!posDraft.nomObjet.trim() || !posDraft.descriptionEmplacement.trim()) {
-      Alert.alert('Champs requis', 'L’objet et l’emplacement sont obligatoires.');
-      return null;
-    }
     setSavingPos(true);
     try {
       const payload = {
@@ -395,12 +394,14 @@ export default function MiseTechniqueDetailScreen() {
       };
       if (posDraft.id) {
         await updatePosition(posDraft.id, payload);
-        await loadPositions(activeEtapeId);
-        return posDraft.id;
+      await loadPositions(activeEtapeId);
+      void triggerSyncAfterActionIfEnabled();
+      return posDraft.id;
       }
       const created = await createPosition({ etapeId: activeEtapeId, ...payload });
       setPosDraft(d => ({ ...d, id: created.id }));
       await loadPositions(activeEtapeId);
+      void triggerSyncAfterActionIfEnabled();
       return created.id;
     } catch (e: unknown) {
       Alert.alert('Enregistrement impossible', e instanceof Error ? e.message : String(e));
@@ -435,6 +436,7 @@ export default function MiseTechniqueDetailScreen() {
       const photo = await addPositionPhoto(positionId, local);
       setPosPhotos(prev => [...(prev ?? []), photo]);
       await loadPositions(activeEtapeId);
+      void triggerSyncAfterActionIfEnabled();
     } catch (e: unknown) {
       Alert.alert('Photo non ajoutée', e instanceof Error ? e.message : String(e));
     }
@@ -450,6 +452,7 @@ export default function MiseTechniqueDetailScreen() {
           void deletePositionPhoto(photoId).then(async () => {
             setPosPhotos(prev => (prev ?? []).filter(p => p.id !== photoId));
             await loadPositions(activeEtapeId);
+            void triggerSyncAfterActionIfEnabled();
           }),
       },
     ]);
@@ -458,14 +461,14 @@ export default function MiseTechniqueDetailScreen() {
   const confirmDeletePosition = (pos: Position) => {
     Alert.alert('Supprimer cet objet ?', pos.nomObjet, [
       { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => void deletePosition(pos.id).then(() => loadPositions(activeEtapeId)) },
+      { text: 'Supprimer', style: 'destructive', onPress: () => void deletePosition(pos.id).then(() => loadPositions(activeEtapeId)).then(() => void triggerSyncAfterActionIfEnabled()) },
     ]);
   };
 
   const onDeleteMise = () => {
     Alert.alert('Supprimer la mise technique ?', 'Toutes les étapes, positions et photos seront supprimées.', [
       { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => void deleteMiseTechnique(miseId).then(() => navigation.goBack()) },
+      { text: 'Supprimer', style: 'destructive', onPress: () => void deleteMiseTechnique(miseId).then(() => navigation.goBack()).then(() => void triggerSyncAfterActionIfEnabled()) },
     ]);
   };
 
@@ -492,9 +495,9 @@ export default function MiseTechniqueDetailScreen() {
 
       <View style={s.headerWrap}>
         <Text style={s.title} numberOfLines={2}>
-          {mise.titre}
+          {mise.titre?.trim() || 'Sans titre'}
         </Text>
-        <Text style={s.spectacle}>{mise.nomSpectacle}</Text>
+        <Text style={s.spectacle}>{mise.nomSpectacle?.trim() || '—'}</Text>
       </View>
 
       {/* Onglets étapes */}
@@ -507,7 +510,7 @@ export default function MiseTechniqueDetailScreen() {
             onLongPress={() => onEtapeLongPress(et)}
             delayLongPress={280}
           >
-            <Text style={[s.tabText, activeEtapeId === et.id && s.tabTextActive]}>{et.nom}</Text>
+            <Text style={[s.tabText, activeEtapeId === et.id && s.tabTextActive]}>{et.nom?.trim() || 'Étape'}</Text>
           </TouchableOpacity>
         ))}
         <TouchableOpacity style={s.tabAdd} onPress={openCreateEtape} accessibilityRole="button" accessibilityLabel="Ajouter une étape">
@@ -618,14 +621,12 @@ export default function MiseTechniqueDetailScreen() {
           value={posDraft.nomObjet}
           onChangeText={v => setPosDraft(d => ({ ...d, nomObjet: v }))}
           placeholder="Ex. Table pliante"
-          required
         />
         <Input
           label="Emplacement"
           value={posDraft.descriptionEmplacement}
           onChangeText={v => setPosDraft(d => ({ ...d, descriptionEmplacement: v }))}
           placeholder="Ex. Table cour, devant le praticable"
-          required
           multiline
         />
         <SelectPicker
@@ -684,7 +685,6 @@ export default function MiseTechniqueDetailScreen() {
           value={etapeName}
           onChangeText={setEtapeName}
           placeholder="Ex. Début spectacle, Acte 1, Rappel"
-          required
         />
         <BtnPrimary label="Enregistrer" onPress={() => void saveEtape()} style={{ marginLeft: 0, marginTop: 8 }} />
       </BottomModal>

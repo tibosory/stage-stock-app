@@ -24,6 +24,7 @@ import {
   updateTop,
 } from '../db/conduiteDb';
 import { exportConduitePdf } from '../lib/pdfConduite';
+import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 
 const TYPE_OPTIONS: { label: string; value: TypeTop }[] = [
   { label: 'Lumière', value: 'lumiere' },
@@ -104,7 +105,7 @@ const TopItem = React.memo(function TopItem({
               <Text style={[s.typeBadgeText, { color: c.text }]}>{LABELS_TYPE_TOP[top.departement]}</Text>
             </View>
           </View>
-          <Text style={s.topDesc}>{top.description}</Text>
+          <Text style={s.topDesc}>{top.description?.trim() || `Top ${top.numero}`}</Text>
           {top.localisation ? (
             <View style={s.locBadge}>
               <Text style={s.locBadgeText}>📍 {LABELS_LOCALISATION_TOP[top.localisation]}</Text>
@@ -192,10 +193,6 @@ export default function ConduiteDetailScreen() {
   }, []);
 
   const saveTop = async () => {
-    if (!draft.description.trim()) {
-      Alert.alert('Champ requis', 'La description du top est obligatoire.');
-      return;
-    }
     setSaving(true);
     try {
       const payload = {
@@ -215,6 +212,7 @@ export default function ConduiteDetailScreen() {
       }
       setModalOpen(false);
       await load();
+      void triggerSyncAfterActionIfEnabled();
     } catch (e: unknown) {
       Alert.alert('Enregistrement impossible', e instanceof Error ? e.message : String(e));
     } finally {
@@ -229,7 +227,7 @@ export default function ConduiteDetailScreen() {
         {
           text: 'Supprimer',
           style: 'destructive',
-          onPress: () => void deleteTop(top.id).then(load),
+          onPress: () => void deleteTop(top.id).then(load).then(() => void triggerSyncAfterActionIfEnabled()),
         },
       ]);
     },
@@ -242,7 +240,9 @@ export default function ConduiteDetailScreen() {
       if (from === to) return;
       setTops(prev => {
         const next = reorderItems(prev, from, to).map((t, i) => ({ ...t, numero: i + 1 }));
-        void renumeroterTops(next.map(t => ({ id: t.id, numero: t.numero }))).catch((e: unknown) =>
+        void renumeroterTops(next.map(t => ({ id: t.id, numero: t.numero })))
+          .then(() => void triggerSyncAfterActionIfEnabled())
+          .catch((e: unknown) =>
           Alert.alert('Réordonnancement non sauvegardé', e instanceof Error ? e.message : String(e))
         );
         return next;
@@ -260,6 +260,7 @@ export default function ConduiteDetailScreen() {
     })
       .then(() => Alert.alert('Conduite dupliquée', 'Une copie a été créée avec tous ses tops.'))
       .then(load)
+      .then(() => void triggerSyncAfterActionIfEnabled())
       .catch((e: unknown) => Alert.alert('Duplication impossible', e instanceof Error ? e.message : String(e)));
   };
 
@@ -276,7 +277,10 @@ export default function ConduiteDetailScreen() {
       {
         text: 'Supprimer',
         style: 'destructive',
-        onPress: () => void deleteConduite(conduiteId).then(() => navigation.goBack()),
+        onPress: () =>
+          void deleteConduite(conduiteId)
+            .then(() => navigation.goBack())
+            .then(() => void triggerSyncAfterActionIfEnabled()),
       },
     ]);
   };
@@ -300,10 +304,10 @@ export default function ConduiteDetailScreen() {
   const ListHeader = (
     <View>
       <Text style={s.title} numberOfLines={2}>
-        {conduite?.titre}
+        {conduite?.titre?.trim() || 'Sans titre'}
       </Text>
       <View style={s.metaRow}>
-        <Text style={s.spectacle}>{conduite?.nomSpectacle}</Text>
+        <Text style={s.spectacle}>{conduite?.nomSpectacle?.trim() || '—'}</Text>
         {conduite ? (
           <View style={[s.pill, { borderColor: Colors.green }]}>
             <Text style={[s.pillText, { color: Colors.green }]}>{LABELS_DEPARTEMENT[conduite.departement]}</Text>
@@ -427,7 +431,6 @@ export default function ConduiteDetailScreen() {
           value={draft.description}
           onChangeText={v => setDraft(d => ({ ...d, description: v }))}
           placeholder="Ex. Black total fin acte 1"
-          required
         />
         <Input
           label="Détail (optionnel)"

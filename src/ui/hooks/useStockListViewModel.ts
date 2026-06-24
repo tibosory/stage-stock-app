@@ -40,6 +40,7 @@ export function useStockListViewModel(materiels: Materiel[], options?: Options) 
   return {
     search,
     setSearch,
+    debouncedSearch,
     statusFilter,
     setStatusFilter,
     filtered,

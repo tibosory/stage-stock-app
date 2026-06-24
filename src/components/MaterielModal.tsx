@@ -1,5 +1,5 @@
 // src/components/MaterielModal.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   Alert, Image
@@ -20,6 +20,7 @@ import { useNfc } from '../hooks/useNfc';
 import { DynamicProfileForm } from './DynamicProfileForm';
 import { ProfileSchemaSystem } from '../application/services';
 import { loadMaterialProfileSchema, saveMaterialUseCase } from '../application/usecases';
+import { useLanguage } from '../context/LanguageContext';
 type DynamicAttrs = Record<string, string | number | boolean | null>;
 
 
@@ -70,6 +71,7 @@ export default function MaterielModal({
   sameNameEnStockCount,
   onOpenProfileEditor,
 }: Props) {
+  const { t } = useLanguage();
   const [nom, setNom] = useState('');
   const [type, setType] = useState('');
   const [marque, setMarque] = useState('');
@@ -95,6 +97,7 @@ export default function MaterielModal({
   const [noticePhotoTouched, setNoticePhotoTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCatParentId, setNewCatParentId] = useState('');
   const [newLocalisationName, setNewLocalisationName] = useState('');
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState('');
@@ -145,6 +148,7 @@ export default function MaterielModal({
       setNoticePhotoUri('');
     }
     setNewCategoryName('');
+    setNewCatParentId('');
     setNewLocalisationName('');
     setNoticePdfTouched(false);
     setNoticePhotoTouched(false);
@@ -228,18 +232,22 @@ export default function MaterielModal({
   };
 
   const handleAddCategory = async () => {
-    const t = newCategoryName.trim();
-    if (!t) {
-      Alert.alert('Catégorie', 'Saisissez un nom pour la nouvelle catégorie.');
+    const name = newCategoryName.trim();
+    if (!name) {
+      Alert.alert(t('consumables.category.nameRequired'), t('consumables.category.nameRequiredBody'));
       return;
     }
     try {
-      const id = await insertCategorie(t);
+      const pid = newCatParentId.trim() || null;
+      const id = await insertCategorie(name, pid);
       setNewCategoryName('');
+      setNewCatParentId('');
       setCategorieId(id);
       await onMetaRefresh?.();
-    } catch (e: any) {
-      Alert.alert('Erreur', e?.message ?? 'Impossible de créer la catégorie');
+      Alert.alert('✓', t('consumables.category.created'));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert(t('scanner.error'), msg);
     }
   };
 
@@ -395,19 +403,37 @@ export default function MaterielModal({
     setProchainControle(iso);
   };
 
-  const catOptions = [
-    { label: 'Aucune', value: '' },
-    ...[...categories]
-      .sort((a, b) =>
+  const sortedCats = useMemo(
+    () =>
+      [...categories].sort((a, b) =>
         categoryPathById(categories, a.id).localeCompare(categoryPathById(categories, b.id), 'fr', {
           sensitivity: 'base',
         })
-      )
-      .map(c => ({
+      ),
+    [categories]
+  );
+
+  const catOptions = useMemo(
+    () => [
+      { label: t('common.none'), value: '' },
+      ...sortedCats.map(c => ({
         label: categoryPathById(categories, c.id) || c.nom,
         value: c.id,
       })),
-  ];
+    ],
+    [categories, sortedCats, t]
+  );
+
+  const parentCreateOptions = useMemo(
+    () => [
+      { label: t('consumables.category.rootMain'), value: '' },
+      ...sortedCats.map(c => ({
+        label: categoryPathById(categories, c.id) || c.nom,
+        value: c.id,
+      })),
+    ],
+    [categories, sortedCats, t]
+  );
   const locOptions = [
     { label: 'Aucune', value: '' },
     ...localisations.map(l => ({ label: l.nom, value: l.id })),
@@ -466,19 +492,24 @@ export default function MaterielModal({
         </View>
       </View>
 
-      <View style={s.newCatRow}>
-        <View style={{ flex: 1 }}>
-          <Input
-            label="Nouvelle catégorie"
-            value={newCategoryName}
-            onChangeText={setNewCategoryName}
-            placeholder="Nom puis « Créer »"
-            onSubmitEditing={handleAddCategory}
-            returnKeyType="done"
-          />
-        </View>
-        <TouchableOpacity style={s.newCatBtn} onPress={handleAddCategory}>
-          <Text style={s.newCatBtnText}>Créer</Text>
+      <View style={s.newCatBlock}>
+        <Text style={s.newCatHint}>{t('consumables.category.createHint')}</Text>
+        <SelectPicker
+          label={t('consumables.category.parentOptional')}
+          value={newCatParentId}
+          options={parentCreateOptions}
+          onChange={setNewCatParentId}
+        />
+        <Input
+          label={t('consumables.category.newName')}
+          value={newCategoryName}
+          onChangeText={setNewCategoryName}
+          placeholder={t('consumables.category.newPlaceholder')}
+          onSubmitEditing={handleAddCategory}
+          returnKeyType="done"
+        />
+        <TouchableOpacity style={s.newCatCreateBtn} onPress={handleAddCategory}>
+          <Text style={s.newCatBtnText}>{t('consumables.category.create')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -713,7 +744,24 @@ export default function MaterielModal({
 }
 
 const s = StyleSheet.create({
+  newCatBlock: {
+    marginTop: 4,
+    marginBottom: 8,
+    padding: 12,
+    backgroundColor: Colors.bgCard,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  newCatHint: { color: Colors.textMuted, fontSize: 12, marginBottom: 10 },
   newCatRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-end', marginBottom: 12 },
+  newCatCreateBtn: {
+    backgroundColor: Colors.green,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
   newCatBtn: {
     backgroundColor: Colors.green,
     borderRadius: 10,

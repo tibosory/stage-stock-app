@@ -21,10 +21,11 @@ import { deleteMateriel } from '../db/inventoryOpsDb';
 import { getCategories, getLocalisations } from '../db/catalogDb';
 import { getMaterielById } from '../db/inventoryDb';
 import { getStats } from '../db/metadataDb';
-import { Materiel, Categorie, Localisation, StatutMateriel } from '../types';
+import { Materiel, Consommable, Categorie, Localisation, StatutMateriel } from '../types';
 import {
   EtatBadge,
   StatutBadge,
+  StockBadge,
   Card,
   ScreenHeader,
   TabScreenSafeArea,
@@ -38,12 +39,14 @@ import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 import { countMaterielSameNameEnStock } from '../lib/materielSameName';
 import { exportMaterielFichesPdf } from '../lib/pdfMaterielFiche';
 import { quickPrintMaterielQr } from '../lib/labelCustomPdf';
-import { getMaterielsCached, invalidateInventorySnapshotCache } from '../db/materialRepository';
+import { getMaterielsCached, getConsommablesCached, invalidateInventorySnapshotCache } from '../db/materialRepository';
 import { useStockListViewModel } from '../ui/hooks/useStockListViewModel';
+import { filterConsommableList } from '../core/stock/stockListFilters';
 import { listTours } from '../db/trackingDb';
 import { useLanguage } from '../context/LanguageContext';
 
 const STOCK_LIST_PAGE_SIZE = 80;
+const STOCK_CONSO_SEARCH_PREVIEW = 8;
 
 export default function StockScreen({ navigation, route }: any) {
   const { t } = useLanguage();
@@ -51,6 +54,7 @@ export default function StockScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
   const editOk = can('edit_inventory');
   const [materiels, setMateriels] = useState<Materiel[]>([]);
+  const [consommables, setConsommables] = useState<Consommable[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showSerieModal, setShowSerieModal] = useState(false);
@@ -85,6 +89,7 @@ export default function StockScreen({ navigation, route }: any) {
   const {
     search,
     setSearch,
+    debouncedSearch,
     statusFilter: statutFilter,
     setStatusFilter: setStatutFilter,
     filtered,
@@ -92,11 +97,36 @@ export default function StockScreen({ navigation, route }: any) {
     showMore,
   } = useStockListViewModel(materiels, { pageSize: STOCK_LIST_PAGE_SIZE });
 
+  const filteredConsommables = useMemo(
+    () => (debouncedSearch.trim() ? filterConsommableList(consommables, debouncedSearch) : []),
+    [consommables, debouncedSearch]
+  );
+  const previewConsommables = useMemo(
+    () => filteredConsommables.slice(0, STOCK_CONSO_SEARCH_PREVIEW),
+    [filteredConsommables]
+  );
+
+  const openConsumableFromSearch = useCallback(
+    (item: Consommable) => {
+      if (editOk) {
+        navigation.navigate('Consom.', { openConsoEditId: item.id } as never);
+        return;
+      }
+      navigation.navigate('Consom.', { initialSearch: item.nom } as never);
+    },
+    [editOk, navigation]
+  );
+
+  const openAllConsumablesFromSearch = useCallback(() => {
+    navigation.navigate('Consom.', { initialSearch: debouncedSearch.trim() } as never);
+  }, [debouncedSearch, navigation]);
+
   const load = useCallback(async () => {
     const gen = ++loadGenerationRef.current;
     try {
-      const [mats, cats, locs, st, tours] = await Promise.all([
+      const [mats, consos, cats, locs, st, tours] = await Promise.all([
         getMaterielsCached(),
+        getConsommablesCached(),
         getCategories(),
         getLocalisations(),
         getStats(),
@@ -104,6 +134,7 @@ export default function StockScreen({ navigation, route }: any) {
       ]);
       if (gen !== loadGenerationRef.current) return;
       setMateriels(mats);
+      setConsommables(consos);
       setCategories(cats);
       setLocalisations(locs);
       setStats(st);
@@ -117,6 +148,7 @@ export default function StockScreen({ navigation, route }: any) {
       /* ne pas bloquer l’UI : liste vide / stats par défaut si lecture échoue */
       if (gen === loadGenerationRef.current) {
         setMateriels([]);
+        setConsommables([]);
         setCategories([]);
         setLocalisations([]);
         setStats({ totalMateriels: 0, enPret: 0, pretsEnCours: 0, alertesConsommables: 0 });
@@ -620,12 +652,62 @@ export default function StockScreen({ navigation, route }: any) {
                   </TouchableOpacity>
                 </View>
               ) : null}
+              {debouncedSearch.trim() && previewConsommables.length > 0 ? (
+                <View style={s.consoSearchBlock}>
+                  <Text style={s.consoSearchTitle}>
+                    {t('stock.consoSearchSection')} · {filteredConsommables.length}
+                  </Text>
+                  {previewConsommables.map(c => (
+                    <TouchableOpacity
+                      key={c.id}
+                      onPress={() => openConsumableFromSearch(c)}
+                      activeOpacity={0.88}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('stock.consoSearchOpenA11y', { name: c.nom })}
+                    >
+                      <Card style={s.consoSearchCard}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+                            <Text style={s.consoSearchName}>🛒 {c.nom}</Text>
+                            <Text style={s.sub}>
+                              {[c.reference, (c as Consommable & { fournisseur?: string }).fournisseur]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </Text>
+                          </View>
+                          <StockBadge actuel={c.stock_actuel} seuil={c.seuil_minimum} unite={c.unite} />
+                        </View>
+                      </Card>
+                    </TouchableOpacity>
+                  ))}
+                  {filteredConsommables.length > STOCK_CONSO_SEARCH_PREVIEW ? (
+                    <TouchableOpacity
+                      style={s.consoSearchMore}
+                      onPress={openAllConsumablesFromSearch}
+                      accessibilityRole="button"
+                    >
+                      <Text style={s.consoSearchMoreText}>
+                        {t('stock.consoSearchSeeAll', { count: filteredConsommables.length })}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ) : null}
+              {debouncedSearch.trim() && previewConsommables.length > 0 && visibleFiltered.length > 0 ? (
+                <Text style={s.matSearchSection}>{t('stock.matSearchSection')}</Text>
+              ) : null}
             </Fragment>
           }
           ListEmptyComponent={
             <View style={s.empty}>
               <Text style={{ fontSize: 40 }}>📦</Text>
-              <Text style={{ color: Colors.textMuted, marginTop: 12 }}>{t('stock.none')}</Text>
+              <Text style={{ color: Colors.textMuted, marginTop: 12, textAlign: 'center' }}>
+                {debouncedSearch.trim() && filteredConsommables.length > 0
+                  ? t('stock.noneButConsos')
+                  : debouncedSearch.trim()
+                    ? t('stock.noneSearch')
+                    : t('stock.none')}
+              </Text>
             </View>
           }
         />
@@ -846,6 +928,32 @@ const s = StyleSheet.create({
   qrBtn: { borderWidth: 1, borderColor: Colors.green, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
   qrBtnText: { color: Colors.green, fontSize: 12, fontWeight: '700' },
   empty: { alignItems: 'center', marginTop: 60 },
+  consoSearchBlock: { marginBottom: 12 },
+  consoSearchTitle: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  consoSearchCard: { marginBottom: 8 },
+  consoSearchName: { color: Colors.white, fontSize: 15, fontWeight: '600' },
+  consoSearchMore: {
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    marginBottom: 4,
+  },
+  consoSearchMoreText: { color: Colors.green, fontSize: 13, fontWeight: '700' },
+  matSearchSection: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
   cardFocused: {
     borderColor: 'rgba(52, 211, 153, 0.45)',
     borderWidth: 1,

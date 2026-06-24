@@ -8,7 +8,7 @@ export const USER_GUIDE_META_EN = {
   title: 'CATRACK Pro — User guide',
   subtitle: 'Step-by-step guide with practical examples',
   versionLabel:
-    'May 20, 2026 (v1.0.82: agreements linked to events, delete from Agreements tab)',
+    'June 24, 2026 (v1.0.22: full Supabase sync — inventory, Régie, photos)',
 };
 
 export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
@@ -62,6 +62,7 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     title: 'Scanner (QR, barcodes, NFC)',
     paragraphs: [
       'The Scanner tab uses the camera for QR codes and barcodes, or NFC if your phone supports it.',
+      'Camera: when several codes are visible, aim at the one you want and tap the screen to read it (no automatic scan on the first code detected).',
       'Server pairing QR: Connection / Network → Scan pairing QR code (or Scanner tab) and aim at the QR on the PC /pair page — not the address line under the QR alone. The QR includes URL and API key. If “API key required”: reload /pair on the PC and scan again; after server reinstall, old QR codes are invalid.',
       'Equipment: the code opens the record or creates a minimal one if your organisation allows it.',
       'Consumables: stock in or out; burst mode applies the same quantity at each scan.',
@@ -74,7 +75,8 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     icon: '📦',
     title: 'Equipment stock',
     paragraphs: [
-      'Filterable list by status and text search. Long-press to select several records and export a PDF.',
+      'Filterable list by status and text search (equipment and consumables from the search bar). Long-press to select several records and export a PDF.',
+      'When adding or editing a record: pick an existing category or create one (optional parent for a subcategory, e.g. Lighting › LED).',
       'Print labels and A4 sheets from the printing area.',
       'The detail view shows only filled fields.',
     ],
@@ -83,7 +85,7 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     icon: '🛒',
     title: 'Consumables',
     paragraphs: [
-      'List with low-stock filter. Movements from the record, Scanner or spreadsheet import.',
+      'List with low-stock filter and search bar (name, reference, category, QR…). When adding a record: subcategories and locations can be created inline (same as Stock). Movements from the record, Scanner or spreadsheet import.',
     ],
   },
   {
@@ -116,15 +118,29 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     ],
   },
   {
+    icon: '🎭',
+    title: 'Run sheet and technical plot',
+    paragraphs: [
+      'Two backstage tools: the run sheet (timed cues for live show) and the technical plot (steps, on-stage positions, setup photos).',
+      'Text, cues, steps and positions sync to the PC server or Supabase like inventory (Push ↑ / Pull ↓ in Network).',
+      'Deletions (run sheet, cue, step, object…) propagate to the server then to other devices on the next sync.',
+      'Technical plot photos upload to the server on Push ↑, then download automatically on other phones on Pull ↓.',
+      'Enable “Sync after each action” in Settings to push automatically after a change.',
+    ],
+    examples: [
+      'Stage manager on tablet + lighting chief on phone: same run sheet after Pull ↓ on both; live mode ticks cues and the state propagates on the next sync.',
+    ],
+  },
+  {
     icon: '🌐',
     title: 'Network, connection and sync',
     paragraphs: [
       'Open the Network tab. At the top, choose how to sync:',
-      '• Local PC server (Wi‑Fi or Tailscale) — inventory, loans and Accueil Pro go through the PC.',
-      '• Supabase cloud (Internet) — inventory, loans and Accueil Pro go through the cloud, with no PC server.',
+      '• Local PC server (Wi‑Fi or Tailscale) — inventory, loans, run sheets, technical plots and Accueil Pro go through the PC.',
+      '• Supabase cloud (Internet) — inventory, loans, run sheets, technical plots and Accueil Pro go through the cloud, with no PC server.',
       'Only the cards for the chosen mode are shown below.',
       'In local mode: install the server, pair with the QR, then Push ↑ and Pull ↓.',
-      'In Supabase mode: configure the project, sign in, then Push ↑ and Pull ↓.',
+      'In Supabase mode: export the SQL schema from Settings → Supabase project, run it once in the Supabase SQL Editor, set URL + anon key, then Push ↑ and Pull ↓.',
       'All team phones must use the same mode.',
     ],
     examples: [

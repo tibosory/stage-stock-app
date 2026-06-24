@@ -883,7 +883,7 @@ export default function ParamsScreen() {
             <Text style={s.sectionTitle}>Catégories (matériel & consommables)</Text>
           </View>
           <Text style={{ color: Colors.textMuted, fontSize: 11, marginBottom: 10 }}>
-            Sous-catégories : créez-les depuis l’écran Consommables lors de l’ajout d’un article.
+            Sous-catégories : créez-les depuis Stock ou Consommables lors de l’ajout d’une fiche (parent optionnel).
           </Text>
           <View style={s.addRow}>
             <TextInput
