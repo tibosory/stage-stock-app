@@ -36,7 +36,7 @@ export const USER_GUIDE_META = {
 
   versionLabel:
 
-    '24 juin 2026 (v1.0.22 : sync Supabase complète — inventaire, Régie, photos)',
+    '24 juin 2026 (v1.0.23 : sync Supabase complète — inventaire, Régie, photos)',
 
 };
 
