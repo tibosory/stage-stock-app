@@ -40,6 +40,7 @@ import {
 import { exportShareSupabaseSchemaSql } from '../lib/supabaseSchemaSql';
 import { useSupabaseAuth } from '../hooks/useAuth';
 import { useLanguage } from '../context/LanguageContext';
+import { BackendModePicker } from '../components/BackendModePicker';
 
 export default function UserProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -332,6 +333,8 @@ export default function UserProfileScreen() {
             </TouchableOpacity>
           ) : null}
         </Card>
+
+        {can('params_sync') ? <BackendModePicker /> : null}
 
         {isSupabaseConfigured() ? (
           <Card style={{ marginBottom: 16 }}>

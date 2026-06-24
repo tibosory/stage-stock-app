@@ -8,7 +8,7 @@ import { useNetworkStatus } from '../context/NetworkStatusContext';
 import { getMateriel, getConsommablesAlerte } from '../db/inventoryDb';
 import { rescheduleVgpDueReminders } from '../lib/vgpNotifications';
 import { rescheduleSeuilBasReminders } from '../lib/seuilNotifications';
-import { isConsumerApp, isV1LanMode } from '../config/appMode';
+import { isConsumerApp } from '../config/appMode';
 import { isSupabaseConfigured } from '../lib/supabase';
 import {
   getSyncAfterEachActionEnabled,
@@ -84,12 +84,12 @@ export function NetworkCloudSync() {
 
   if (!can('params_sync')) return null;
 
-  const isLocal = isV1LanMode() || backendMode === 'local_server';
-  const syncTitle = isV1LanMode()
-    ? t('network.cloudSync.titleLan')
-    : isLocal
-      ? t('network.cloudSync.titleLocal')
-      : t('network.cloudSync.titleSupabase');
+  const isLocal = backendMode === 'local_server';
+  const syncTitle = isLocal
+    ? isConsumerApp()
+      ? t('network.cloudSync.titleLan')
+      : t('network.cloudSync.titleLocal')
+    : t('network.cloudSync.titleSupabase');
 
   return (
     <>

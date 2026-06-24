@@ -3,8 +3,8 @@ import { View, Text, TouchableOpacity, Alert, StyleSheet } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors } from '../theme/colors';
 import { Card } from './UI';
-import { isV1LanMode } from '../config/appMode';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { useAppAuth } from '../context/AuthContext';
 import { resolveApiUrlForSync } from '../lib/syncGuards';
 import {
   getDataBackendMode,
@@ -19,6 +19,7 @@ type BackendModePickerProps = {
 
 export function BackendModePicker({ onModeChange }: BackendModePickerProps = {}) {
   const { t } = useLanguage();
+  const { can } = useAppAuth();
   const [mode, setMode] = useState<DataBackendMode>('local_server');
   const [hasApi, setHasApi] = useState(false);
   const [hasSupabase, setHasSupabase] = useState(false);
@@ -37,7 +38,7 @@ export function BackendModePicker({ onModeChange }: BackendModePickerProps = {})
     }, [refresh])
   );
 
-  if (isV1LanMode()) return null;
+  if (!can('params_sync')) return null;
 
   const onSelect = (next: DataBackendMode) => {
     if (next === mode) return;

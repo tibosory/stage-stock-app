@@ -22,7 +22,8 @@ import { AppState } from 'react-native';
 
 import NetInfo from '@react-native-community/netinfo';
 
-import { isConsumerApp, isV1LanMode } from '../config/appMode';
+import { isConsumerApp } from '../config/appMode';
+import { getDataBackendMode } from '../lib/backendMode';
 
 import { checkServerReachableQuick } from '../config/stageStockApi';
 
@@ -104,6 +105,14 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
 
     setStatus('checking');
 
+    const backendMode = await getDataBackendMode();
+    if (backendMode === 'supabase') {
+      const net = await NetInfo.fetch();
+      const online = net.isConnected !== false && net.isInternetReachable !== false;
+      setStatus(online ? 'ok' : 'offline');
+      return;
+    }
+
     const ok = await checkServerReachableQuick();
 
     if (!ok) {
@@ -114,7 +123,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
 
     }
 
-    if (isV1LanMode() && !(await hasLocalSyncApiKey())) {
+    if (!(await hasLocalSyncApiKey())) {
 
       setStatus('needs_pairing');
 

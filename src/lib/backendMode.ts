@@ -1,5 +1,4 @@
 import { getResolvedApiBase } from '../config/stageStockApi';
-import { isV1LanMode } from '../config/appMode';
 import { isSupabaseConfigured } from './supabase';
 
 const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? '').trim();
@@ -30,8 +29,6 @@ export const BACKEND_SKIP = {
 } as const;
 
 export async function getDataBackendMode(): Promise<DataBackendMode> {
-  if (isV1LanMode()) return 'local_server';
-
   if (!isDataBackendModeInitialized()) {
     await loadDataBackendModeFromStorage();
   }
@@ -45,9 +42,6 @@ export async function getDataBackendMode(): Promise<DataBackendMode> {
 }
 
 export async function setDataBackendMode(mode: DataBackendMode): Promise<void> {
-  if (isV1LanMode() && mode !== 'local_server') {
-    throw new Error('Mode V1 LAN : serveur local uniquement.');
-  }
   await persistDataBackendMode(mode);
 }
 

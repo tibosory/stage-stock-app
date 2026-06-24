@@ -34,7 +34,7 @@ import {
   pingStageStockApi,
 } from '../config/stageStockApi';
 import { GuideReseauLocalContent, GuideReseauPublicContent, GuideReseauSupabaseContent } from '../content/guideReseauLocal';
-import { isConsumerApp, isV1LanMode } from '../config/appMode';
+import { isConsumerApp } from '../config/appMode';
 import { hasLocalSyncApiKey } from '../lib/serverAuthHeaders';
 import { useConnection } from '../context/ConnectionContext';
 import { connectionSurfaceLabel } from '../lib/urlDisplay';
@@ -72,7 +72,7 @@ export default function NetworkScreen() {
   const [pairingScanOpen, setPairingScanOpen] = useState(false);
   const [backendMode, setBackendMode] = useState<DataBackendMode>('local_server');
 
-  const isLocalBackend = isV1LanMode() || backendMode === 'local_server';
+  const isLocalBackend = backendMode === 'local_server';
 
   const refreshBackendMode = useCallback(async () => {
     setBackendMode(await getDataBackendMode());
@@ -370,9 +370,7 @@ export default function NetworkScreen() {
 
           {segment === 'config' ? (
             <>
-              {!isV1LanMode() ? (
-                <BackendModePicker onModeChange={setBackendMode} />
-              ) : null}
+              <BackendModePicker onModeChange={setBackendMode} />
 
               {isLocalBackend ? (
                 <>
@@ -555,9 +553,7 @@ export default function NetworkScreen() {
 
         {segment === 'config' ? (
           <>
-            {!isV1LanMode() ? (
-              <BackendModePicker onModeChange={setBackendMode} />
-            ) : null}
+            <BackendModePicker onModeChange={setBackendMode} />
 
             {isLocalBackend ? (
               <>

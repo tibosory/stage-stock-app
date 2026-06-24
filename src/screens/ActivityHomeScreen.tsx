@@ -51,6 +51,13 @@ const PRIDE_TILE_DEFS_STAFF: TileTemplate[] = [
     accent: '#10B981',
     tint: 'rgba(16,185,129,0.12)',
   },
+  {
+    key: 'res',
+    labelKey: 'home.tile.network',
+    route: 'WorkspaceReseau',
+    accent: '#06B6D4',
+    tint: 'rgba(6,182,212,0.12)',
+  },
   { key: 'param', labelKey: 'tab.settings', route: 'WorkspaceParams', accent: '#3B82F6', tint: 'rgba(59,130,246,0.12)' },
   { key: 'alerte', labelKey: 'tab.alerts', route: 'WorkspaceAlertes', accent: '#8B5CF6', tint: 'rgba(139,92,246,0.12)' },
   {

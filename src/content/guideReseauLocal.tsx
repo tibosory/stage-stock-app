@@ -213,8 +213,8 @@ const SECTIONS_SUPABASE_FR: { title: string; body: string }[] = [
   {
     title: 'Configuration',
     body:
-      'Onglet Réseau → choisissez « Cloud Supabase » → renseignez l’URL du projet et la clé anon → enregistrez. ' +
-      'Connectez-vous sur l’écran Connexion avec votre compte Supabase.',
+      'Tuile Connexion (accueil ou ALL → Connexion) : choisissez « Serveur local sur PC » ou « Cloud Supabase », puis synchronisez avec ↑ Envoyer / ↓ Recevoir. ' +
+      'Le même choix est aussi disponible dans Utilisateur → Projet Supabase. URL + clé anon : Paramètres utilisateur ou écran Connexion en mode Supabase.',
   },
   {
     title: 'Première synchronisation',
@@ -240,8 +240,8 @@ const SECTIONS_SUPABASE_EN: { title: string; body: string }[] = [
   {
     title: 'Setup',
     body:
-      'Network tab → choose “Supabase cloud” → enter the project URL and anon key → save. ' +
-      'Sign in on the Connection screen with your Supabase account.',
+      'Connection tile (home or ALL → Connection): choose “Local PC server” or “Supabase cloud”, then sync with ↑ Push / ↓ Pull. ' +
+      'The same switch is on User → Supabase project. URL + anon key: user profile or Connection screen in Supabase mode.',
   },
   {
     title: 'First sync',
