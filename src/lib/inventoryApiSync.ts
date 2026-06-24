@@ -243,12 +243,26 @@ function consoSnapshotParams(c: Record<string, unknown>): (string | number | nul
     sqlVal(c.prix_unitaire ?? null),
     sqlVal(c.qr_code ?? null),
     sqlVal(c.nfc_tag_id ?? null),
+    sqlVal(c.photo_local ?? null),
+    sqlVal(c.photo_url ?? null),
+    sqlVal((c as { gel_brand?: unknown }).gel_brand ?? null),
+    sqlVal((c as { gel_code?: unknown }).gel_code ?? null),
+    (c as { gel_instead_of_photo?: unknown }).gel_instead_of_photo != null
+      ? num01((c as { gel_instead_of_photo?: unknown }).gel_instead_of_photo)
+      : 0,
     sqlVal(c.created_at ?? new Date().toISOString()),
     sqlVal(c.updated_at ?? new Date().toISOString()),
   ];
 }
 
-const CONSO_SNAPSHOT_VALUES_TUPLE = '(?,?,?,?,?,?,?,?,?,?,?,?,?,1)';
+const CONSO_SNAPSHOT_INSERT_SQL = `INSERT OR REPLACE INTO consommables (
+            id, nom, reference, unite, stock_actuel, seuil_minimum,
+            categorie_id, localisation_id, fournisseur, prix_unitaire, qr_code, nfc_tag_id,
+            photo_local, photo_url, gel_brand, gel_code, gel_instead_of_photo,
+            created_at, updated_at, synced
+          ) VALUES `;
+
+const CONSO_SNAPSHOT_VALUES_TUPLE = `(${Array(19).fill('?').join(',')},1)`;
 
 function pretSnapshotParams(p: Record<string, unknown>): (string | number | null)[] {
   const rappel =
@@ -373,13 +387,13 @@ export async function applyInventorySnapshotRows(database: SqliteDb, snap: Snaps
     (snap.consommables ?? []).filter((c): c is Record<string, unknown> => Boolean(c?.id)),
     unsyncedConsos
   );
-  const perCon = 14;
+  const perCon = 19;
   const conChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perCon));
   const conRows = consos.map(consoSnapshotParams);
   for (let i = 0; i < conRows.length; i += conChunk) {
     const chunk = conRows.slice(i, i + conChunk);
     const tuples = chunk.map(() => CONSO_SNAPSHOT_VALUES_TUPLE).join(', ');
-    await database.runAsync(`INSERT OR REPLACE INTO consommables VALUES ${tuples}`, chunk.flat());
+    await database.runAsync(CONSO_SNAPSHOT_INSERT_SQL + tuples, chunk.flat());
   }
 
   const prets = filterSnapshotRowsByUnsyncedIds(
