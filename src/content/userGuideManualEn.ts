@@ -8,7 +8,7 @@ export const USER_GUIDE_META_EN = {
   title: 'CATRACK Pro — User guide',
   subtitle: 'Step-by-step guide with practical examples',
   versionLabel:
-    'June 24, 2026 (v1.0.24: search opens editable record)',
+    'June 24, 2026 (Supabase schema: single run, auto cleanup)',
 };
 
 export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
@@ -140,7 +140,7 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
       '• Supabase cloud (Internet) — inventory, loans, run sheets, technical plots and Accueil Pro go through the cloud, with no PC server.',
       'Only the cards for the chosen mode are shown below.',
       'In local mode: install the server, pair with the QR, then Push ↑ and Pull ↓.',
-      'In Supabase mode: export the SQL schema from Settings → Supabase project, run it once in the Supabase SQL Editor, set URL + anon key, then Push ↑ and Pull ↓.',
+      'In Supabase mode: export the SQL schema from Settings → Supabase project, paste it once in the Supabase SQL Editor (“Run and enable RLS”), set URL + anon key, then Push ↑ and Pull ↓. The script automatically cleans up an incompatible old schema.',
       'All team phones must use the same mode.',
     ],
     examples: [

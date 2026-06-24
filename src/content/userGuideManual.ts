@@ -36,7 +36,7 @@ export const USER_GUIDE_META = {
 
   versionLabel:
 
-    '24 juin 2026 (v1.0.24 : recherche → ouverture fiche éditable)',
+    '24 juin 2026 (schéma Supabase : une exécution, nettoyage auto)',
 
 };
 
@@ -300,7 +300,7 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'En mode local : installez le serveur, jumelez avec le QR, puis Envoyer ↑ et Recevoir ↓.',
 
-      'En mode Supabase : exportez le schéma SQL depuis Paramètres → Projet Supabase, exécutez-le une fois dans le SQL Editor Supabase, configurez URL + clé anon, puis Envoyer ↑ et Recevoir ↓.',
+      'En mode Supabase : exportez le schéma SQL depuis Paramètres → Projet Supabase, collez-le une fois dans le SQL Editor Supabase (« Exécutez et activez RLS »), renseignez URL + clé anon, puis Envoyer ↑ et Recevoir ↓. Le script nettoie automatiquement un ancien schéma incompatible.',
 
       'Tous les téléphones de l’équipe doivent utiliser le même mode.',
 
