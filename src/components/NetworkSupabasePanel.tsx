@@ -1,8 +1,9 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, TouchableOpacity, Alert, ActivityIndicator, StyleSheet } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Colors } from '../theme/colors';
 import { Card, Input } from './UI';
+import { SupabaseAccountForm } from './SupabaseAccountForm';
 import { useLanguage } from '../context/LanguageContext';
 import { useSupabaseAuth } from '../hooks/useAuth';
 import {
@@ -17,7 +18,6 @@ import { exportShareSupabaseSchemaSql } from '../lib/supabaseSchemaSql';
 
 export function NetworkSupabasePanel() {
   const { t } = useLanguage();
-  const navigation = useNavigation<any>();
   const { user: sbUser, refreshProfile, signOutSupabase } = useSupabaseAuth();
   const [sbUrlEdit, setSbUrlEdit] = useState('');
   const [sbKeyEdit, setSbKeyEdit] = useState('');
@@ -53,22 +53,19 @@ export function NetworkSupabasePanel() {
           <Text style={styles.hintMuted}>{t('profile.noSupabaseBuild')}</Text>
         )}
         <Text style={[styles.cardTitle, { marginTop: 14 }]}>{t('network.supabasePanel.accountTitle')}</Text>
-        <Text style={styles.mono}>
-          {sbUser?.email ?? t('network.supabasePanel.notSignedIn')}
-        </Text>
-        <TouchableOpacity
-          style={styles.primaryBtn}
-          onPress={() => navigation.getParent()?.navigate('Login')}
-        >
-          <Text style={styles.primaryBtnText}>
-            {sbUser ? t('network.supabasePanel.manageAccount') : t('network.supabasePanel.signIn')}
-          </Text>
-        </TouchableOpacity>
         {sbUser ? (
-          <TouchableOpacity style={styles.secondaryBtn} onPress={() => void signOutSupabase()}>
-            <Text style={styles.secondaryBtnText}>{t('profile.signOutCloud')}</Text>
-          </TouchableOpacity>
-        ) : null}
+          <>
+            <Text style={styles.mono}>{sbUser.email ?? '—'}</Text>
+            <TouchableOpacity style={styles.secondaryBtn} onPress={() => void signOutSupabase()}>
+              <Text style={styles.secondaryBtnText}>{t('profile.signOutCloud')}</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <Text style={styles.hint}>{t('network.supabasePanel.signInHint')}</Text>
+            <SupabaseAccountForm compact />
+          </>
+        )}
       </Card>
 
       <Card style={{ marginBottom: 14 }}>

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mergeMaterielLocalMedia, filterSnapshotRowsByUnsyncedIds } from '../lib/inventorySnapshotMerge';
+import { mergeMaterielLocalMedia, mergeConsommableLocalMedia, filterSnapshotRowsByUnsyncedIds } from '../lib/inventorySnapshotMerge';
 
 function run() {
   const remote = {
@@ -21,6 +21,16 @@ function run() {
   assert.equal(withLocal.notice_pdf_local, 'file:///data/notice.pdf');
   assert.equal(withLocal.nom, 'Projecteur');
   assert.equal(withLocal.photo_url, 'https://cdn.example/photo.jpg');
+
+  const keepLocalUrl = mergeMaterielLocalMedia(
+    { ...remote, photo_url: null, notice_pdf_url: null },
+    {
+      photo_url: 'https://cdn.example/local-only.jpg',
+      notice_pdf_url: 'https://cdn.example/notice.pdf',
+    }
+  );
+  assert.equal(keepLocalUrl.photo_url, 'https://cdn.example/local-only.jpg');
+  assert.equal(keepLocalUrl.notice_pdf_url, 'https://cdn.example/notice.pdf');
 
   const remoteHasLocal = mergeMaterielLocalMedia(
     { ...remote, photo_local: 'file:///remote/copy.jpg' },
@@ -48,6 +58,25 @@ function run() {
 
   const unchanged = filterSnapshotRowsByUnsyncedIds(rows, new Set());
   assert.equal(unchanged.length, 3);
+
+  const remoteConso = {
+    id: 'c-1',
+    nom: 'Gel',
+    photo_url: null,
+    photo_local: null,
+  };
+  const mergedConso = mergeConsommableLocalMedia(remoteConso, {
+    photo_local: 'file:///data/conso.jpg',
+    photo_url: 'https://cdn.example/conso.jpg',
+  });
+  assert.equal(mergedConso.photo_local, 'file:///data/conso.jpg');
+  assert.equal(mergedConso.photo_url, 'https://cdn.example/conso.jpg');
+
+  const keepRemoteUrl = mergeConsommableLocalMedia(
+    { ...remoteConso, photo_url: 'https://cdn.example/new.jpg' },
+    { photo_url: 'https://cdn.example/old.jpg' }
+  );
+  assert.equal(keepRemoteUrl.photo_url, 'https://cdn.example/new.jpg');
 
   console.log('inventory-snapshot-merge.spec: OK');
 }

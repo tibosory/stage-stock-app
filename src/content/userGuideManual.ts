@@ -36,7 +36,7 @@ export const USER_GUIDE_META = {
 
   versionLabel:
 
-    '24 juin 2026 (bascule serveur local ↔ Supabase)',
+    '25 juin 2026 (étiquettes QR : nom + référence, texte adaptatif)',
 
 };
 
@@ -174,7 +174,7 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'À l’ajout ou la modification d’une fiche : choisissez une catégorie existante ou créez-en une (parent optionnel pour une sous-catégorie, ex. Éclairage › LED).',
 
-      'Impression d’étiquettes et fiches A4 depuis l’espace Impression.',
+      'Impression d’étiquettes QR (Stock, Consommables, impression groupée) : chaque étiquette affiche le QR, le nom et la référence de l’article ; la taille du texte s’adapte pour que rien ne soit coupé.',
 
       'La fiche détail n’affiche que les champs renseignés.',
 
@@ -300,7 +300,8 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'En mode local : installez le serveur, jumelez avec le QR, puis Envoyer ↑ et Recevoir ↓.',
 
-      'En mode Supabase : exportez le schéma SQL depuis Paramètres → Projet Supabase, exécutez-le une fois dans le SQL Editor, renseignez URL + clé anon. Basculez Connexion ou Utilisateur → « Cloud Supabase », puis Envoyer ↑.',
+      'En mode Supabase : exportez le schéma SQL, renseignez URL + clé anon. Basculez Connexion → « Cloud Supabase » : le QR d’invitation apparaît en tête de l’onglet (carte verte 📲). Partagez-le par e-mail ou scan ; le collègue se connecte ensuite à Supabase.',
+      'Photos consommable : conservées à la sync, téléversées au cloud à l’Envoyer ↑ (qualité réduite), retéléchargées au Recevoir ↓ si une URL existe. Réassociez une photo si elle manque encore après sync.',
 
       'En mode local : tuile Connexion → « Serveur local sur PC » (QR jumelage ou adresse PC). Un seul mode actif à la fois ; tous les téléphones doivent utiliser le même.',
 

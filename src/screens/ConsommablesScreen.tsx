@@ -25,7 +25,8 @@ import { useAppAuth } from '../context/AuthContext';
 import ShelfLabelsModal from '../components/ShelfLabelsModal';
 import { quickPrintConsommableQr } from '../lib/labelCustomPdf';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
-import { uploadConsommablePhoto } from '../lib/supabase';
+import { uploadConsommablePhoto, isSupabaseConfigured } from '../lib/supabase';
+import { persistConsommablePhotoCopy } from '../lib/consommablePhotoStorage';
 import {
   GEL_BRAND_OPTIONS,
   gelPickerOptions,
@@ -477,13 +478,7 @@ export default function ConsommablesScreen() {
         items={visibleDisplayedItems.map(c => ({
           id: c.id,
           title: c.nom,
-          subtitle: [
-            c.reference,
-            (c as any).localisation_nom,
-            `${c.stock_actuel}/${c.seuil_minimum} ${c.unite}`,
-          ]
-            .filter(Boolean)
-            .join(' · '),
+          subtitle: [c.reference, (c as any).localisation_nom].filter(Boolean).join(' · '),
         }))}
       />
     </TabScreenSafeArea>
@@ -593,14 +588,26 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
   }, [visible, item, initialQr, initialNfc]);
 
   const handlePhoto = async () => {
+    const draftId = item?.id ?? `draft-${Date.now()}`;
     Alert.alert(t('consumables.photo.title'), t('consumables.photo.source'), [
       {
         text: t('consumables.photo.camera'),
         onPress: async () => {
           const perm = await ImagePicker.requestCameraPermissionsAsync();
           if (!perm.granted) return;
-          const res = await ImagePicker.launchCameraAsync({ quality: 0.8, allowsEditing: true, aspect: [4, 3] });
-          if (!res.canceled) setPhotoLocal(res.assets[0].uri);
+          const res = await ImagePicker.launchCameraAsync({
+            quality: 0.65,
+            allowsEditing: true,
+            aspect: [4, 3],
+          });
+          if (!res.canceled) {
+            try {
+              const dest = await persistConsommablePhotoCopy(draftId, res.assets[0].uri);
+              setPhotoLocal(dest);
+            } catch {
+              setPhotoLocal(res.assets[0].uri);
+            }
+          }
         },
       },
       {
@@ -608,8 +615,15 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
         onPress: async () => {
           const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
           if (!perm.granted) return;
-          const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
-          if (!res.canceled) setPhotoLocal(res.assets[0].uri);
+          const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.65 });
+          if (!res.canceled) {
+            try {
+              const dest = await persistConsommablePhotoCopy(draftId, res.assets[0].uri);
+              setPhotoLocal(dest);
+            } catch {
+              setPhotoLocal(res.assets[0].uri);
+            }
+          }
         },
       },
       { text: t('common.cancel'), style: 'cancel' },
@@ -688,10 +702,20 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
       } else {
         savedId = await insertConsommable(data as any);
       }
-      if (photoLocal?.trim()) {
-        void uploadConsommablePhoto(photoLocal, savedId).then(url => {
-          if (url) void updateConsommable(savedId, { photo_url: url });
-        });
+      let finalPhotoLocal = photoLocal.trim() || null;
+      if (finalPhotoLocal) {
+        try {
+          if (!finalPhotoLocal.includes(`/consommables/${savedId}/`)) {
+            finalPhotoLocal = await persistConsommablePhotoCopy(savedId, finalPhotoLocal);
+          }
+          await updateConsommable(savedId, { photo_local: finalPhotoLocal });
+        } catch {
+          /* garder le chemin saisi */
+        }
+        if (isSupabaseConfigured()) {
+          const url = await uploadConsommablePhoto(finalPhotoLocal, savedId);
+          if (url) await updateConsommable(savedId, { photo_url: url });
+        }
       }
       onSaved();
       void triggerSyncAfterActionIfEnabled();

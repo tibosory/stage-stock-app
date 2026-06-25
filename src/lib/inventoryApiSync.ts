@@ -15,7 +15,7 @@ import { getDB } from '../db/coreDb';
 import { invalidateInventorySnapshotCache } from '../db/materialRepository';
 import { getSessionAppUserRole } from '../db/userDb';
 import { canCallApiSync, isLocalBackendDisabledReason } from './syncGuards';
-import { mergeMaterielLocalMedia, filterSnapshotRowsByUnsyncedIds, type MaterielLocalMedia } from './inventorySnapshotMerge';
+import { mergeMaterielLocalMedia, mergeConsommableLocalMedia, filterSnapshotRowsByUnsyncedIds, type MaterielLocalMedia, type ConsommableLocalMedia } from './inventorySnapshotMerge';
 import { syncSnapshotInvalidJsonMessage } from './syncSnapshotResponseHint';
 import {
   applyRegieSnapshotRows,
@@ -28,6 +28,14 @@ import {
   clearRegieDeletionsAfterPush,
   type RegieSnapshotSlice,
 } from './regieInventorySync';
+import {
+  uploadPendingConsommablePhotos,
+  downloadMissingConsommablePhotos,
+} from './consommablePhotoSync';
+import {
+  uploadPendingMaterielMedia,
+  downloadMissingMaterielMedia,
+} from './materielPhotoSync';
 
 const MSG_NO_API =
   'Aucune URL d’API CATRACK Pro configurée (onglet Réseau ou EXPO_PUBLIC_API_URL au build).';
@@ -313,17 +321,49 @@ async function loadLocalMaterielMediaMap(
     const rows = await database.getAllAsync<{
       id: string;
       photo_local: string | null;
+      photo_url: string | null;
       notice_pdf_local: string | null;
+      notice_pdf_url: string | null;
       notice_photo_local: string | null;
+      notice_photo_url: string | null;
     }>(
-      `SELECT id, photo_local, notice_pdf_local, notice_photo_local FROM materiels WHERE id IN (${ph})`,
+      `SELECT id, photo_local, photo_url, notice_pdf_local, notice_pdf_url,
+              notice_photo_local, notice_photo_url FROM materiels WHERE id IN (${ph})`,
       chunk
     );
     for (const row of rows) {
       map.set(String(row.id), {
         photo_local: row.photo_local,
+        photo_url: row.photo_url,
         notice_pdf_local: row.notice_pdf_local,
+        notice_pdf_url: row.notice_pdf_url,
         notice_photo_local: row.notice_photo_local,
+        notice_photo_url: row.notice_photo_url,
+      });
+    }
+  }
+  return map;
+}
+
+async function loadLocalConsommableMediaMap(
+  database: SqliteDb,
+  ids: string[]
+): Promise<Map<string, ConsommableLocalMedia>> {
+  const map = new Map<string, ConsommableLocalMedia>();
+  if (ids.length === 0) return map;
+  const idChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / 1));
+  for (let i = 0; i < ids.length; i += idChunk) {
+    const chunk = ids.slice(i, i + idChunk);
+    const ph = chunk.map(() => '?').join(',');
+    const rows = await database.getAllAsync<{
+      id: string;
+      photo_local: string | null;
+      photo_url: string | null;
+    }>(`SELECT id, photo_local, photo_url FROM consommables WHERE id IN (${ph})`, chunk);
+    for (const row of rows) {
+      map.set(String(row.id), {
+        photo_local: row.photo_local,
+        photo_url: row.photo_url,
       });
     }
   }
@@ -387,9 +427,15 @@ export async function applyInventorySnapshotRows(database: SqliteDb, snap: Snaps
     (snap.consommables ?? []).filter((c): c is Record<string, unknown> => Boolean(c?.id)),
     unsyncedConsos
   );
+  const localConsoMediaById = await loadLocalConsommableMediaMap(
+    database,
+    consos.map(c => String(c.id))
+  );
   const perCon = 19;
   const conChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perCon));
-  const conRows = consos.map(consoSnapshotParams);
+  const conRows = consos
+    .map(c => mergeConsommableLocalMedia(c, localConsoMediaById.get(String(c.id))))
+    .map(consoSnapshotParams);
   for (let i = 0; i < conRows.length; i += conChunk) {
     const chunk = conRows.slice(i, i + conChunk);
     const tuples = chunk.map(() => CONSO_SNAPSHOT_VALUES_TUPLE).join(', ');
@@ -531,6 +577,16 @@ export async function syncFromInventoryApi(
     } catch {
       /* best effort */
     }
+    try {
+      await downloadMissingMaterielMedia(database, ep);
+    } catch {
+      /* best effort */
+    }
+    try {
+      await downloadMissingConsommablePhotos(database, ep);
+    } catch {
+      /* best effort */
+    }
     invalidateInventorySnapshotCache();
     return { ok: true };
   } catch (e: unknown) {
@@ -632,14 +688,26 @@ export async function syncToInventoryApi(
       }));
     }
 
-    const materielsPayload = materielsToSync.map(m => ({
+    try {
+      await uploadPendingMaterielMedia(database);
+      await uploadPendingConsommablePhotos(database);
+    } catch {
+      /* best effort */
+    }
+    const materielsForPush = await database.getAllAsync<Record<string, unknown>>(
+      'SELECT * FROM materiels WHERE synced = 0'
+    );
+    const materielsPayload = materielsForPush.map(m => ({
       ...m,
       photo_local: null,
       notice_pdf_local: null,
       notice_photo_local: null,
       synced: true,
     }));
-    const consommablesPayload = consoToSync.map(c => ({ ...c, synced: true }));
+    const consosForPush = await database.getAllAsync<Record<string, unknown>>(
+      'SELECT * FROM consommables WHERE synced = 0'
+    );
+    const consommablesPayload = consosForPush.map(c => ({ ...c, photo_local: null, synced: true }));
     const pretsPayload = pretsToSync.map(p => ({ ...p, synced: true }));
     const regiePayload = await loadRegiePushPayload(database, 'unsynced');
 
@@ -723,6 +791,12 @@ export async function syncToInventoryApi(
 
     try {
       await uploadPendingRegiePhotos(database, ep);
+    } catch {
+      /* best effort */
+    }
+    try {
+      await uploadPendingMaterielMedia(database);
+      await uploadPendingConsommablePhotos(database);
     } catch {
       /* best effort */
     }
@@ -816,14 +890,24 @@ export async function pushFullInventoryToApi(
       }));
     }
 
-    const materielsPayload = materielsToSync.map(m => ({
+    try {
+      await uploadPendingMaterielMedia(database);
+      await uploadPendingConsommablePhotos(database);
+    } catch {
+      /* best effort */
+    }
+    const materielsForPush = await database.getAllAsync<Record<string, unknown>>('SELECT * FROM materiels');
+    const materielsPayload = materielsForPush.map(m => ({
       ...m,
       photo_local: null,
       notice_pdf_local: null,
       notice_photo_local: null,
       synced: true,
     }));
-    const consommablesPayload = consoToSync.map(c => ({ ...c, synced: true }));
+    const consosForPush = await database.getAllAsync<Record<string, unknown>>(
+      'SELECT * FROM consommables WHERE synced = 0'
+    );
+    const consommablesPayload = consosForPush.map(c => ({ ...c, photo_local: null, synced: true }));
     const pretsPayload = pretsToSync.map(p => ({ ...p, synced: true }));
     const regiePayload = await loadRegiePushPayload(database, 'full');
 
@@ -889,6 +973,12 @@ export async function pushFullInventoryToApi(
 
     try {
       await uploadPendingRegiePhotos(database, ep);
+    } catch {
+      /* best effort */
+    }
+    try {
+      await uploadPendingMaterielMedia(database);
+      await uploadPendingConsommablePhotos(database);
     } catch {
       /* best effort */
     }

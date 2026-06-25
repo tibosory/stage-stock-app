@@ -33,7 +33,11 @@ export function AppAuthProvider({ children }: { children: React.ReactNode }) {
   const [mustChangeDefaultPin, setMustChangeDefaultPin] = useState(false);
 
   const refreshSession = useCallback(async () => {
-    const cu = await fetchCloudUser();
+    const fetchCloudWithTimeout = Promise.race([
+      fetchCloudUser(),
+      new Promise<null>(resolve => setTimeout(() => resolve(null), 8000)),
+    ]);
+    const cu = await fetchCloudWithTimeout;
     setCloudUser(cu);
     const id = await AsyncStorage.getItem(SESSION_KEY);
     if (!id) {

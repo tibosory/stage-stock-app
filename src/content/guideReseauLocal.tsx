@@ -223,6 +223,13 @@ const SECTIONS_SUPABASE_FR: { title: string; body: string }[] = [
       'Tous les téléphones de l’équipe doivent être en mode Supabase.',
   },
   {
+    title: 'Inviter un collègue (URL + clé anon)',
+    body:
+      'Admin ou technicien : Connexion → choisissez « Cloud Supabase » en haut. ' +
+      'La carte verte 📲 « QR d’invitation » est la première de l’onglet État : QR, copier le lien ou e-mail. ' +
+      'En mode serveur local, un rappel indique de basculer vers Supabase pour afficher le QR.',
+  },
+  {
     title: 'Invitations portail (Accueil Pro)',
     body:
       'Le staff peut inviter une association depuis Accueil Pro → fiche Organisation → Inviter au portail cloud. ' +
@@ -247,6 +254,13 @@ const SECTIONS_SUPABASE_EN: { title: string; body: string }[] = [
     title: 'First sync',
     body:
       'Use the Inventory sync and Accueil Pro cards: Push ↑ sends your changes, Pull ↓ receives from the cloud. All team phones must use Supabase mode.',
+  },
+  {
+    title: 'Invite a colleague (URL + anon key)',
+    body:
+      'Admin or technician: Connection → choose “Supabase cloud” at the top. ' +
+      'The green 📲 “Invitation QR” card is first in the Status tab: QR, copy link or email. ' +
+      'In local server mode, a hint tells you to switch to Supabase to show the QR.',
   },
   {
     title: 'Portal invitations (Accueil Pro)',

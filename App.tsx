@@ -1,7 +1,7 @@
 // App.tsx
+import 'react-native-gesture-handler';
 import 'react-native-url-polyfill/auto';
 import './src/lib/systemNotificationSetup';
-import './src/lib/supabaseKeepAliveBackground';
 import React, { useCallback, useEffect, useState, type PropsWithChildren } from 'react';
 import {
   View,
@@ -76,6 +76,7 @@ import {
 } from './src/lib/foregroundInventorySync';
 import { ConnectionProvider } from './src/context/ConnectionContext';
 import { PairingDeepLinkSubscriber } from './src/components/PairingDeepLinkSubscriber';
+import { SupabaseProvisioningDeepLinkSubscriber } from './src/components/SupabaseProvisioningDeepLinkSubscriber';
 import { MustChangeDefaultPinModal } from './src/components/MustChangeDefaultPinModal';
 import { isConsumerApp } from './src/config/appMode';
 
@@ -680,6 +681,7 @@ function AppWithLanguageLoaded() {
           <AppAuthProvider>
             <NetworkStatusProvider>
                 <AuthProvider>
+                  <SupabaseProvisioningDeepLinkSubscriber />
                   {SAAS_MODE_ENABLED ? (
                     <SaaSAppNavigation />
                   ) : (

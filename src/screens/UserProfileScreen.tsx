@@ -41,6 +41,7 @@ import { exportShareSupabaseSchemaSql } from '../lib/supabaseSchemaSql';
 import { useSupabaseAuth } from '../hooks/useAuth';
 import { useLanguage } from '../context/LanguageContext';
 import { BackendModePicker } from '../components/BackendModePicker';
+import { SupabaseAccountForm } from '../components/SupabaseAccountForm';
 
 export default function UserProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -356,9 +357,7 @@ export default function UserProfileScreen() {
                 </TouchableOpacity>
               </>
             ) : (
-              <Text style={{ color: Colors.textMuted, fontSize: 13 }}>
-                {t('profile.supabaseNotFromLogin')}
-              </Text>
+              <SupabaseAccountForm compact />
             )}
           </Card>
         ) : null}

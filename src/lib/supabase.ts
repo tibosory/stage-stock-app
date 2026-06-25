@@ -22,6 +22,7 @@ let effectiveConfigured = false;
 /** True when l'utilisateur a une config sur l'appareil (remplace le .env du build). */
 let userOverrideActive = false;
 let cachedDisplayUrl = '';
+let cachedEffectiveAnonKey = '';
 
 type ClientListener = () => void;
 const clientListeners = new Set<ClientListener>();
@@ -41,6 +42,7 @@ function applyResolvedConfig(override: SupabaseOverride | null) {
   effectiveConfigured = Boolean(url && anonKey);
   userOverrideActive = Boolean(override?.url && override?.anonKey);
   cachedDisplayUrl = effectiveConfigured ? url : '';
+  cachedEffectiveAnonKey = effectiveConfigured ? anonKey : '';
 
   client = createClient(
     effectiveConfigured ? url : PLACEHOLDER_URL,
@@ -122,6 +124,20 @@ export function hasSupabaseUserOverride(): boolean {
 /** URL du projet effectivement utilisée (jamais la clé). */
 export function getEffectiveSupabaseUrlForDisplay(): string {
   return cachedDisplayUrl;
+}
+
+/** Config effective (staff) pour QR / lien d’invitation — ne pas logger la clé. */
+export async function getEffectiveSupabaseConfigForShare(): Promise<SupabaseOverride | null> {
+  if (!effectiveConfigured) return null;
+  const url = cachedDisplayUrl.trim();
+  if (!url) return null;
+  const stored = await loadSupabaseOverride();
+  if (stored?.url && stored.anonKey) return stored;
+  if (buildUrl && buildAnonKey && url === buildUrl.trim()) {
+    return { url: buildUrl.trim(), anonKey: buildAnonKey.trim() };
+  }
+  if (cachedEffectiveAnonKey) return { url, anonKey: cachedEffectiveAnonKey };
+  return null;
 }
 
 /**

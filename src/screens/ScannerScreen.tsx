@@ -20,6 +20,7 @@ import { triggerScanMatchHaptic } from '../lib/scanHaptic';
 import { pickBarcodeAtTap, rememberDetectedBarcode } from '../lib/tapToScanBarcode';
 import { openMaterielFicheFromAlerte, openConsoFicheFromAlerte } from '../navigation/openFicheFromAlerte';
 import { completePairingFromScan } from '../lib/completePairingFromScan';
+import { completeSupabaseProvisioningFromScan } from '../lib/completeSupabaseProvisioningFromScan';
 import { useConnection } from '../context/ConnectionContext';
 import { useNfc } from '../hooks/useNfc';
 import { EtatBadge, Card, BottomModal, Input, TabScreenSafeArea } from '../components/UI';
@@ -236,6 +237,21 @@ export default function ScannerScreen() {
     if (burstNumpadConso) return;
     setScanned(true);
     Vibration.vibrate(80);
+
+    const provisioning = await completeSupabaseProvisioningFromScan(result.data, language);
+    if (provisioning.kind !== 'not_provisioning') {
+      await refreshConnection();
+      Alert.alert(
+        language === 'en' ? 'Supabase' : 'Supabase',
+        provisioning.kind === 'success'
+          ? language === 'en'
+            ? `Project configured.\n\n${provisioning.url}\n\nSign in with your Supabase account in Connection, then sync.`
+            : `Projet configuré.\n\n${provisioning.url}\n\nConnectez votre compte Supabase dans Connexion, puis synchronisez.`
+          : `${provisioning.title}\n\n${provisioning.message}`,
+        [{ text: t('common.ok'), onPress: () => setScanned(false) }]
+      );
+      return;
+    }
 
     const pairing = await completePairingFromScan(result.data, language);
     if (pairing.kind !== 'not_pairing') {

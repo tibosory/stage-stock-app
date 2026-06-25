@@ -455,9 +455,32 @@ const fr: Dict = {
   'network.supabasePanel.statusHint': 'URL utilisée pour inventaire, prêts et Accueil Pro.',
   'network.supabasePanel.accountTitle': 'Compte Supabase',
   'network.supabasePanel.notSignedIn': 'Non connecté',
+  'network.supabasePanel.signInHint':
+    'Connectez le compte Supabase ici (email et mot de passe). Nécessaire pour la sync cloud si votre projet l’exige.',
   'network.supabasePanel.signIn': 'Se connecter à Supabase',
   'network.supabasePanel.manageAccount': 'Gérer le compte (Connexion)',
   'network.supabasePanel.projectHint': 'Renseignez le projet si le build ne contient pas déjà les variables EAS.',
+  'network.supabaseProvision.title': 'QR d’invitation — projet Supabase',
+  'network.supabaseProvision.badge': 'Partage collègue · en haut de Connexion',
+  'network.supabaseProvision.hint':
+    'Le collègue installe CATRACK Pro, scanne ce QR (ou ouvre le lien) : URL et clé anon sont enregistrées automatiquement. Il se connecte ensuite avec son compte Supabase.',
+  'network.supabaseProvision.needConfig':
+    'Enregistrez d’abord l’URL et la clé anon dans la carte « Projet Supabase » ci-dessous, puis revenez ici.',
+  'network.supabaseProvision.switchModeTitle': 'Inviter au projet Supabase (QR)',
+  'network.supabaseProvision.switchModeHint':
+    'Vous êtes en mode serveur local. Choisissez « Cloud Supabase » juste au-dessus : le QR d’invitation s’affiche en premier dans cet onglet.',
+  'network.supabaseProvision.copyLink': 'Copier le lien d’invitation',
+  'network.supabaseProvision.sendMail': 'Partager par e-mail',
+  'network.supabaseProvision.scanHint':
+    'Le collègue peut aussi scanner ce QR depuis l’onglet Scanner (ou ouvrir le lien sur le téléphone).',
+  'network.supabaseProvision.copiedTitle': 'Lien copié',
+  'network.supabaseProvision.copiedBody': 'Collez-le dans un e-mail ou une messagerie.',
+  'network.supabaseProvision.mailSubject': 'Invitation CATRACK Pro — configuration Supabase',
+  'network.supabaseProvision.mailBody':
+    'Bonjour,\n\n1) Installez CATRACK Pro sur votre téléphone.\n2) Ouvrez ce lien (ou scannez le QR envoyé séparément) :\n\n{link}\n\n3) Connectez-vous avec votre compte Supabase dans Connexion.\n\nProjet : {url}',
+  'network.supabaseProvision.mailFail': 'Impossible d’ouvrir l’application e-mail.',
+  'network.supabaseProvision.doneTitle': 'Projet Supabase configuré',
+  'network.supabaseProvision.doneBody': 'URL enregistrée : {url}. Connectez votre compte Supabase si besoin, puis synchronisez.',
   'network.cloudSync.afterActionTitle': 'Synchro après chaque action',
   'network.cloudSync.afterActionHint':
     'Après enregistrement (prêt, matériel, consommable, VGP, etc.), envoi puis réception automatiques si le backend répond.',
@@ -1696,7 +1719,7 @@ const fr: Dict = {
   'profile.supabaseAcctHint': 'Connexion au projet Supabase depuis l’écran de connexion.',
   'profile.supabaseSignOut': 'Déconnexion Supabase',
   'profile.supabaseNotFromLogin':
-    'Non connecté — utilisez le bloc Supabase sur l’écran de connexion.',
+    'Non connecté — saisissez email et mot de passe ci-dessous, ou depuis Connexion → onglet Supabase.',
 
   'hist.title': 'Historique stock',
   'hist.intro': 'Filtrez par type, période ou recherche (nom du consommable, note).',
@@ -2342,9 +2365,32 @@ const en: Dict = {
   'network.supabasePanel.statusHint': 'URL used for inventory, loans and Accueil Pro.',
   'network.supabasePanel.accountTitle': 'Supabase account',
   'network.supabasePanel.notSignedIn': 'Not signed in',
+  'network.supabasePanel.signInHint':
+    'Sign in to your Supabase account here (email and password). Required for cloud sync if your project enforces auth.',
   'network.supabasePanel.signIn': 'Sign in to Supabase',
   'network.supabasePanel.manageAccount': 'Manage account (Sign-in)',
   'network.supabasePanel.projectHint': 'Enter the project if the build does not already include EAS variables.',
+  'network.supabaseProvision.title': 'Invitation QR — Supabase project',
+  'network.supabaseProvision.badge': 'Colleague share · top of Connection',
+  'network.supabaseProvision.hint':
+    'Your colleague installs CATRACK Pro, scans this QR (or opens the link): URL and anon key are saved automatically. They then sign in with their Supabase account.',
+  'network.supabaseProvision.needConfig':
+    'Save URL and anon key in the “Supabase project” card below first, then return here.',
+  'network.supabaseProvision.switchModeTitle': 'Invite to Supabase project (QR)',
+  'network.supabaseProvision.switchModeHint':
+    'You are in local server mode. Choose “Supabase cloud” just above — the invitation QR appears first in this tab.',
+  'network.supabaseProvision.copyLink': 'Copy invitation link',
+  'network.supabaseProvision.sendMail': 'Share by email',
+  'network.supabaseProvision.scanHint':
+    'Your colleague can also scan this QR from the Scanner tab (or open the link on their phone).',
+  'network.supabaseProvision.copiedTitle': 'Link copied',
+  'network.supabaseProvision.copiedBody': 'Paste it into an email or chat.',
+  'network.supabaseProvision.mailSubject': 'CATRACK Pro invitation — Supabase setup',
+  'network.supabaseProvision.mailBody':
+    'Hello,\n\n1) Install CATRACK Pro on your phone.\n2) Open this link (or scan the QR sent separately):\n\n{link}\n\n3) Sign in with your Supabase account under Connection.\n\nProject: {url}',
+  'network.supabaseProvision.mailFail': 'Could not open the email app.',
+  'network.supabaseProvision.doneTitle': 'Supabase project configured',
+  'network.supabaseProvision.doneBody': 'URL saved: {url}. Sign in to Supabase if needed, then sync.',
   'network.cloudSync.afterActionTitle': 'Sync after each action',
   'network.cloudSync.afterActionHint':
     'After saving (loan, item, consumable, inspection, etc.), automatic push then pull when the backend responds.',
@@ -3567,7 +3613,7 @@ const en: Dict = {
   'profile.supabaseAcctTitle': 'Supabase account (optional)',
   'profile.supabaseAcctHint': 'Sign in to Supabase from the login screen.',
   'profile.supabaseSignOut': 'Sign out Supabase',
-  'profile.supabaseNotFromLogin': 'Not signed in — use the Supabase block on the login screen.',
+  'profile.supabaseNotFromLogin': 'Not signed in — enter email and password below, or from Connection → Supabase tab.',
 
   'hist.title': 'Stock history',
   'hist.intro': 'Filter by type, period or search (consumable name, note).',

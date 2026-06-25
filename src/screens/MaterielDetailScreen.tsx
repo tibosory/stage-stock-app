@@ -7,7 +7,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Sharing from 'expo-sharing';
-import { syncMaterielNoticeAttachments } from '../lib/materielAttachments';
+import { persistMaterielMainPhotoCopy, syncMaterielNoticeAttachments } from '../lib/materielAttachments';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Colors } from '../theme/colors';
 import {
@@ -34,7 +34,7 @@ import {
 import { exportMaterielFichesPdf } from '../lib/pdfMaterielFiche';
 import { MaterielEmpruntHistorique } from '../types';
 import { format, parseISO, isValid } from 'date-fns';
-import { uploadPhoto, pushMaterielNoticesToSupabaseAfterSave } from '../lib/supabase';
+import { uploadPhoto, pushMaterielNoticesToSupabaseAfterSave, isSupabaseConfigured } from '../lib/supabase';
 import { useNfc } from '../hooks/useNfc';
 import { Materiel } from '../types';
 import { EtatBadge, StatutBadge, Card, BottomModal, TabScreenSafeArea, SelectPicker } from '../components/UI';
@@ -183,6 +183,24 @@ export default function MaterielDetailScreen() {
 
   const handlePhoto = async () => {
     if (!editOk) return;
+    const persistPickedPhoto = async (pickedUri: string) => {
+      if (!mat) return;
+      const dest = await persistMaterielMainPhotoCopy(mat.id, pickedUri);
+      await updateMateriel(mat.id, { photo_local: dest });
+      setMat(prev => (prev ? { ...prev, photo_local: dest } : prev));
+      if (isSupabaseConfigured()) {
+        setUploadingPhoto(true);
+        try {
+          const url = await uploadPhoto(dest, mat.id);
+          if (url) {
+            await updateMateriel(mat.id, { photo_url: url });
+            setMat(prev => (prev ? { ...prev, photo_url: url } : prev));
+          }
+        } finally {
+          setUploadingPhoto(false);
+        }
+      }
+    };
     Alert.alert(t('mat.photo.pickTitle'), t('mat.photo.pickSource'), [
       {
         text: 'Prendre une photo',
@@ -191,23 +209,12 @@ export default function MaterielDetailScreen() {
           if (!perm.granted) return;
           const result = await ImagePicker.launchCameraAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            quality: 0.8,
+            quality: 0.65,
             allowsEditing: true,
             aspect: [4, 3],
           });
           if (!result.canceled && mat) {
-            const uri = result.assets[0].uri;
-            await updateMateriel(mat.id, { photo_local: uri });
-            setMat(prev => prev ? { ...prev, photo_local: uri } : prev);
-
-            // Upload async
-            setUploadingPhoto(true);
-            const url = await uploadPhoto(uri, mat.id);
-            if (url) {
-              await updateMateriel(mat.id, { photo_url: url });
-              setMat(prev => prev ? { ...prev, photo_url: url } : prev);
-            }
-            setUploadingPhoto(false);
+            await persistPickedPhoto(result.assets[0].uri);
           }
         }
       },
@@ -218,12 +225,10 @@ export default function MaterielDetailScreen() {
           if (!perm.granted) return;
           const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            quality: 0.8,
+            quality: 0.65,
           });
           if (!result.canceled && mat) {
-            const uri = result.assets[0].uri;
-            await updateMateriel(mat.id, { photo_local: uri });
-            setMat(prev => prev ? { ...prev, photo_local: uri } : prev);
+            await persistPickedPhoto(result.assets[0].uri);
           }
         }
       },

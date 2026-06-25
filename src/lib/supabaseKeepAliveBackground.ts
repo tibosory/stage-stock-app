@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as BackgroundFetch from 'expo-background-fetch';
 import * as TaskManager from 'expo-task-manager';
-import { isSupabaseConfigured, syncFromSupabase, syncToSupabase } from './supabase';
+import { isSupabaseConfigured } from './supabase';
 import { isSupabaseBackend } from './backendMode';
 
 const SUPABASE_KEEPALIVE_TASK = 'SUPABASE_DAILY_KEEPALIVE_TASK';
@@ -11,6 +11,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 async function runDailySupabaseKeepAlive(): Promise<boolean> {
   if (!(await isSupabaseBackend())) return false;
   if (!isSupabaseConfigured()) return false;
+  const { syncFromSupabase, syncToSupabase } = await import('./supabaseMobileSync');
   const now = Date.now();
   const lastRaw = await AsyncStorage.getItem(LAST_RUN_KEY);
   const last = lastRaw ? Number(lastRaw) : 0;

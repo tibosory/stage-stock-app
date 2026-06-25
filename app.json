@@ -3,7 +3,7 @@
     "name": "CATRACK Pro",
     "slug": "stage-stock",
     "scheme": "stagestock",
-    "version": "1.0.27",
+    "version": "1.0.35",
     "jsEngine": "hermes",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -25,7 +25,9 @@
         "NSPhotoLibraryUsageDescription": "Nécessaire pour accéder aux photos du matériel",
         "NFCReaderUsageDescription": "Nécessaire pour lire et écrire les puces NFC du matériel",
         "NSLocalNetworkUsageDescription": "Permet de joindre un serveur CATRACK Pro sur le réseau Wi‑Fi local (adresse IP du PC).",
-        "UIBackgroundModes": ["fetch"],
+        "UIBackgroundModes": [
+          "fetch"
+        ],
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         }
@@ -52,22 +54,33 @@
               "host": "pair"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ],
       "queries": [
         {
           "intent": {
             "action": "VIEW",
-            "category": ["BROWSABLE"],
-            "data": { "scheme": "https" }
+            "category": [
+              "BROWSABLE"
+            ],
+            "data": {
+              "scheme": "https"
+            }
           }
         },
         {
           "intent": {
             "action": "VIEW",
-            "category": ["BROWSABLE"],
-            "data": { "scheme": "http" }
+            "category": [
+              "BROWSABLE"
+            ],
+            "data": {
+              "scheme": "http"
+            }
           }
         }
       ],
@@ -84,7 +97,8 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE"
-      ]
+      ],
+      "versionCode": 31
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -110,8 +124,8 @@
         {
           "android": {
             "usesCleartextTraffic": true,
-            "enableProguardInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true,
+            "enableProguardInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false,
             "gradleProperties": {
               "reactNativeArchitectures": "arm64-v8a",
               "org.gradle.parallel": "true",
@@ -132,7 +146,7 @@
       "privacyPolicyUrl": "",
       "termsOfServiceUrl": ""
     },
-    "runtimeVersion": "1.0.27",
+    "runtimeVersion": "1.0.35",
     "updates": {
       "enabled": false
     },

@@ -131,9 +131,9 @@ export default function MaterielModal({
       setTechnicien(item.technicien ?? '');
       setQrCode(item.qr_code ?? '');
       setNfcTagId(item.nfc_tag_id ?? '');
-      setPhotoLocal(item.photo_local ?? '');
-      setNoticePdfUri(item.notice_pdf_local ?? '');
-      setNoticePhotoUri(item.notice_photo_local ?? '');
+      setPhotoLocal(item.photo_local ?? item.photo_url ?? '');
+      setNoticePdfUri(item.notice_pdf_local ?? item.notice_pdf_url ?? '');
+      setNoticePhotoUri(item.notice_photo_local ?? item.notice_photo_url ?? '');
     } else {
       setNom(''); setType(''); setMarque(''); setNumeroSerie('');
       setPoids(''); setCategorieId(''); setLocalisationId('');
@@ -280,7 +280,7 @@ export default function MaterielModal({
         onPress: async () => {
           const perm = await ImagePicker.requestCameraPermissionsAsync();
           if (!perm.granted) return;
-          const res = await ImagePicker.launchCameraAsync({ quality: 0.85, allowsEditing: false });
+          const res = await ImagePicker.launchCameraAsync({ quality: 0.65, allowsEditing: false });
           if (!res.canceled) {
             setNoticePhotoUri(res.assets[0].uri);
             setNoticePhotoTouched(true);
@@ -292,7 +292,7 @@ export default function MaterielModal({
         onPress: async () => {
           const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
           if (!perm.granted) return;
-          const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.85 });
+          const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.65 });
           if (!res.canceled) {
             setNoticePhotoUri(res.assets[0].uri);
             setNoticePhotoTouched(true);
@@ -309,7 +309,7 @@ export default function MaterielModal({
         text: 'Caméra', onPress: async () => {
           const perm = await ImagePicker.requestCameraPermissionsAsync();
           if (!perm.granted) return;
-          const res = await ImagePicker.launchCameraAsync({ quality: 0.8, allowsEditing: true, aspect: [4, 3] });
+          const res = await ImagePicker.launchCameraAsync({ quality: 0.65, allowsEditing: true, aspect: [4, 3] });
           if (!res.canceled) setPhotoLocal(res.assets[0].uri);
         }
       },
@@ -317,7 +317,7 @@ export default function MaterielModal({
         text: 'Galerie', onPress: async () => {
           const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
           if (!perm.granted) return;
-          const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
+          const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.65 });
           if (!res.canceled) setPhotoLocal(res.assets[0].uri);
         }
       },

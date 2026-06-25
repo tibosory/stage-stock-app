@@ -14,41 +14,27 @@ import {
   type UserLabelFormat,
 } from './labelUserFormatsStorage';
 import type { BulkLayoutMode, BulkPaperSize } from './pdfEtiquetteBulk';
+import {
+  bulkQrItemFromConsommable,
+  bulkQrItemFromMateriel,
+  consommableReferenceDisplay,
+  fitQrLabelLayout,
+  formatReferenceLine,
+  materielReferenceDisplay,
+  type BulkQrPrintItem,
+} from './labelQrLayout';
 
 export { type UserLabelFormat } from './labelUserFormatsStorage';
-
-/** Entrée unifiée pour l’impression QR groupée (stock + consommable). */
-export type BulkQrPrintItem = {
-  id: string;
-  nom: string;
-  qrCode: string;
-  /** Ligne secondaire sous le nom (S/N, référence, unité…). */
-  metaLine: string;
-  kind: 'materiel' | 'consommable';
-};
-
-export function bulkQrItemFromMateriel(m: Materiel): BulkQrPrintItem {
-  const sn = m.numero_serie?.trim() || '—';
-  return {
-    id: m.id,
-    nom: m.nom?.trim() || 'Sans nom',
-    qrCode: m.qr_code?.trim() || m.id,
-    metaLine: `S/N ${sn}`,
-    kind: 'materiel',
-  };
-}
-
-export function bulkQrItemFromConsommable(c: Consommable): BulkQrPrintItem {
-  const ref = c.reference?.trim();
-  const meta = ref ? `Réf. ${ref}` : c.unite ? `Unité ${c.unite}` : '—';
-  return {
-    id: c.id,
-    nom: c.nom?.trim() || 'Sans nom',
-    qrCode: c.qr_code?.trim() || c.id,
-    metaLine: meta,
-    kind: 'consommable',
-  };
-}
+export {
+  bulkQrItemFromConsommable,
+  bulkQrItemFromMateriel,
+  consommableReferenceDisplay,
+  fitQrLabelLayout,
+  formatReferenceLine,
+  materielReferenceDisplay,
+  type BulkQrPrintItem,
+  type QrLabelLayout,
+} from './labelQrLayout';
 
 export type BulkQrLabelEntry = { item: BulkQrPrintItem; format: UserLabelFormat };
 
@@ -143,7 +129,7 @@ function ptToMm(pt: number): number {
 function estimateLineCount(text: string, fontPt: number, widthMm: number): number {
   const clean = text.trim();
   if (!clean) return 1;
-  const charMm = Math.max(0.12, ptToMm(fontPt) * 0.52);
+  const charMm = Math.max(0.14, ptToMm(fontPt) * 0.58);
   const charsPerLine = Math.max(1, Math.floor(widthMm / charMm));
   return Math.max(1, Math.ceil(clean.length / charsPerLine));
 }
@@ -163,86 +149,39 @@ function maximizeFontPt(
   return Math.round(lo * 10) / 10;
 }
 
-function scaleFontByTextLength(
-  basePt: number,
-  len: number,
-  innerWmm: number
-): number {
-  let t = basePt;
-  if (len > 22) t *= 0.92;
-  if (len > 40) t *= 0.9;
-  if (len > 65) t *= 0.88;
-  if (len > 95) t *= 0.86;
-  const cap = Math.max(5, innerWmm * 0.22);
-  return Math.round(Math.min(cap, Math.max(5, t)) * 10) / 10;
-}
-
-export function getCustomBulkTileSpec(
-  f: UserLabelFormat,
-  titleSample: string
-): CustomBulkTileSpec {
-  const pad = marginMmFromLabelPercent(f.widthMm, f.marginPercent);
-  const innerW = Math.max(4, f.widthMm - 2 * pad);
-  const innerH = Math.max(4, f.heightMm - 2 * pad);
-  const minSide = Math.min(innerW, innerH);
-  const qrCap = Math.min(innerW * 0.48, minSide * 0.44, 48);
-  const imgMaxMm = Math.max(10, qrCap);
-  const cell = Math.max(2, Math.min(8, Math.round(minSide / 8)));
-  const margin = Math.max(1, Math.min(3, Math.round(cell / 2)));
-  const baseName = Math.max(5, Math.min(14, innerW * 0.065));
-  const namePt = scaleFontByTextLength(
-    baseName,
-    titleSample.length || 12,
-    innerW
-  );
-  const snPt = Math.round(Math.max(4, namePt * 0.78) * 10) / 10;
-  return {
-    cell,
-    margin,
-    imgMaxMm,
-    boxWmm: f.widthMm,
-    boxHmm: f.heightMm,
-    padMm: pad,
-    namePt,
-    snPt,
-  };
-}
-
 export function buildCustomBulkTileHtml(
   item: BulkQrPrintItem,
   f: UserLabelFormat
 ): string {
-  const spec = getCustomBulkTileSpec(f, item.nom ?? '');
+  const pad = marginMmFromLabelPercent(f.widthMm, f.marginPercent);
+  const innerW = Math.max(4, f.widthMm - 2 * pad);
+  const innerH = Math.max(4, f.heightMm - 2 * pad);
+  const name = item.nom?.trim() || 'Sans nom';
+  const refLine = item.metaLine.trim() || formatReferenceLine(item.qrCode);
+  const layout = fitQrLabelLayout({
+    innerWmm: innerW,
+    innerHmm: innerH,
+    nom: name,
+    refLine,
+  });
   const code = item.qrCode.trim() || item.id;
-  const qrTag = qrCodeImgTagForHtml(code, spec.cell, spec.margin);
-  const meta = item.metaLine.trim() || '—';
+  const qrTag = qrCodeImgTagForHtml(code, layout.cell, layout.margin);
   const font = fontCssFor(f);
   const color = esc(f.textColor);
   const fw = f.bold ? 800 : 600;
-  const innerW = Math.max(4, spec.boxWmm - 2 * spec.padMm);
-  const innerH = Math.max(4, spec.boxHmm - 2 * spec.padMm);
-  const name = item.nom?.trim() || 'Sans nom';
-  const namePt = maximizeFontPt(5, 22, pt => {
-    const nameLines = estimateLineCount(name, pt, innerW);
-    const metaPt = Math.max(4, pt * 0.72);
-    const metaLines = estimateLineCount(meta, metaPt, innerW);
-    const textHmm = ptToMm(pt) * 1.14 * nameLines + ptToMm(metaPt) * 1.1 * metaLines + 1.4;
-    return spec.imgMaxMm + 2 + textHmm <= innerH;
-  });
-  const metaPt = Math.max(4, Math.round(namePt * 0.72 * 10) / 10);
   return `
-  <div class="tile" style="width:${spec.boxWmm}mm;height:${spec.boxHmm}mm;padding:${spec.padMm}mm;">
+  <div class="tile" style="width:${f.widthMm}mm;height:${f.heightMm}mm;padding:${pad}mm;">
     <div class="tile-inner" style="font-family:${font};color:${color};">
-      <div class="qrbox" style="max-width:${spec.imgMaxMm}mm;">
+      <div class="qrbox" style="max-width:${layout.qrMm}mm;max-height:${layout.qrMm}mm;">
         ${qrTag}
       </div>
-      <div class="name" style="font-size:${namePt}pt;font-weight:${fw};">${esc(
+      <div class="name" style="font-size:${layout.namePt}pt;font-weight:${fw};">${esc(
         name
       )}</div>
-      <div class="meta" style="font-size:${metaPt}pt;color:${hexToRgba(
+      <div class="ref" style="font-size:${layout.refPt}pt;color:${hexToRgba(
         f.textColor,
-        0.88
-      )};font-weight:${f.bold ? 650 : 500};">${esc(meta)}</div>
+        0.9
+      )};font-weight:${f.bold ? 650 : 500};">${esc(refLine)}</div>
     </div>
   </div>`;
 }
@@ -256,33 +195,48 @@ const CUSTOM_TILE_STYLES = `
       border: 0.3mm solid #374151;
       border-radius: 1.5mm;
       background: #fff;
-      overflow: hidden;
+      box-sizing: border-box;
     }
     .tile-inner {
       text-align: center;
       width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 0;
     }
     .qrbox {
-      margin: 0 auto 1.5mm auto;
+      margin: 0 auto 1mm auto;
+      flex: 0 0 auto;
+      line-height: 0;
     }
     .qrbox img {
       display: block;
       margin: 0 auto;
       max-width: 100% !important;
+      max-height: 100% !important;
       width: auto !important;
       height: auto !important;
     }
     .name {
-      line-height: 1.15;
+      line-height: 1.16;
       word-break: break-word;
+      overflow-wrap: anywhere;
       hyphens: auto;
-      margin-top: 0.5mm;
+      margin-top: 0.4mm;
       letter-spacing: .12px;
+      flex: 0 1 auto;
+      max-width: 100%;
     }
-    .sn, .meta {
-      line-height: 1.1;
-      margin-top: 0.8mm;
-      word-break: break-all;
+    .ref, .meta {
+      line-height: 1.14;
+      margin-top: 0.5mm;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      flex: 0 1 auto;
+      max-width: 100%;
     }
 `;
 
@@ -495,11 +449,11 @@ export function buildCustomBulkQrHtml(
   return buildCustomBulkQrHtmlFlex(items, paper, brand);
 }
 
-/** Cœur générique d'une étiquette QR (nom + méta + code) réutilisé pour matériel et consommable. */
+/** Cœur générique d'une étiquette QR (QR + nom + référence) réutilisé pour matériel et consommable. */
 function buildCustomQrLabelHtmlCore(
   nom: string,
   code: string,
-  metaText: string,
+  refLine: string,
   f: UserLabelFormat,
   brand: PdfBranding
 ): string {
@@ -508,30 +462,18 @@ function buildCustomQrLabelHtmlCore(
   const innerH = Math.max(2, f.heightMm - 2 * m);
   const microK = microKindForLabel(f.widthMm, f.heightMm);
   const micro = buildPdfOrgMicroForLabel(brand, microK);
-  const minSide = Math.min(innerW, innerH);
-  const imgMax = Math.min(innerW * 0.5, minSide * 0.45, 52);
-  const cell = Math.max(2, Math.min(8, Math.round(minSide / 7)));
-  const qMargin = Math.max(1, Math.min(3, Math.round(cell / 2)));
-  const qrTag = qrCodeImgTagForHtml(code, cell, qMargin);
-  const h1Pt = maximizeFontPt(5, 26, pt => {
-    const nameLines = estimateLineCount(nom, pt, innerW);
-    const metaPt = Math.max(4, pt * 0.72);
-    const codePt = Math.max(4, pt * 0.65);
-    const metaLines = estimateLineCount(metaText || ' ', metaPt, innerW);
-    const codeLines = estimateLineCount(code, codePt, innerW);
-    const topTextHmm =
-      ptToMm(pt) * 1.12 * nameLines +
-      ptToMm(metaPt) * 1.1 * metaLines +
-      ptToMm(codePt) * 1.1 * codeLines +
-      3;
-    return topTextHmm + imgMax + 2 <= innerH;
+  const displayName = nom.trim() || 'Sans nom';
+  const displayRef = refLine.trim() || formatReferenceLine(code);
+  const layout = fitQrLabelLayout({
+    innerWmm: innerW,
+    innerHmm: innerH,
+    nom: displayName,
+    refLine: displayRef,
   });
-  const metaPt = Math.max(4, h1Pt * 0.72);
-  const codePt = Math.max(4, h1Pt * 0.65);
+  const qrTag = qrCodeImgTagForHtml(code, layout.cell, layout.margin);
   const font = fontCssFor(f);
   const color = esc(f.textColor);
-  const metaColor = hexToRgba(f.textColor, 0.9);
-  const codeColor = hexToRgba(f.textColor, 0.88);
+  const refColor = hexToRgba(f.textColor, 0.9);
   const fw = f.bold ? 800 : 600;
 
   return `<!DOCTYPE html>
@@ -558,31 +500,55 @@ function buildCustomQrLabelHtmlCore(
       background: #fff;
       box-sizing: border-box;
       min-height: ${Math.max(1, f.heightMm - 2 * m - 0.1)}mm;
+      height: ${Math.max(1, f.heightMm - 2 * m - 0.1)}mm;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: flex-start;
+      justify-content: center;
+    }
+    .qrbox {
+      flex: 0 0 auto;
+      max-width: ${layout.qrMm}mm;
+      max-height: ${layout.qrMm}mm;
+      line-height: 0;
+      margin-bottom: 1mm;
+    }
+    .qrbox img {
+      max-width: 100%;
+      max-height: 100%;
+      height: auto;
+      width: auto;
     }
     h1 {
-      font-size: ${h1Pt}pt;
-      margin: 0 0 2px 0;
+      font-size: ${layout.namePt}pt;
+      margin: 0;
       font-weight: ${fw};
       letter-spacing: .1px;
-      line-height: 1.12;
+      line-height: 1.16;
       max-width: 100%;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      flex: 0 1 auto;
     }
-    .meta { font-size: ${metaPt}pt; color: ${metaColor}; margin-bottom: 3px; line-height: 1.1; max-width: 100%; word-break: break-word; }
-    .code { font-size: ${codePt}pt; color: ${codeColor}; word-break: break-all; margin-top: 3px; max-width: 100%; }
-    img { max-width: ${imgMax}mm; height: auto; }
+    .ref {
+      font-size: ${layout.refPt}pt;
+      color: ${refColor};
+      margin-top: 0.5mm;
+      line-height: 1.14;
+      max-width: 100%;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      font-weight: ${f.bold ? 650 : 500};
+      flex: 0 1 auto;
+    }
   </style>
 </head>
 <body>
   ${micro}
   <div class="wrap">
-    <h1>${esc(nom)}</h1>
-    <div class="meta">${esc(metaText)}</div>
-    ${qrTag}
-    <div class="code" style="font-weight:${f.bold ? 600 : 500};">${esc(code)}</div>
+    <div class="qrbox">${qrTag}</div>
+    <h1>${esc(displayName)}</h1>
+    <div class="ref">${esc(displayRef)}</div>
   </div>
 </body>
 </html>`;
@@ -594,8 +560,8 @@ export function buildCustomMaterielLabelHtml(
   brand: PdfBranding
 ): string {
   const code = mat.qr_code?.trim() || mat.id;
-  const metaText = [mat.marque, mat.type].filter(Boolean).join(' · ');
-  return buildCustomQrLabelHtmlCore(mat.nom, code, metaText, f, brand);
+  const refLine = formatReferenceLine(materielReferenceDisplay(mat));
+  return buildCustomQrLabelHtmlCore(mat.nom, code, refLine, f, brand);
 }
 
 export function buildCustomConsommableLabelHtml(
@@ -604,8 +570,8 @@ export function buildCustomConsommableLabelHtml(
   brand: PdfBranding
 ): string {
   const code = conso.qr_code?.trim() || conso.id;
-  const metaText = [conso.reference, conso.fournisseur].filter(Boolean).join(' · ');
-  return buildCustomQrLabelHtmlCore(conso.nom, code, metaText, f, brand);
+  const refLine = formatReferenceLine(consommableReferenceDisplay(conso));
+  return buildCustomQrLabelHtmlCore(conso.nom, code, refLine, f, brand);
 }
 
 export type CustomShelfLabelRow = {

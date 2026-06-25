@@ -42,6 +42,10 @@ import { NetworkCloudSync } from '../components/NetworkCloudSync';
 import { NetworkAccueilProSync } from '../components/NetworkAccueilProSync';
 import { BackendModePicker } from '../components/BackendModePicker';
 import { NetworkSupabasePanel } from '../components/NetworkSupabasePanel';
+import {
+  SupabaseProvisioningModeHint,
+  SupabaseProvisioningShareCard,
+} from '../components/SupabaseProvisioningShareCard';
 import { WindowsInstallerCard } from '../components/WindowsInstallerCard';
 import { ConnectionDiagnosticPanel } from '../components/ConnectionDiagnosticPanel';
 import { PairingQrScannerModal } from '../components/PairingQrScannerModal';
@@ -374,6 +378,7 @@ export default function NetworkScreen() {
 
               {isLocalBackend ? (
                 <>
+                  <SupabaseProvisioningModeHint />
                   <WindowsInstallerCard />
                   <Card style={{ marginBottom: 14 }}>
                     <Text style={styles.cardTitle}>{t('network.backendMode.sectionLocal')}</Text>
@@ -487,6 +492,7 @@ export default function NetworkScreen() {
                 </>
               ) : (
                 <>
+                  <SupabaseProvisioningShareCard prominent />
                   <Card style={{ marginBottom: 14 }}>
                     <Text style={styles.cardTitle}>{t('network.backendMode.sectionSupabase')}</Text>
                     <Text style={styles.hintMuted}>{t('network.backendMode.supabaseDetail')}</Text>
@@ -557,6 +563,7 @@ export default function NetworkScreen() {
 
             {isLocalBackend ? (
               <>
+                <SupabaseProvisioningModeHint />
                 <WindowsInstallerCard />
                 <Card style={{ marginBottom: 14 }}>
                   <Text style={styles.cardTitle}>{t('network.backendMode.sectionLocal')}</Text>
@@ -641,6 +648,7 @@ export default function NetworkScreen() {
               </>
             ) : (
               <>
+                <SupabaseProvisioningShareCard prominent />
                 <Card style={{ marginBottom: 14 }}>
                   <Text style={styles.cardTitle}>{t('network.backendMode.sectionSupabase')}</Text>
                   <Text style={styles.hintMuted}>{t('network.backendMode.supabaseDetail')}</Text>

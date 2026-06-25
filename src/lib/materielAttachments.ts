@@ -19,6 +19,33 @@ export function storedNoticePhotoPath(materielId: string): string {
   return `${base}${ROOT}/${materielId}/notice_photo.jpg`;
 }
 
+export function storedMaterielPhotoPath(materielId: string): string {
+  const base = FileSystem.documentDirectory;
+  if (!base) throw new Error('Stockage document indisponible');
+  return `${base}${ROOT}/${materielId}/photo.jpg`;
+}
+
+export async function mediaFileExists(uri: string | null | undefined): Promise<boolean> {
+  const t = uri?.trim();
+  if (!t || !t.startsWith('file://')) return false;
+  try {
+    const info = await FileSystem.getInfoAsync(t);
+    return info.exists;
+  } catch {
+    return false;
+  }
+}
+
+export async function persistMaterielMainPhotoCopy(
+  materielId: string,
+  sourceUri: string
+): Promise<string> {
+  await ensureMaterielAttachmentsDir(materielId);
+  const dest = storedMaterielPhotoPath(materielId);
+  await copyReplace(dest, sourceUri);
+  return dest;
+}
+
 export function isPersistedNoticePdf(uri: string, materielId: string): boolean {
   return norm(uri).includes(`${ROOT}/${materielId}/notice.pdf`);
 }
@@ -27,7 +54,7 @@ export function isPersistedNoticePhoto(uri: string, materielId: string): boolean
   return norm(uri).includes(`${ROOT}/${materielId}/notice_photo.jpg`);
 }
 
-async function ensureDir(materielId: string): Promise<void> {
+export async function ensureMaterielAttachmentsDir(materielId: string): Promise<void> {
   const base = FileSystem.documentDirectory;
   if (!base) throw new Error('Stockage document indisponible');
   const dir = `${base}${ROOT}/${materielId}/`;
@@ -83,7 +110,7 @@ export async function syncMaterielNoticeAttachments(
       if (isPersistedNoticePdf(nextPdf, materielId)) {
         out.notice_pdf_local = storedNoticePdfPath(materielId);
       } else {
-        await ensureDir(materielId);
+        await ensureMaterielAttachmentsDir(materielId);
         const dest = storedNoticePdfPath(materielId);
         await copyReplace(dest, nextPdf);
         out.notice_pdf_local = dest;
@@ -99,7 +126,7 @@ export async function syncMaterielNoticeAttachments(
       if (isPersistedNoticePhoto(nextPhoto, materielId)) {
         out.notice_photo_local = storedNoticePhotoPath(materielId);
       } else {
-        await ensureDir(materielId);
+        await ensureMaterielAttachmentsDir(materielId);
         const dest = storedNoticePhotoPath(materielId);
         await copyReplace(dest, nextPhoto);
         out.notice_photo_local = dest;

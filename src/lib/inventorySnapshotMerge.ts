@@ -1,11 +1,21 @@
 /** Chemins fichiers locaux (appareil) — jamais transportés par le snapshot serveur. */
 export type MaterielLocalMedia = {
   photo_local?: string | null;
+  photo_url?: string | null;
   notice_pdf_local?: string | null;
+  notice_pdf_url?: string | null;
   notice_photo_local?: string | null;
+  notice_photo_url?: string | null;
 };
 
-const LOCAL_MEDIA_KEYS = ['photo_local', 'notice_pdf_local', 'notice_photo_local'] as const;
+export type ConsommableLocalMedia = {
+  photo_local?: string | null;
+  photo_url?: string | null;
+};
+
+const MATERIEL_LOCAL_PATH_KEYS = ['photo_local', 'notice_pdf_local', 'notice_photo_local'] as const;
+const MATERIEL_REMOTE_URL_KEYS = ['photo_url', 'notice_pdf_url', 'notice_photo_url'] as const;
+const CONSO_MEDIA_KEYS = ['photo_local', 'photo_url'] as const;
 
 function nonEmptyLocalPath(v: unknown): string | null {
   if (typeof v !== 'string') return null;
@@ -23,7 +33,34 @@ export function mergeMaterielLocalMedia(
 ): Record<string, unknown> {
   if (!local) return { ...remote };
   const merged: Record<string, unknown> = { ...remote };
-  for (const key of LOCAL_MEDIA_KEYS) {
+  for (const key of MATERIEL_LOCAL_PATH_KEYS) {
+    const remoteVal = nonEmptyLocalPath(remote[key]);
+    const localVal = nonEmptyLocalPath(local[key]);
+    if (!remoteVal && localVal) {
+      merged[key] = localVal;
+    }
+  }
+  for (const key of MATERIEL_REMOTE_URL_KEYS) {
+    const remoteVal = nonEmptyLocalPath(remote[key]);
+    const localVal = nonEmptyLocalPath(local[key]);
+    if (!remoteVal && localVal) {
+      merged[key] = localVal;
+    }
+  }
+  return merged;
+}
+
+/**
+ * Fusionne une ligne consommable distante avec photo locale / URL déjà connues.
+ * Le serveur n’envoie jamais photo_local ; photo_url peut être absent si pas encore téléversée.
+ */
+export function mergeConsommableLocalMedia(
+  remote: Record<string, unknown>,
+  local: ConsommableLocalMedia | null | undefined
+): Record<string, unknown> {
+  if (!local) return { ...remote };
+  const merged: Record<string, unknown> = { ...remote };
+  for (const key of CONSO_MEDIA_KEYS) {
     const remoteVal = nonEmptyLocalPath(remote[key]);
     const localVal = nonEmptyLocalPath(local[key]);
     if (!remoteVal && localVal) {

@@ -16,6 +16,14 @@ import {
   type RegieSnapshotSlice,
   REGIE_TABLES,
 } from './regieInventorySync';
+import {
+  uploadPendingConsommablePhotos,
+  downloadMissingConsommablePhotos,
+} from './consommablePhotoSync';
+import {
+  uploadPendingMaterielMedia,
+  downloadMissingMaterielMedia,
+} from './materielPhotoSync';
 
 const MSG_SUPABASE_MANQUE =
   'Supabase n’est pas configuré. Renseignez l’URL du projet et la clé anon (Paramètres → Projet Supabase sur cet appareil), ' +
@@ -229,17 +237,33 @@ export async function syncToSupabase(): Promise<{ ok: boolean; error?: string }>
     }
 
     if (materielsToSync.length > 0) {
+      try {
+        await uploadPendingMaterielMedia(database);
+      } catch {
+        /* best effort */
+      }
+      const materielsFresh = await database.getAllAsync<Record<string, unknown>>(
+        'SELECT * FROM materiels WHERE synced = 0'
+      );
       const r = await upsertRowsOrFail(
         'materiels',
-        materielsToSync.map(m => materielRowForRemote(m))
+        materielsFresh.map(m => materielRowForRemote(m))
       );
       if (!r.ok) return r;
     }
 
     if (consoToSync.length > 0) {
+      try {
+        await uploadPendingConsommablePhotos(database);
+      } catch {
+        /* best effort */
+      }
+      const consoFresh = await database.getAllAsync<Record<string, unknown>>(
+        'SELECT * FROM consommables WHERE synced = 0'
+      );
       const r = await upsertRowsOrFail(
         'consommables',
-        consoToSync.map(c => consoRowForRemote(c))
+        consoFresh.map(c => consoRowForRemote(c))
       );
       if (!r.ok) return r;
     }
@@ -317,6 +341,12 @@ export async function syncToSupabase(): Promise<{ ok: boolean; error?: string }>
     } catch {
       /* best effort */
     }
+    try {
+      await uploadPendingMaterielMedia(database);
+      await uploadPendingConsommablePhotos(database);
+    } catch {
+      /* best effort */
+    }
 
     return { ok: true };
   } catch (e: unknown) {
@@ -389,6 +419,16 @@ export async function syncFromSupabase(): Promise<{ ok: boolean; error?: string 
 
     try {
       await downloadMissingRegiePhotos(database, null);
+    } catch {
+      /* best effort */
+    }
+    try {
+      await downloadMissingMaterielMedia(database, null);
+    } catch {
+      /* best effort */
+    }
+    try {
+      await downloadMissingConsommablePhotos(database, null);
     } catch {
       /* best effort */
     }

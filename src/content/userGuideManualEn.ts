@@ -8,7 +8,7 @@ export const USER_GUIDE_META_EN = {
   title: 'CATRACK Pro — User guide',
   subtitle: 'Step-by-step guide with practical examples',
   versionLabel:
-    'June 24, 2026 (local server ↔ Supabase switch)',
+    'June 25, 2026 (QR labels: name + reference, adaptive text)',
 };
 
 export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
@@ -77,7 +77,7 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     paragraphs: [
       'Filterable list by status and text search (equipment and consumables from the search bar). Tap a search result to open and edit its record. Long-press to select several records and export a PDF.',
       'When adding or editing a record: pick an existing category or create one (optional parent for a subcategory, e.g. Lighting › LED).',
-      'Print labels and A4 sheets from the printing area.',
+      'Print QR labels (Stock, Consumables, bulk print): each label shows the QR code, item name and reference; text size adapts so nothing is clipped.',
       'The detail view shows only filled fields.',
     ],
   },
@@ -140,7 +140,7 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
       '• Supabase cloud (Internet) — inventory, loans, run sheets, technical plots and Accueil Pro go through the cloud, with no PC server.',
       'Only the cards for the chosen mode are shown below.',
       'In local mode: install the server, pair with the QR, then Push ↑ and Pull ↓.',
-      'In Supabase mode: export SQL from Settings → Supabase project, run once in SQL Editor, set URL + anon key. Switch Connection or User → “Supabase cloud”, then Push ↑.',
+      'In Supabase mode: export SQL, set URL + anon key. Switch Connection → “Supabase cloud”: the invitation QR appears at the top of the tab (green 📲 card). Share by email or scan; colleague then signs in to Supabase.',
 
       'In local mode: Connection tile → “Local PC server” (pairing QR or PC address). Only one mode active at a time; all devices must match.',
       'All team phones must use the same mode.',
