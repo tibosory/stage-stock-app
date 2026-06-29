@@ -10,7 +10,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Colors, Shadow } from '../theme/colors';
 import {
   getMaterielByQr, getMaterielByNfc, searchMateriels, searchConsommables,
-  getConsommableByQr, ajusterStock,
+  getConsommableByQr, ajusterStock, ajusterMaterielLotStock,
   createMaterielStubWithScannedCode,
   createConsommableStubWithScannedCode,
 } from '../db/inventoryOpsDb';
@@ -28,9 +28,19 @@ import { BurstQtyNumpadModal } from '../components/BurstQtyNumpadModal';
 import { Consommable, Materiel } from '../types';
 import { useAppAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
+import { isMaterielGestionLot, materielLotUnite, materielStockActuel } from '../lib/materielLot';
+import { parseStockFlightcaseQr } from '../lib/stockFlightcase';
+import { resolveStockFlightcaseScan } from '../db/stockFlightcasesDb';
 
 type Mode = 'home' | 'camera' | 'nfc' | 'batch';
 type LastConsoMove = {
+  id: string;
+  nom: string;
+  unite: string;
+  delta: number;
+};
+
+type LastLotMove = {
   id: string;
   nom: string;
   unite: string;
@@ -53,8 +63,11 @@ export default function ScannerScreen() {
   const [manualSearchActive, setManualSearchActive] = useState(false);
   const [batchResults, setBatchResults] = useState<Materiel[]>([]);
   const [consoMoveItem, setConsoMoveItem] = useState<Consommable | null>(null);
+  const [matLotMoveItem, setMatLotMoveItem] = useState<Materiel | null>(null);
   const [consoMoveQty, setConsoMoveQty] = useState('1');
+  const [matLotMoveQty, setMatLotMoveQty] = useState('1');
   const [consoMoveBusy, setConsoMoveBusy] = useState(false);
+  const [matLotMoveBusy, setMatLotMoveBusy] = useState(false);
   const [consoBurstEnabled, setConsoBurstEnabled] = useState(false);
   const [consoBurstType, setConsoBurstType] = useState<'entrée' | 'sortie'>('sortie');
   const [consoBurstQty, setConsoBurstQty] = useState('1');
@@ -63,6 +76,7 @@ export default function ScannerScreen() {
   const [burstNumpadConso, setBurstNumpadConso] = useState<Consommable | null>(null);
   const [consoBurstLast, setConsoBurstLast] = useState('');
   const [lastConsoMove, setLastConsoMove] = useState<LastConsoMove | null>(null);
+  const [lastLotMove, setLastLotMove] = useState<LastLotMove | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
   const [stats, setStats] = useState<Awaited<ReturnType<typeof getStats>> | null>(null);
   const { nfcSupported, nfcEnabled, scanning: nfcScanning, readNfcTag } = useNfc();
@@ -107,6 +121,54 @@ export default function ScannerScreen() {
     setConsoMoveQty('1');
     setScanned(false);
   }, []);
+
+  const openMatLotMove = useCallback((mat: Materiel) => {
+    setMatLotMoveItem(mat);
+    setMatLotMoveQty('1');
+  }, []);
+
+  const closeMatLotMove = useCallback(() => {
+    setMatLotMoveItem(null);
+    setMatLotMoveQty('1');
+    setScanned(false);
+  }, []);
+
+  const submitMatLotMove = useCallback(async (type: 'entrée' | 'sortie') => {
+    if (!matLotMoveItem) return;
+    const qty = Math.max(0, parseInt(matLotMoveQty, 10) || 0);
+    if (qty <= 0) {
+      Alert.alert(t('scanner.invalidQtyTitle'), t('scanner.invalidQtyBody'));
+      return;
+    }
+    const delta = type === 'entrée' ? qty : -qty;
+    setMatLotMoveBusy(true);
+    try {
+      await ajusterMaterielLotStock(matLotMoveItem.id, delta);
+      await getStats().then(setStats);
+      const unit = materielLotUnite(matLotMoveItem);
+      setLastLotMove({
+        id: matLotMoveItem.id,
+        nom: matLotMoveItem.nom,
+        unite: unit,
+        delta,
+      });
+      Alert.alert(
+        t('scanner.stockUpdatedTitle'),
+        t('scanner.stockUpdatedBody', {
+          name: matLotMoveItem.nom,
+          sign: type === 'entrée' ? '+' : '-',
+          qty,
+          unit,
+        })
+      );
+      closeMatLotMove();
+      void triggerSyncAfterActionIfEnabled();
+    } catch (e: any) {
+      Alert.alert(t('scanner.error'), e?.message ?? 'Impossible de mettre à jour le stock.');
+    } finally {
+      setMatLotMoveBusy(false);
+    }
+  }, [matLotMoveItem, matLotMoveQty, closeMatLotMove, t]);
 
   const submitConsoMove = useCallback(async (type: 'entrée' | 'sortie') => {
     if (!consoMoveItem) return;
@@ -268,9 +330,49 @@ export default function ScannerScreen() {
       return;
     }
 
+    const fcParsed = parseStockFlightcaseQr(result.data);
+    if (fcParsed) {
+      const fcResolved = await resolveStockFlightcaseScan(fcParsed);
+      if (fcResolved) {
+        void triggerScanMatchHaptic();
+        navigation.navigate('Stock', {
+          screen: 'FlightcaseDetail',
+          params: {
+            localisationId: fcResolved.localisationId,
+            flightcase: fcResolved.flightcase,
+          },
+        });
+        setTimeout(() => setScanned(false), 1500);
+        return;
+      }
+    }
+
     const mat = await getMaterielByQr(result.data);
     if (mat) {
       void triggerScanMatchHaptic();
+      if (isMaterielGestionLot(mat)) {
+        if (consoBurstEnabled) {
+          const qty = getBurstQty();
+          if (qty <= 0) {
+            Alert.alert(t('scanner.burstModeTitle'), t('scanner.burstInvalidQtyNumpadBody'));
+            setScanned(false);
+            return;
+          }
+          const delta = consoBurstType === 'entrée' ? qty : -qty;
+          try {
+            await ajusterMaterielLotStock(mat.id, delta);
+            await getStats().then(setStats);
+            void triggerSyncAfterActionIfEnabled();
+            setTimeout(() => setScanned(false), 320);
+          } catch (e: any) {
+            Alert.alert(t('scanner.moveError'), e?.message ?? 'Impossible de mettre à jour le stock.');
+            setScanned(false);
+          }
+          return;
+        }
+        openMatLotMove(mat);
+        return;
+      }
       if (mode === 'batch') {
         setBatchResults(prev => {
           if (prev.find(m => m.id === mat.id)) {
@@ -396,6 +498,10 @@ export default function ScannerScreen() {
     const mat = await getMaterielByNfc(tagValue);
     if (mat) {
       void triggerScanMatchHaptic();
+      if (isMaterielGestionLot(mat)) {
+        openMatLotMove(mat);
+        return;
+      }
       navigation.navigate('Stock', {
         screen: 'MaterielDetail',
         params: { materielId: mat.id },
@@ -446,9 +552,30 @@ export default function ScannerScreen() {
 
   const handleManualSearch = async () => {
     if (!manualInput.trim()) return;
+    const fcParsed = parseStockFlightcaseQr(manualInput.trim());
+    if (fcParsed) {
+      const fcResolved = await resolveStockFlightcaseScan(fcParsed);
+      if (fcResolved) {
+        void triggerScanMatchHaptic();
+        navigation.navigate('Stock', {
+          screen: 'FlightcaseDetail',
+          params: {
+            localisationId: fcResolved.localisationId,
+            flightcase: fcResolved.flightcase,
+          },
+        });
+        setManualInput('');
+        return;
+      }
+    }
     const mat = await getMaterielByQr(manualInput.trim());
     if (mat) {
       void triggerScanMatchHaptic();
+      if (isMaterielGestionLot(mat)) {
+        openMatLotMove(mat);
+        setManualInput('');
+        return;
+      }
       navigation.navigate('Stock', {
         screen: 'MaterielDetail',
         params: { materielId: mat.id },
@@ -550,6 +677,64 @@ export default function ScannerScreen() {
     </BottomModal>
   );
 
+  const renderMatLotMoveModal = () => (
+    <BottomModal
+      visible={!!matLotMoveItem}
+      onClose={closeMatLotMove}
+      title={t('stock.lot.scanMoveTitle')}
+    >
+      {matLotMoveItem ? (
+        <>
+          <Text style={{ color: Colors.white, fontSize: 16, fontWeight: '700' }}>{matLotMoveItem.nom}</Text>
+          <Text style={{ color: Colors.textSecondary, marginTop: 4, marginBottom: 10 }}>
+            {t('stock.lot.stockCurrent', {
+              stock: materielStockActuel(matLotMoveItem),
+              unit: materielLotUnite(matLotMoveItem),
+            })}
+          </Text>
+
+          <Input
+            label={t('scanner.quantity')}
+            value={matLotMoveQty}
+            onChangeText={setMatLotMoveQty}
+            keyboardType="numeric"
+            placeholder={t('scanner.qtyPlaceholder')}
+          />
+
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 2, marginBottom: 10 }}>
+            {['1', '5', '10', '20'].map(q => (
+              <TouchableOpacity
+                key={q}
+                style={s.qtyChip}
+                onPress={() => setMatLotMoveQty(q)}
+                disabled={matLotMoveBusy}
+              >
+                <Text style={s.qtyChipText}>{q}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 8, marginBottom: 6 }}>
+            <TouchableOpacity
+              style={[s.moveBtn, s.moveBtnOut, matLotMoveBusy && { opacity: 0.7 }]}
+              onPress={() => void submitMatLotMove('sortie')}
+              disabled={matLotMoveBusy}
+            >
+              <Text style={s.moveBtnText}>{t('scanner.out')} -{matLotMoveQty || 0}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.moveBtn, s.moveBtnIn, matLotMoveBusy && { opacity: 0.7 }]}
+              onPress={() => void submitMatLotMove('entrée')}
+              disabled={matLotMoveBusy}
+            >
+              <Text style={s.moveBtnText}>{t('scanner.in')} +{matLotMoveQty || 0}</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      ) : null}
+    </BottomModal>
+  );
+
   // ── Écran caméra ──
   if (mode === 'camera' || mode === 'batch') {
     if (!permission?.granted) {
@@ -637,6 +822,7 @@ export default function ScannerScreen() {
           </TouchableOpacity>
         </View>
         {renderConsoMoveModal()}
+        {renderMatLotMoveModal()}
         {renderBurstNumpadModal()}
       </View>
     );
@@ -679,6 +865,7 @@ export default function ScannerScreen() {
           </TouchableOpacity>
         </View>
         {renderConsoMoveModal()}
+        {renderMatLotMoveModal()}
         {renderBurstNumpadModal()}
       </TabScreenSafeArea>
     );
@@ -977,6 +1164,7 @@ export default function ScannerScreen() {
         )}
       </ScrollView>
       {renderConsoMoveModal()}
+      {renderMatLotMoveModal()}
     </TabScreenSafeArea>
   );
 }

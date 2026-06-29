@@ -41,6 +41,14 @@ import { EtatBadge, StatutBadge, Card, BottomModal, TabScreenSafeArea, SelectPic
 import { useAppAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { getVisibleFields } from '../lib/materialFieldVisibility';
+import { stockFlightcaseKeyFromMateriel } from '../lib/stockFlightcase';
+import {
+  printStockFlightcaseContentLabel,
+  printStockFlightcaseQrOnly,
+  printStockFlightcaseShelfLabel,
+  printStockFlightcaseGroupedQrsPdf,
+} from '../lib/pdfStockFlightcase';
+import { getMaterielsInStockFlightcase } from '../db/inventoryOpsDb';
 import { getDateFnsLocale } from '../i18n/dateLocales';
 import ShelfLabelsModal from '../components/ShelfLabelsModal';
 import LabelUserFormatsManagerModal from '../components/LabelUserFormatsManagerModal';
@@ -413,6 +421,51 @@ export default function MaterielDetailScreen() {
     hasValue(mat.maintenance_last_comment) ||
     hasValue(mat.technicien);
   const hasLocalisation = visibleFields.localisation.some(row => hasValue(row.value));
+  const flightcaseKey = stockFlightcaseKeyFromMateriel(mat);
+
+  const openFlightcaseContent = () => {
+    if (!flightcaseKey) return;
+    navigation.navigate('FlightcaseDetail', {
+      localisationId: flightcaseKey.localisationId,
+      flightcase: flightcaseKey.flightcase,
+    });
+  };
+
+  const printFlightcaseLabel = async (mode: 'content' | 'qr' | 'shelf' | 'grouped') => {
+    if (!flightcaseKey) return;
+    try {
+      const items = await getMaterielsInStockFlightcase(
+        flightcaseKey.localisationId,
+        flightcaseKey.flightcase
+      );
+      const locName =
+        (mat as Materiel & { localisation_nom?: string }).localisation_nom?.trim() ||
+        visibleFields.localisation.find(r => r.key === 'location')?.value?.toString() ||
+        '';
+      if (mode === 'content') {
+        await printStockFlightcaseContentLabel({
+          key: flightcaseKey,
+          localisationName: locName,
+          items,
+        });
+      } else if (mode === 'qr') {
+        await printStockFlightcaseQrOnly({ key: flightcaseKey, localisationName: locName });
+      } else if (mode === 'shelf') {
+        await printStockFlightcaseShelfLabel({ key: flightcaseKey, localisationName: locName });
+      } else {
+        await printStockFlightcaseGroupedQrsPdf({
+          key: flightcaseKey,
+          localisationName: locName,
+          items,
+        });
+      }
+    } catch (e: unknown) {
+      Alert.alert(
+        t('stock.flightcase.printError'),
+        e instanceof Error ? e.message : String(e)
+      );
+    }
+  };
 
   return (
     <TabScreenSafeArea style={s.container}>
@@ -537,6 +590,51 @@ export default function MaterielDetailScreen() {
             {visibleFields.localisation.map(row => (
               <InfoRow key={row.key} label={row.label} value={row.value != null ? String(row.value) : undefined} />
             ))}
+            {flightcaseKey ? (
+              <View style={{ marginTop: 12, gap: 8 }}>
+                <TouchableOpacity style={s.editBtn} onPress={openFlightcaseContent}>
+                  <Text style={{ color: Colors.white, fontWeight: '700', fontSize: 14 }}>
+                    📦 {t('stock.flightcase.openContent')}
+                  </Text>
+                </TouchableOpacity>
+                {editOk && (
+                  <>
+                    <TouchableOpacity
+                      style={[s.editBtn, { backgroundColor: Colors.bgCard }]}
+                      onPress={() => void printFlightcaseLabel('content')}
+                    >
+                      <Text style={{ color: Colors.white, fontWeight: '700', fontSize: 14 }}>
+                        🖨 {t('stock.flightcase.printContent')}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[s.editBtn, { backgroundColor: Colors.bgCard }]}
+                      onPress={() => void printFlightcaseLabel('qr')}
+                    >
+                      <Text style={{ color: Colors.green, fontWeight: '700', fontSize: 14 }}>
+                        {t('stock.flightcase.printQrOnly')}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[s.editBtn, { backgroundColor: Colors.bgCard }]}
+                      onPress={() => void printFlightcaseLabel('grouped')}
+                    >
+                      <Text style={{ color: Colors.green, fontWeight: '700', fontSize: 14 }}>
+                        {t('stock.flightcase.printGroupedQrs')}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[s.editBtn, { backgroundColor: Colors.bgCard }]}
+                      onPress={() => void printFlightcaseLabel('shelf')}
+                    >
+                      <Text style={{ color: Colors.green, fontWeight: '700', fontSize: 14 }}>
+                        🏷 {t('stock.flightcase.printShelf')}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            ) : null}
           </Card>
         )}
 

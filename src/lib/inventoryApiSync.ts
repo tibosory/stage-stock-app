@@ -192,6 +192,7 @@ function materielSnapshotParams(m: Record<string, unknown>): (string | number | 
     sqlVal(m.poids_kg ?? null),
     sqlVal(m.categorie_id ?? null),
     sqlVal(m.localisation_id ?? null),
+    sqlVal((m as { flightcase?: unknown }).flightcase ?? null),
     sqlVal(m.etat ?? 'bon'),
     sqlVal(m.statut ?? 'en stock'),
     sqlVal(m.date_achat ?? null),
@@ -219,23 +220,30 @@ function materielSnapshotParams(m: Record<string, unknown>): (string | number | 
     (m as { gel_instead_of_photo?: unknown }).gel_instead_of_photo != null
       ? num01((m as { gel_instead_of_photo?: unknown }).gel_instead_of_photo)
       : 0,
+    (m as { gestion_lot?: unknown }).gestion_lot != null
+      ? num01((m as { gestion_lot?: unknown }).gestion_lot)
+      : 0,
+    Number((m as { stock_actuel?: unknown }).stock_actuel ?? 1),
+    sqlVal((m as { unite?: unknown }).unite ?? 'pièce'),
+    Number((m as { seuil_minimum?: unknown }).seuil_minimum ?? 0),
     sqlVal(m.created_at ?? new Date().toISOString()),
     sqlVal(m.updated_at ?? new Date().toISOString()),
   ];
 }
 
 const MATERIEL_SNAPSHOT_INSERT_SQL = `INSERT OR REPLACE INTO materiels (
-            id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id,
+            id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id, flightcase,
             etat, statut, date_achat, date_validite, prochain_controle, intervalle_controle_jours,
             maintenance_todo, maintenance_last_comment,
             technicien, qr_code, nfc_tag_id, photo_url, photo_local,
             notice_pdf_local, notice_photo_local, notice_pdf_url, notice_photo_url,
             vgp_actif, vgp_periodicite_jours, vgp_derniere_visite, vgp_libelle, vgp_epi,
             gel_brand, gel_code, gel_instead_of_photo,
+            gestion_lot, stock_actuel, unite, seuil_minimum,
             created_at, updated_at, synced
           ) VALUES `;
 
-const MATERIEL_SNAPSHOT_VALUES_TUPLE = `(${Array(35).fill('?').join(',')},1)`;
+const MATERIEL_SNAPSHOT_VALUES_TUPLE = `(${Array(40).fill('?').join(',')},1)`;
 
 function consoSnapshotParams(c: Record<string, unknown>): (string | number | null)[] {
   return [

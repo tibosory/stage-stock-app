@@ -56,6 +56,10 @@ const REGIE_DELETE_ORDER: (typeof REGIE_TABLES)[number][] = [
   'mises_techniques',
 ];
 
+function isSchemaCacheError(message: string): boolean {
+  return /schema cache/i.test(message) || /Could not find the table/i.test(message);
+}
+
 function formatSyncError(e: unknown): string {
   const raw =
     e instanceof Error
@@ -71,6 +75,14 @@ function formatSyncError(e: unknown): string {
       '• Téléphone hors ligne, Wi‑Fi invité qui bloque les API, VPN ou DNS privé (ex. « DNS privé » Android) qui bloque supabase.co.\n' +
       '• Projet Supabase en pause (gratuit) : réactiver sur supabase.com.\n' +
       '• URL incorrecte (faute de frappe, espaces).'
+    );
+  }
+  if (isSchemaCacheError(raw)) {
+    return (
+      `${raw}\n\n` +
+      'Le serveur Supabase met parfois quelques secondes à reconnaître les tables après une mise à jour. ' +
+      'Fermez l’app complètement, attendez 1 minute, puis réessayez Envoyer ↑ dans Connexion. ' +
+      'Vérifiez aussi que l’URL du projet correspond bien à celui configuré par l’administrateur.'
     );
   }
   return raw;
@@ -105,6 +117,10 @@ function removeColumnFromRows<T extends Record<string, unknown>>(rows: T[], col:
   });
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function safeUpsert(
   table: UpsertTable,
   rows: Record<string, unknown>[]
@@ -113,13 +129,19 @@ async function safeUpsert(
   let current = rows;
   const removedColumns: string[] = [];
   const sb = getSupabase();
-  for (let i = 0; i < 8; i += 1) {
-    const { error } = await sb.from(table).upsert(current);
-    if (!error) return { error: null, removedColumns };
-    const missing = extractMissingColumnName(error.message);
-    if (!missing) return { error, removedColumns };
-    removedColumns.push(missing);
-    current = removeColumnFromRows(current, missing);
+  for (let schemaAttempt = 0; schemaAttempt < 4; schemaAttempt += 1) {
+    for (let i = 0; i < 8; i += 1) {
+      const { error } = await sb.from(table).upsert(current);
+      if (!error) return { error: null, removedColumns };
+      if (isSchemaCacheError(error.message) && schemaAttempt < 3) {
+        await sleep(1200 * (schemaAttempt + 1));
+        break;
+      }
+      const missing = extractMissingColumnName(error.message);
+      if (!missing) return { error, removedColumns };
+      removedColumns.push(missing);
+      current = removeColumnFromRows(current, missing);
+    }
   }
   return {
     error: { message: 'Trop de colonnes incompatibles détectées côté Supabase.' } as PostgrestError,
@@ -168,16 +190,28 @@ async function applyRegieDeletions(
   for (const table of REGIE_DELETE_ORDER) {
     const ids = byTable.get(table);
     if (!ids?.length) continue;
-    const { error } = await sb.from(table).delete().in('id', ids);
-    if (error) return { ok: false, error: `Supabase suppression ${table}: ${error.message}` };
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const { error } = await sb.from(table).delete().in('id', ids);
+      if (!error) break;
+      if (isSchemaCacheError(error.message) && attempt < 3) {
+        await sleep(1200 * (attempt + 1));
+        continue;
+      }
+      return { ok: false, error: `Supabase suppression ${table}: ${error.message}` };
+    }
   }
   return { ok: true };
 }
 
 async function fetchAllRows(table: string): Promise<Record<string, unknown>[]> {
   const sb = getSupabase();
-  const { data, error } = await sb.from(table).select('*');
-  if (error) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const { data, error } = await sb.from(table).select('*');
+    if (!error) return (data ?? []) as Record<string, unknown>[];
+    if (isSchemaCacheError(error.message) && attempt < 3) {
+      await sleep(1200 * (attempt + 1));
+      continue;
+    }
     if (/does not exist/i.test(error.message)) {
       throw new Error(
         `Table Supabase « ${table} » absente. Exportez et exécutez le schéma SQL (Paramètres → Projet Supabase).`
@@ -185,7 +219,7 @@ async function fetchAllRows(table: string): Promise<Record<string, unknown>[]> {
     }
     throw error;
   }
-  return (data ?? []) as Record<string, unknown>[];
+  throw new Error(`Table Supabase « ${table} » : cache schéma API — réessayez dans une minute.`);
 }
 
 export async function syncToSupabase(): Promise<{ ok: boolean; error?: string }> {

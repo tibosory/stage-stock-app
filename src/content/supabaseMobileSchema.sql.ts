@@ -138,6 +138,11 @@ CREATE TABLE IF NOT EXISTS materiels (
   tracking_state TEXT,
   current_tour_id TEXT,
   current_location_id TEXT,
+  gestion_lot BOOLEAN DEFAULT false,
+  stock_actuel INTEGER DEFAULT 1,
+  unite TEXT DEFAULT 'pièce',
+  seuil_minimum INTEGER DEFAULT 0,
+  flightcase TEXT,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),
   synced BOOLEAN DEFAULT true
@@ -362,6 +367,11 @@ BEGIN
       tracking_state TEXT,
       current_tour_id TEXT,
       current_location_id TEXT,
+      gestion_lot BOOLEAN DEFAULT false,
+      stock_actuel INTEGER DEFAULT 1,
+      unite TEXT DEFAULT 'pièce',
+      seuil_minimum INTEGER DEFAULT 0,
+      flightcase TEXT,
       created_at TIMESTAMPTZ DEFAULT now(),
       updated_at TIMESTAMPTZ DEFAULT now(),
       synced BOOLEAN DEFAULT true
@@ -519,6 +529,22 @@ BEGIN
     RAISE NOTICE 'Accueil Pro mobile (ap_*) : schéma incompatible supprimé, recréation en TEXT.';
   END IF;
 END $$;
+
+-- ── Paramètres lieu / théâtre (partagés entre appareils) ───────────────────
+CREATE TABLE IF NOT EXISTS workspace_settings (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  theatre_name TEXT DEFAULT '',
+  theatre_address TEXT DEFAULT '',
+  logo_url TEXT,
+  contact_prenom TEXT DEFAULT '',
+  contact_nom TEXT DEFAULT '',
+  contact_telephone TEXT DEFAULT '',
+  contact_email TEXT DEFAULT '',
+  contact_fonction TEXT DEFAULT '',
+  contact_etablissement TEXT DEFAULT '',
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  synced BOOLEAN DEFAULT true
+);
 
 -- ── Accueil Pro mobile (ap_*) ─────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS ap_venues (
@@ -754,6 +780,7 @@ BEGIN
     'categories','localisations',
     'materiels','consommables','prets','pret_materiels',
     'conduites','tops','mises_techniques','etapes','positions','position_photos',
+    'workspace_settings',
     'ap_venues','ap_organizations','ap_spaces','ap_organization_contacts',
     'ap_organization_documents','ap_rental_requests','ap_events','ap_conventions',
     'ap_room_inspections','ap_team_members','ap_event_personnel',

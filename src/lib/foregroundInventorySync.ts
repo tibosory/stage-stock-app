@@ -13,7 +13,7 @@ import { rescheduleSeuilBasReminders } from './seuilNotifications';
 import { maybeSendAutoAlertEmailsIfNeeded } from './autoAlertEmails';
 import { recordSyncTelemetry } from './syncTelemetry';
 import { notifyForegroundSyncIssue } from './syncUserFeedback';
-import { getDataBackendMode } from './backendMode';
+import { getEffectiveSupabaseUrlForDisplay } from './supabase';
 import { runInventorySync } from './inventorySyncOrchestrator';
 import { hasCompletedWorkspaceOnboarding } from './workspaceOnboardingStorage';
 import { isInvalidSnapshotJsonError } from './syncSnapshotResponseHint';
@@ -72,9 +72,14 @@ export async function runForegroundInventorySync(): Promise<void> {
         await recordSyncTelemetry('supabase', 'push', 'skipped', 'OFFLINE');
         await recordSyncTelemetry('supabase', 'pull', 'skipped', 'OFFLINE');
       } else if (backendMode === 'supabase') {
+        const projectUrl = getEffectiveSupabaseUrlForDisplay();
+        const urlHint = projectUrl
+          ? `\n\nProjet configuré : ${projectUrl}\nSi l’erreur mentionne une table « schema cache », rescannez le QR d’invitation (Connexion) ou exécutez le schéma SQL complet sur ce projet Supabase, puis attendez 1 min.`
+          : '';
         notifyForegroundSyncIssue(
           'Synchronisation cloud incomplète',
-          result.error ?? 'Impossible de synchroniser avec Supabase. Vérifiez la connexion Internet et la configuration cloud.'
+          (result.error ?? 'Impossible de synchroniser avec Supabase. Vérifiez la connexion Internet et la configuration cloud.') +
+            urlHint
         );
       } else if (backendMode === 'local_server' && (result.pushOk === false || result.pullOk === false)) {
         notifyForegroundSyncIssue(

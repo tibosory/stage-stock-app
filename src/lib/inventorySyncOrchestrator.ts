@@ -9,6 +9,14 @@ import { syncFromInventoryApi, syncToInventoryApi } from './inventoryApiSync';
 import { syncFromSupabase, syncToSupabase } from './supabase';
 import { getIsOnlineRuntime } from './networkRuntime';
 import { recordSyncTelemetry } from './syncTelemetry';
+import {
+  pushWorkspaceSettingsToSupabase,
+  pullWorkspaceSettingsFromSupabase,
+} from './workspaceSettingsSync';
+import {
+  pushAccueilProToSupabase,
+  syncAccueilProFromSupabase,
+} from './accueilProSupabaseSync';
 
 export type InventorySyncDirection = 'push' | 'pull' | 'bidirectional';
 
@@ -60,9 +68,21 @@ async function runSupabasePush(scope: string): Promise<{ ok: boolean; error?: st
     await recordSyncTelemetry('supabase', 'push', 'skipped', guard.reason);
     return { ok: false, error: guard.reason };
   }
-  const result = await syncToSupabase();
-  await recordSyncTelemetry('supabase', 'push', result.ok ? 'ok' : 'error', result.error);
-  return result;
+  const inv = await syncToSupabase();
+  if (!inv.ok) {
+    await recordSyncTelemetry('supabase', 'push', 'error', inv.error);
+    return inv;
+  }
+  try {
+    await pushWorkspaceSettingsToSupabase();
+    await pushAccueilProToSupabase();
+  } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    await recordSyncTelemetry('supabase', 'push', 'error', err);
+    return { ok: false, error: err };
+  }
+  await recordSyncTelemetry('supabase', 'push', 'ok', undefined);
+  return { ok: true };
 }
 
 async function runSupabasePull(scope: string): Promise<{ ok: boolean; error?: string }> {
@@ -71,9 +91,21 @@ async function runSupabasePull(scope: string): Promise<{ ok: boolean; error?: st
     await recordSyncTelemetry('supabase', 'pull', 'skipped', guard.reason);
     return { ok: false, error: guard.reason };
   }
-  const result = await syncFromSupabase();
-  await recordSyncTelemetry('supabase', 'pull', result.ok ? 'ok' : 'error', result.error);
-  return result;
+  const inv = await syncFromSupabase();
+  if (!inv.ok) {
+    await recordSyncTelemetry('supabase', 'pull', 'error', inv.error);
+    return inv;
+  }
+  try {
+    await pullWorkspaceSettingsFromSupabase();
+    await syncAccueilProFromSupabase();
+  } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    await recordSyncTelemetry('supabase', 'pull', 'error', err);
+    return { ok: false, error: err };
+  }
+  await recordSyncTelemetry('supabase', 'pull', 'ok', undefined);
+  return { ok: true };
 }
 
 export async function runInventorySync(options: {

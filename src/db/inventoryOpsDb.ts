@@ -10,6 +10,7 @@ import {
   type MouvementsStockHistoriqueOptions,
 } from './inventoryOpsQuery';
 export type { MouvementsStockHistoriqueOptions } from './inventoryOpsQuery';
+import { isStockFlightcaseQr } from '../lib/stockFlightcase';
 
 type InventoryOpsDbExecutor = {
   runAsync: (sql: string, params?: any[]) => Promise<any>;
@@ -67,12 +68,85 @@ export async function getMaterielsVgpSuivi(database?: InventoryOpsDbExecutor): P
 }
 
 export async function getMaterielByQr(qr: string): Promise<Materiel | null> {
+  if (isStockFlightcaseQr(qr)) return null;
   const db = await resolveInventoryDb();
   const row = await db.getFirstAsync<any>(
     'SELECT * FROM materiels WHERE qr_code = ? OR numero_serie = ? OR id = ?',
     [qr, qr, qr]
   );
   return row ? { ...row, synced: !!row.synced } : null;
+}
+
+export type StockFlightcaseSummary = {
+  localisationId: string | null;
+  flightcase: string;
+  localisation_nom?: string;
+  itemCount: number;
+  qrCode?: string;
+};
+
+/** Articles rangés dans un flightcase stock (même localisation + même libellé caisse). */
+export async function getMaterielsInStockFlightcase(
+  localisationId: string | null,
+  flightcase: string,
+  database?: InventoryOpsDbExecutor
+): Promise<Materiel[]> {
+  const db = await resolveInventoryDb(database);
+  const { getCategories, categoryPathById } = await resolveCatalogFns();
+  const cats = await getCategories();
+  const fcNorm = flightcase.trim().toLowerCase();
+  let sql = `
+    SELECT m.*, c.nom as categorie_nom, l.nom as localisation_nom
+    FROM materiels m
+    LEFT JOIN categories c ON m.categorie_id = c.id
+    LEFT JOIN localisations l ON m.localisation_id = l.id
+    WHERE m.flightcase IS NOT NULL AND lower(trim(m.flightcase)) = ?
+  `;
+  const params: (string | number)[] = [fcNorm];
+  if (localisationId) {
+    sql += ' AND m.localisation_id = ?';
+    params.push(localisationId);
+  } else {
+    sql += ' AND (m.localisation_id IS NULL OR trim(m.localisation_id) = \'\')';
+  }
+  sql += ' ORDER BY m.nom ASC';
+  const rows = await db.getAllAsync<any>(sql, params);
+  return rows.map(r => ({
+    ...r,
+    synced: !!r.synced,
+    categorie_nom: r.categorie_id ? categoryPathById(cats, r.categorie_id) : r.categorie_nom,
+  }));
+}
+
+export async function listStockFlightcases(
+  database?: InventoryOpsDbExecutor
+): Promise<StockFlightcaseSummary[]> {
+  const db = await resolveInventoryDb(database);
+  const rows = await db.getAllAsync<{
+    localisation_id: string | null;
+    flightcase: string;
+    localisation_nom: string | null;
+    n: number;
+    flightcase_qr: string | null;
+  }>(`
+    SELECT m.localisation_id, m.flightcase, l.nom AS localisation_nom, COUNT(*) AS n,
+           sf.qr_code AS flightcase_qr
+    FROM materiels m
+    LEFT JOIN localisations l ON m.localisation_id = l.id
+    LEFT JOIN stock_flightcases sf
+      ON sf.label_norm = lower(trim(m.flightcase))
+      AND COALESCE(sf.localisation_id, '') = COALESCE(m.localisation_id, '')
+    WHERE m.flightcase IS NOT NULL AND trim(m.flightcase) != ''
+    GROUP BY m.localisation_id, lower(trim(m.flightcase)), m.flightcase, l.nom, sf.qr_code
+    ORDER BY l.nom ASC, m.flightcase ASC
+  `);
+  return rows.map(r => ({
+    localisationId: r.localisation_id,
+    flightcase: r.flightcase.trim(),
+    localisation_nom: r.localisation_nom ?? undefined,
+    itemCount: Number(r.n) || 0,
+    qrCode: r.flightcase_qr ?? undefined,
+  }));
 }
 
 export async function getMaterielByNfc(nfcId: string): Promise<Materiel | null> {
@@ -123,9 +197,9 @@ export async function searchMateriels(query: string): Promise<Materiel[]> {
   let sql = `
     SELECT * FROM materiels
     WHERE nom LIKE ? OR IFNULL(qr_code,'') LIKE ? OR IFNULL(numero_serie,'') LIKE ? OR IFNULL(type,'') LIKE ? OR IFNULL(marque,'') LIKE ?
-      OR IFNULL(gel_code,'') LIKE ? OR IFNULL(gel_brand,'') LIKE ?
+      OR IFNULL(gel_code,'') LIKE ? OR IFNULL(gel_brand,'') LIKE ? OR IFNULL(flightcase,'') LIKE ?
   `;
-  const params: (string | number)[] = [q, q, q, q, q, q, q];
+  const params: (string | number)[] = [q, q, q, q, q, q, q, q];
   if (catIds.length) {
     sql += ` OR categorie_id IN (${catIds.map(() => '?').join(',')})`;
     params.push(...catIds);
@@ -284,6 +358,27 @@ export async function ajusterStock(
   await db.runAsync(
     'INSERT INTO mouvements_stock (id, consommable_id, type, quantite, note, created_at) VALUES (?, ?, ?, ?, ?, ?)',
     [mvtId, consommableId, delta >= 0 ? 'entrée' : 'sortie', Math.abs(delta), note ?? null, now]
+  );
+}
+
+/** Ajuste le stock d’un matériel géré en lot (gestion_lot = 1). */
+export async function ajusterMaterielLotStock(
+  materielId: string,
+  delta: number,
+  database?: InventoryOpsDbExecutor
+): Promise<void> {
+  const db = await resolveInventoryDb(database);
+  const row = await db.getFirstAsync<{ gestion_lot: number | null }>(
+    'SELECT gestion_lot FROM materiels WHERE id = ?',
+    [materielId]
+  );
+  if (!row || !(row.gestion_lot === 1)) {
+    throw new Error('Ce matériel n’est pas géré en lot.');
+  }
+  const now = new Date().toISOString();
+  await db.runAsync(
+    'UPDATE materiels SET stock_actuel = MAX(0, COALESCE(stock_actuel, 0) + ?), updated_at = ?, synced = 0 WHERE id = ?',
+    [delta, now, materielId]
   );
 }
 

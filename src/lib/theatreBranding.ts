@@ -42,15 +42,25 @@ export async function loadTheatreBranding(): Promise<TheatreBrandingStored> {
   };
 }
 
-export async function saveTheatreIdentity(name: string, address: string): Promise<void> {
+export async function saveTheatreIdentity(
+  name: string,
+  address: string,
+  opts?: { skipWorkspaceSyncMark?: boolean }
+): Promise<void> {
   await AsyncStorage.multiSet([
     [KEYS.NAME, name],
     [KEYS.ADDRESS, address],
   ]);
+  if (!opts?.skipWorkspaceSyncMark) {
+    void import('./workspaceSettingsSync').then(m => m.markWorkspaceSettingsDirty()).catch(() => undefined);
+  }
 }
 
 /** Copie l’image choisie dans le stockage persistant de l’app. */
-export async function storePickedLogoFile(sourceUri: string): Promise<string> {
+export async function storePickedLogoFile(
+  sourceUri: string,
+  opts?: { skipWorkspaceSyncMark?: boolean }
+): Promise<string> {
   const base = FileSystem.documentDirectory;
   if (!base) throw new Error('Stockage document indisponible');
   const dest = `${base}${LOGO_FILE}`;
@@ -60,10 +70,13 @@ export async function storePickedLogoFile(sourceUri: string): Promise<string> {
   }
   await FileSystem.copyAsync({ from: sourceUri, to: dest });
   await AsyncStorage.setItem(KEYS.LOGO_URI, dest);
+  if (!opts?.skipWorkspaceSyncMark) {
+    void import('./workspaceSettingsSync').then(m => m.markWorkspaceSettingsDirty()).catch(() => undefined);
+  }
   return dest;
 }
 
-export async function clearTheatreLogo(): Promise<void> {
+export async function clearTheatreLogo(opts?: { skipWorkspaceSyncMark?: boolean }): Promise<void> {
   const u = await AsyncStorage.getItem(KEYS.LOGO_URI);
   if (u) {
     try {
@@ -72,6 +85,9 @@ export async function clearTheatreLogo(): Promise<void> {
       /* ignore */
     }
     await AsyncStorage.removeItem(KEYS.LOGO_URI);
+  }
+  if (!opts?.skipWorkspaceSyncMark) {
+    void import('./workspaceSettingsSync').then(m => m.markWorkspaceSettingsDirty()).catch(() => undefined);
   }
 }
 

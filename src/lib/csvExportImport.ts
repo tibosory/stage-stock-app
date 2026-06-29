@@ -6,7 +6,14 @@ import { parseISO, addDays, isValid, format, startOfDay } from 'date-fns';
 import { getDB, generateId } from '../db/coreDb';
 import { getMateriel, getConsommables } from '../db/inventoryDb';
 import { getPrets } from '../db/loanDb';
-import type { Pret } from '../types';
+import {
+  getCategories,
+  getLocalisations,
+  insertCategorie,
+  insertLocalisation,
+  categoryPathById,
+} from '../db/catalogDb';
+import type { Pret, Categorie, Localisation } from '../types';
 
 function csvEscape(cell: string | number | null | undefined): string {
   const s = cell == null ? '' : String(cell);
@@ -111,6 +118,130 @@ function nextUniqueSheetName(base: string, used: Set<string>): string {
   const fallback = `S${Date.now()}`.slice(0, 31);
   used.add(fallback);
   return fallback;
+}
+
+function normalizeCatalogKey(s: string): string {
+  return s.trim().toLowerCase();
+}
+
+function splitCategoryPath(pathRaw: string): string[] {
+  return pathRaw
+    .split(/\s*[›>]\s*|\s*\/\s*/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+type ImportCatalogCaches = {
+  categories: Categorie[];
+  localisations: Localisation[];
+  categorieByPath: Map<string, string>;
+  localisationByName: Map<string, string>;
+};
+
+async function loadImportCatalogCaches(): Promise<ImportCatalogCaches> {
+  const [categories, localisations] = await Promise.all([getCategories(), getLocalisations()]);
+  const categorieByPath = new Map<string, string>();
+  for (const c of categories) {
+    const path = categoryPathById(categories, c.id);
+    if (path) categorieByPath.set(normalizeCatalogKey(path), c.id);
+  }
+  const localisationByName = new Map<string, string>();
+  for (const l of localisations) {
+    localisationByName.set(normalizeCatalogKey(l.nom), l.id);
+  }
+  return { categories, localisations, categorieByPath, localisationByName };
+}
+
+async function resolveOrCreateCategoryPath(
+  pathRaw: string,
+  caches: ImportCatalogCaches
+): Promise<string | null> {
+  const path = pathRaw.trim();
+  if (!path) return null;
+  const fullKey = normalizeCatalogKey(path);
+  const cached = caches.categorieByPath.get(fullKey);
+  if (cached) return cached;
+
+  const segments = splitCategoryPath(path);
+  if (!segments.length) return null;
+
+  let parentId: string | null = null;
+  let builtPath = '';
+  for (const seg of segments) {
+    builtPath = builtPath ? `${builtPath} › ${seg}` : seg;
+    const builtKey = normalizeCatalogKey(builtPath);
+    const existingCached = caches.categorieByPath.get(builtKey);
+    if (existingCached) {
+      parentId = existingCached;
+      continue;
+    }
+    const existing = caches.categories.find(
+      c =>
+        normalizeCatalogKey(c.nom) === normalizeCatalogKey(seg) &&
+        (c.parent_id ?? null) === parentId
+    );
+    if (existing) {
+      parentId = existing.id;
+      caches.categorieByPath.set(builtKey, existing.id);
+      continue;
+    }
+    const newId = await insertCategorie(seg, parentId);
+    const now = new Date().toISOString();
+    const created: Categorie = { id: newId, nom: seg, parent_id: parentId, created_at: now };
+    caches.categories.push(created);
+    caches.categorieByPath.set(builtKey, newId);
+    parentId = newId;
+  }
+  return parentId;
+}
+
+async function resolveCategorieIdForImport(
+  g: (name: string) => string,
+  caches: ImportCatalogCaches
+): Promise<string | null> {
+  const idRaw = g('categorie_id').trim();
+  const nomRaw = g('categorie_nom').trim();
+
+  if (idRaw) {
+    const byId = caches.categories.find(c => c.id === idRaw);
+    if (byId) return byId.id;
+    const byPath = await resolveOrCreateCategoryPath(idRaw, caches);
+    if (byPath) return byPath;
+  }
+  if (nomRaw) {
+    return resolveOrCreateCategoryPath(nomRaw, caches);
+  }
+  return null;
+}
+
+async function resolveLocalisationIdForImport(
+  g: (name: string) => string,
+  caches: ImportCatalogCaches
+): Promise<string | null> {
+  const idRaw = g('localisation_id').trim();
+  const nomRaw = g('localisation_nom').trim();
+
+  if (idRaw) {
+    const byId = caches.localisations.find(l => l.id === idRaw);
+    if (byId) return byId.id;
+    const byName = caches.localisationByName.get(normalizeCatalogKey(idRaw));
+    if (byName) return byName;
+    const newId = await insertLocalisation(idRaw);
+    const now = new Date().toISOString();
+    caches.localisations.push({ id: newId, nom: idRaw, created_at: now });
+    caches.localisationByName.set(normalizeCatalogKey(idRaw), newId);
+    return newId;
+  }
+  if (nomRaw) {
+    const existing = caches.localisationByName.get(normalizeCatalogKey(nomRaw));
+    if (existing) return existing;
+    const newId = await insertLocalisation(nomRaw);
+    const now = new Date().toISOString();
+    caches.localisations.push({ id: newId, nom: nomRaw, created_at: now });
+    caches.localisationByName.set(normalizeCatalogKey(nomRaw), newId);
+    return newId;
+  }
+  return null;
 }
 
 function categoryLabel(item: { categorie_nom?: string | null }): string {
@@ -291,6 +422,7 @@ export async function exportMaterielsExcel(): Promise<void> {
     'categorie_nom',
     'localisation_id',
     'localisation_nom',
+    'flightcase',
     'photo_url',
     'photo_local',
     'notice_pdf_local',
@@ -486,7 +618,10 @@ export async function exportMaterielsCsv(): Promise<void> {
     'nfc_tag_id',
     'technicien',
     'categorie_id',
+    'categorie_nom',
     'localisation_id',
+    'localisation_nom',
+    'flightcase',
     'photo_url',
     'photo_local',
     'notice_pdf_local',
@@ -502,7 +637,14 @@ export async function exportMaterielsCsv(): Promise<void> {
     'gel_code',
     'gel_instead_of_photo',
   ];
-  const csv = toCsv(mats as any, headers);
+  const csv = toCsv(
+    mats.map(m => ({
+      ...(m as Record<string, unknown>),
+      categorie_nom: (m as { categorie_nom?: string }).categorie_nom ?? '',
+      localisation_nom: (m as { localisation_nom?: string }).localisation_nom ?? '',
+    })),
+    headers
+  );
   const path = cachePath('materiels_export.csv');
   await FileSystem.writeAsStringAsync(path, csv, { encoding: FileSystem.EncodingType.UTF8 });
   if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(path, { mimeType: 'text/csv' });
@@ -573,6 +715,7 @@ export async function importMaterielsFromCsv(): Promise<{ ok: number; err: strin
   const idx = (name: string) => header.indexOf(name);
   const has = (n: string) => hasCsvColumn(header, n);
   const database = await getDB();
+  const catalogCaches = await loadImportCatalogCaches();
   let ok = 0;
   for (let r = 1; r < table.length; r++) {
     const row = table[r];
@@ -585,7 +728,7 @@ export async function importMaterielsFromCsv(): Promise<{ ok: number; err: strin
         `SELECT created_at, poids_kg, nfc_tag_id, photo_url, photo_local,
           notice_pdf_local, notice_photo_local, notice_pdf_url, notice_photo_url,
           vgp_actif, vgp_periodicite_jours, vgp_derniere_visite, vgp_libelle, vgp_epi,
-          gel_brand, gel_code, gel_instead_of_photo,
+          gel_brand, gel_code, gel_instead_of_photo, flightcase,
           prochain_controle, intervalle_controle_jours, maintenance_todo, maintenance_last_comment
          FROM materiels WHERE id = ?`,
         [id]
@@ -640,10 +783,15 @@ export async function importMaterielsFromCsv(): Promise<{ ok: number; err: strin
         ? emptyToNull(g('maintenance_last_comment'))
         : (existing?.maintenance_last_comment ?? null);
       const created_at = existing?.created_at ?? now;
+      const categorie_id = await resolveCategorieIdForImport(g, catalogCaches);
+      const localisation_id = await resolveLocalisationIdForImport(g, catalogCaches);
+      const flightcaseVal = has('flightcase')
+        ? emptyToNull(g('flightcase'))
+        : (existing as { flightcase?: string } | null)?.flightcase ?? null;
 
       await database.runAsync(
         `INSERT OR REPLACE INTO materiels (
-          id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id,
+          id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id, flightcase,
           etat, statut, date_achat, date_validite, prochain_controle, intervalle_controle_jours,
           maintenance_todo, maintenance_last_comment,
           technicien, qr_code, nfc_tag_id, photo_url, photo_local,
@@ -651,7 +799,7 @@ export async function importMaterielsFromCsv(): Promise<{ ok: number; err: strin
           vgp_actif, vgp_periodicite_jours, vgp_derniere_visite, vgp_libelle, vgp_epi,
           gel_brand, gel_code, gel_instead_of_photo,
           created_at, updated_at, synced
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
         [
           id,
           g('nom') || 'Sans nom',
@@ -659,8 +807,9 @@ export async function importMaterielsFromCsv(): Promise<{ ok: number; err: strin
           g('marque') || null,
           g('numero_serie') || null,
           poids_kg,
-          g('categorie_id') || null,
-          g('localisation_id') || null,
+          categorie_id,
+          localisation_id,
+          flightcaseVal,
           (g('etat') as any) || 'bon',
           (g('statut') as any) || 'en stock',
           g('date_achat') || null,

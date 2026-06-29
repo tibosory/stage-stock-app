@@ -102,6 +102,8 @@ export async function saveAndApplySupabaseConfig(url: string, anonKey: string): 
   await saveSupabaseOverride({ url: u, anonKey: k });
   applyResolvedConfig({ url: u, anonKey: k });
   emitClientsReplaced();
+  const { setDataBackendMode } = await import('./backendMode');
+  await setDataBackendMode('supabase');
 }
 
 /** Supprime la surcharge locale et revient à la config du build (.env / EAS). */

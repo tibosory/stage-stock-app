@@ -13,6 +13,12 @@ export interface Materiel {
   id: string;
   nom: string;
   type?: string;
+  /** 1 = lot (un QR, stock ajustable) ; 0 = pièce unitaire */
+  gestion_lot?: number | boolean;
+  /** Stock courant pour les lots ; 1 pour les pièces unitaires */
+  stock_actuel?: number;
+  unite?: string;
+  seuil_minimum?: number;
   marque?: string;
   numero_serie?: string;
   poids_kg?: number;
@@ -22,6 +28,8 @@ export interface Materiel {
   /** Chemin catégorie (affichage / recherche), optionnel */
   categorie_nom?: string;
   localisation_id?: string;
+  /** Flightcase / caisse (plusieurs pièces peuvent partager le même libellé). */
+  flightcase?: string | null;
   etat: EtatMateriel;
   statut: StatutMateriel;
   date_achat?: string;

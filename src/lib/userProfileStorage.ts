@@ -33,8 +33,11 @@ export async function loadUserProfile(): Promise<UserProfile> {
   }
 }
 
-export async function saveUserProfile(p: UserProfile): Promise<void> {
+export async function saveUserProfile(p: UserProfile, opts?: { skipWorkspaceSyncMark?: boolean }): Promise<void> {
   await AsyncStorage.setItem(KEY, JSON.stringify(p));
+  if (!opts?.skipWorkspaceSyncMark) {
+    void import('./workspaceSettingsSync').then(m => m.markWorkspaceSettingsDirty()).catch(() => undefined);
+  }
 }
 
 /** Bloc de signature pour les e-mails générés (devis, etc.). */

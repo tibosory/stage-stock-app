@@ -36,7 +36,7 @@ export const USER_GUIDE_META = {
 
   versionLabel:
 
-    '25 juin 2026 (étiquettes QR : nom + référence, texte adaptatif)',
+    '24 juin 2026 (QR flightcase stock, étiquette contenu)',
 
 };
 
@@ -150,6 +150,8 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'Matériel : le code ouvre la fiche ou permet d’en créer une minimale si votre organisation l’autorise.',
 
+      'Flightcase stock : un QR SS-FC:… ouvre la liste des articles rangés dans la caisse (même libellé flightcase + même localisation).',
+
       'Consommables : entrée ou sortie de stock ; le mode rafale applique la même quantité à chaque scan.',
 
     ],
@@ -170,9 +172,13 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
     paragraphs: [
 
-      'Liste filtrable par statut et recherche texte (matériel et consommables depuis la barre de recherche). Touchez un résultat de recherche pour ouvrir sa fiche et la modifier. Appui long pour sélectionner plusieurs fiches et exporter un PDF.',
+      'Liste filtrable par statut et recherche texte (matériel et consommables depuis la barre de recherche). Touchez un résultat de recherche pour ouvrir sa fiche et la modifier. Appui long sur une ligne ou sur 🗑️ : mode sélection (cocher, tout sélectionner, supprimer en lot ou exporter un PDF).',
 
-      'À l’ajout ou la modification d’une fiche : choisissez une catégorie existante ou créez-en une (parent optionnel pour une sous-catégorie, ex. Éclairage › LED).',
+      'À la création d’une fiche : le champ « Quantité » remplace l’ancien type. Quantité 1 = pièce unitaire avec son QR. Quantité > 1 = lot (un QR, stock ajustable comme un consommable, bouton ± Ajuster et Scanner).',
+
+      'À l’ajout ou la modification d’une fiche : choisissez une catégorie existante ou créez-en une (parent optionnel pour une sous-catégorie, ex. Éclairage › LED). Sous la localisation (réserve, scène…), vous pouvez préciser un flightcase ou une caisse (ex. FC-Lumière 3) lorsque plusieurs pièces sont rangées ensemble.',
+
+      'Chaque flightcase (même libellé dans la même localisation) possède un QR dédié au format SS-FC:fc_…, distinct du QR de chaque article. Scanner le QR flightcase ouvre la liste du contenu ; scanner le QR d’un article ouvre toujours sa fiche individuelle.',
 
       'Impression d’étiquettes QR (Stock, Consommables, impression groupée) : chaque étiquette affiche le QR, le nom et la référence de l’article ; la taille du texte s’adapte pour que rien ne soit coupé.',
 
@@ -191,6 +197,10 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
     paragraphs: [
 
       'Liste avec filtre stock sous le seuil et barre de recherche (nom, référence, catégorie, QR…). À l’ajout d’une fiche : sous-catégories et localisations créables sur place (comme dans Stock). Mouvements depuis la fiche, le Scanner ou un import tableur.',
+
+      'Sur chaque tuile, le bouton « ± Ajuster » propose Entrée ou Sortie puis un pavé numérique pour saisir la quantité exacte.',
+
+      'Appui long sur une ligne ou sur 🗑️ : mode sélection (cocher, tout sélectionner, supprimer en lot).',
 
     ],
 
@@ -222,6 +232,8 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'Un matériel en tournée ne change de statut que depuis l’écran Tournée.',
 
+      'En fin de tournée (état « terminée » ou « en cours »), ouvrez « Scan retour de tournée » : scannez les QR pour réintégrer le stock, ou recherchez manuellement les articles sans étiquette. L’app affiche les articles manquants par rapport au contenu initial.',
+
     ],
 
   },
@@ -248,7 +260,7 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
     paragraphs: [
 
-      'Import et export CSV pour les mises à jour en masse. Synchro manuelle depuis Réseau.',
+      'Import et export CSV pour les mises à jour en masse. À l’import matériels : categorie_nom et localisation_nom (ou un libellé dans categorie_id / localisation_id) créent les catégories et localisations absentes ; les chemins « Parent › Enfant » sont supportés pour les catégories. Synchro manuelle depuis Réseau.',
 
     ],
 
@@ -300,7 +312,9 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'En mode local : installez le serveur, jumelez avec le QR, puis Envoyer ↑ et Recevoir ↓.',
 
-      'En mode Supabase : exportez le schéma SQL, renseignez URL + clé anon. Basculez Connexion → « Cloud Supabase » : le QR d’invitation apparaît en tête de l’onglet (carte verte 📲). Partagez-le par e-mail ou scan ; le collègue se connecte ensuite à Supabase.',
+      'En mode Supabase : exportez le schéma SQL, renseignez URL + clé anon. Basculez Connexion → « Cloud Supabase » : le QR d’invitation apparaît en tête de l’onglet (carte verte 📲). Partagez-le par e-mail ou scan ; le scan bascule automatiquement en mode cloud sur le téléphone du collègue.',
+      'Plusieurs téléphones en cloud : l’appareil qui modifie une quantité fait Envoyer ↑, les autres font Recevoir ↓. Tous doivent afficher « Synchronisation inventaire (Supabase) » (pas « avec le PC »).',
+      'Le même Envoyer ↑ / Recevoir ↓ synchronise aussi le lieu (nom du théâtre, adresse, logo, coordonnées admin dans Profil) et les données Accueil Pro (lieux, événements…).',
       'Photos consommable : conservées à la sync, téléversées au cloud à l’Envoyer ↑ (qualité réduite), retéléchargées au Recevoir ↓ si une URL existe. Réassociez une photo si elle manque encore après sync.',
 
       'En mode local : tuile Connexion → « Serveur local sur PC » (QR jumelage ou adresse PC). Un seul mode actif à la fois ; tous les téléphones doivent utiliser le même.',

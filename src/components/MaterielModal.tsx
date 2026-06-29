@@ -4,6 +4,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   Alert, Image
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
@@ -21,6 +22,9 @@ import { DynamicProfileForm } from './DynamicProfileForm';
 import { ProfileSchemaSystem } from '../application/services';
 import { loadMaterialProfileSchema, saveMaterialUseCase } from '../application/usecases';
 import { useLanguage } from '../context/LanguageContext';
+import { isMaterielGestionLot, materielLotUnite, materielStockActuel } from '../lib/materielLot';
+import { stockFlightcaseKeyFromMateriel, assertMaterielQrNotFlightcase } from '../lib/stockFlightcase';
+import { ensureStockFlightcase } from '../db/stockFlightcasesDb';
 type DynamicAttrs = Record<string, string | number | boolean | null>;
 
 
@@ -72,13 +76,15 @@ export default function MaterielModal({
   onOpenProfileEditor,
 }: Props) {
   const { t } = useLanguage();
+  const navigation = useNavigation<any>();
   const [nom, setNom] = useState('');
-  const [type, setType] = useState('');
+  const [quantite, setQuantite] = useState('1');
   const [marque, setMarque] = useState('');
   const [numeroSerie, setNumeroSerie] = useState('');
   const [poids, setPoids] = useState('');
   const [categorieId, setCategorieId] = useState('');
   const [localisationId, setLocalisationId] = useState('');
+  const [flightcase, setFlightcase] = useState('');
   const [etat, setEtat] = useState<EtatMateriel>('bon');
   const [statut, setStatut] = useState<StatutMateriel>('en stock');
   const [dateAchat, setDateAchat] = useState('');
@@ -112,12 +118,17 @@ export default function MaterielModal({
     if (!visible) return;
     if (item) {
       setNom(item.nom);
-      setType(item.type ?? '');
+      setQuantite(
+        isMaterielGestionLot(item)
+          ? String(materielStockActuel(item))
+          : '1'
+      );
       setMarque(item.marque ?? '');
       setNumeroSerie(item.numero_serie ?? '');
       setPoids(item.poids_kg?.toString() ?? '');
       setCategorieId(item.categorie_id ?? '');
       setLocalisationId(item.localisation_id ?? '');
+      setFlightcase(item.flightcase ?? '');
       setEtat(item.etat);
       setStatut(item.statut);
       setDateAchat(item.date_achat ?? '');
@@ -135,8 +146,8 @@ export default function MaterielModal({
       setNoticePdfUri(item.notice_pdf_local ?? item.notice_pdf_url ?? '');
       setNoticePhotoUri(item.notice_photo_local ?? item.notice_photo_url ?? '');
     } else {
-      setNom(''); setType(''); setMarque(''); setNumeroSerie('');
-      setPoids(''); setCategorieId(''); setLocalisationId('');
+      setNom(''); setQuantite('1'); setMarque(''); setNumeroSerie('');
+      setPoids(''); setCategorieId(''); setLocalisationId(''); setFlightcase('');
       setEtat('bon'); setStatut('en stock');
       setDateAchat(''); setDateValidite(''); setProchainControle(''); setIntervalleControle('');
       setMaintenanceTodo(''); setMaintenanceLastComment('');
@@ -348,16 +359,43 @@ export default function MaterielModal({
       Alert.alert('Poids invalide', 'Utilisez un nombre avec 2 décimales max (ex: 12,34).');
       return;
     }
+    const qtyParsed = parseInt(quantite, 10);
+    if (!item) {
+      if (!Number.isFinite(qtyParsed) || qtyParsed < 1) {
+        Alert.alert(t('stock.lot.qtyInvalidTitle'), t('stock.lot.qtyInvalidBody'));
+        return;
+      }
+    } else if (isMaterielGestionLot(item)) {
+      if (!Number.isFinite(qtyParsed) || qtyParsed < 0) {
+        Alert.alert(t('stock.lot.qtyInvalidTitle'), t('stock.lot.stockInvalidBody'));
+        return;
+      }
+    }
     setSaving(true);
     try {
+      if (qrCode.trim()) {
+        try {
+          assertMaterielQrNotFlightcase(qrCode);
+        } catch (e: unknown) {
+          Alert.alert(t('scanner.error'), e instanceof Error ? e.message : String(e));
+          setSaving(false);
+          return;
+        }
+      }
+      const gestionLot = item ? isMaterielGestionLot(item) : qtyParsed > 1;
+      const stockActuel = item
+        ? isMaterielGestionLot(item)
+          ? qtyParsed
+          : 1
+        : qtyParsed;
       const data = {
         nom: nom.trim(),
-        type: type || undefined,
         marque: marque || undefined,
-        numero_serie: numeroSerie || undefined,
+        numero_serie: gestionLot ? undefined : numeroSerie || undefined,
         poids_kg: parsedWeight,
         categorie_id: categorieId || undefined,
         localisation_id: localisationId || undefined,
+        flightcase: flightcase.trim() || undefined,
         etat,
         statut: statutLockedByTour ? 'en tournée' : statut,
         date_achat: dateAchat || undefined,
@@ -377,6 +415,9 @@ export default function MaterielModal({
         technical_data: dynamicAttrs,
         profile_id: selectedProfileId || undefined,
         profile_version: selectedProfileVersion ?? undefined,
+        gestion_lot: gestionLot ? 1 : 0,
+        stock_actuel: stockActuel,
+        unite: gestionLot ? materielLotUnite(item ?? { unite: 'pièce' }) : 'pièce',
       };
       await saveMaterialUseCase({
         existingMaterialId: item?.id,
@@ -388,6 +429,9 @@ export default function MaterielModal({
         noticePdfTouched,
         noticePhotoTouched,
       });
+      if (flightcase.trim()) {
+        await ensureStockFlightcase(localisationId || null, flightcase.trim());
+      }
       onSaved();
       void triggerSyncAfterActionIfEnabled();
       onClose();
@@ -460,18 +504,35 @@ export default function MaterielModal({
       <Input label="Nom" value={nom} onChangeText={setNom} placeholder="" required />
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={{ flex: 1 }}>
-          <Input label="Type" value={type} onChangeText={setType} />
-        </View>
+        {(!item || isMaterielGestionLot(item)) && (
+          <View style={{ flex: 1 }}>
+            <Input
+              label={item ? t('stock.lot.stockLabel') : t('stock.lot.qtyLabel')}
+              value={quantite}
+              onChangeText={setQuantite}
+              keyboardType="number-pad"
+              placeholder="1"
+            />
+          </View>
+        )}
         <View style={{ flex: 1 }}>
           <Input label="Marque" value={marque} onChangeText={setMarque} />
         </View>
       </View>
 
+      {!item && <Text style={s.lotHint}>{t('stock.lot.createHint')}</Text>}
+      {item && isMaterielGestionLot(item) && (
+        <Text style={s.lotHint}>
+          {t('stock.lot.editHint', { unit: materielLotUnite(item) })}
+        </Text>
+      )}
+
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={{ flex: 1 }}>
-          <Input label="N° de série" value={numeroSerie} onChangeText={setNumeroSerie} />
-        </View>
+        {(!item || !isMaterielGestionLot(item)) && (
+          <View style={{ flex: 1 }}>
+            <Input label="N° de série" value={numeroSerie} onChangeText={setNumeroSerie} />
+          </View>
+        )}
         <View style={{ flex: 1 }}>
           <Input
             label="Poids (kg)"
@@ -491,6 +552,34 @@ export default function MaterielModal({
           <SelectPicker label="Localisation" value={localisationId} options={locOptions} onChange={setLocalisationId} />
         </View>
       </View>
+
+      <Input
+        label={t('stock.flightcase.label')}
+        value={flightcase}
+        onChangeText={setFlightcase}
+        placeholder={t('stock.flightcase.placeholder')}
+      />
+      <Text style={s.lotHint}>{t('stock.flightcase.hint')}</Text>
+      <Text style={s.lotHint}>{t('stock.flightcase.qrSeparateHint')}</Text>
+      {item && flightcase.trim() ? (
+        <TouchableOpacity
+          style={s.fcOpenBtn}
+          onPress={() => {
+            const key = stockFlightcaseKeyFromMateriel({
+              localisation_id: localisationId || null,
+              flightcase,
+            });
+            if (!key) return;
+            onClose();
+            navigation.navigate('FlightcaseDetail', {
+              localisationId: key.localisationId,
+              flightcase: key.flightcase,
+            });
+          }}
+        >
+          <Text style={s.fcOpenBtnText}>📦 {t('stock.flightcase.openContent')}</Text>
+        </TouchableOpacity>
+      ) : null}
 
       <View style={s.newCatBlock}>
         <Text style={s.newCatHint}>{t('consumables.category.createHint')}</Text>
@@ -777,6 +866,17 @@ const s = StyleSheet.create({
   },
   sectionLabel: { color: Colors.textPrimary, fontSize: 13, fontWeight: '600', marginBottom: 4 },
   sectionHint: { color: Colors.textMuted, fontSize: 11, marginBottom: 10, lineHeight: 15 },
+  lotHint: { color: Colors.textMuted, fontSize: 12, marginBottom: 12, lineHeight: 17 },
+  fcOpenBtn: {
+    marginBottom: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.green,
+    alignItems: 'center',
+  },
+  fcOpenBtnText: { color: Colors.green, fontWeight: '700', fontSize: 13 },
   noticeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
   noticeBtn: {
     backgroundColor: Colors.bgCardAlt,

@@ -58,6 +58,7 @@ import {
 import { triggerScanMatchHaptic } from '../lib/scanHaptic';
 import { pickBarcodeAtTap, rememberDetectedBarcode } from '../lib/tapToScanBarcode';
 import { showTourLifecycleMenu } from '../lib/tourLifecyclePrompt';
+import { summarizeTourReturns } from '../lib/tourReturnScan';
 import { exportFlightcaseContentPdf, exportFlightcaseQrLabelsPdf } from '../lib/pdfTourFlightcases';
 
 function formatAssignedAt(iso: string): string {
@@ -770,6 +771,12 @@ export default function TourDetailScreen() {
     ? `${tourStatusLabel(tour.status)} · début ${tour.startDate}${tour.endDate ? ` · fin ${tour.endDate}` : ''}`
     : t('common.loading');
 
+  const returnSummary = summarizeTourReturns(assignments);
+  const showReturnScanEntry =
+    tour &&
+    (tour.status === 'active' || tour.status === 'completed') &&
+    returnSummary.totalExpected > 0;
+
   return (
     <TabScreenSafeArea style={s.container}>
       <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
@@ -797,8 +804,25 @@ export default function TourDetailScreen() {
           </View>
         ) : null}
 
+        {showReturnScanEntry ? (
+          <Card>
+            <Text style={s.step}>{t('tour.detail.openReturnScan')}</Text>
+            <Text style={s.hint}>{t('tour.detail.openReturnScanHint')}</Text>
+            <TouchableOpacity
+              style={s.btnPrimary}
+              onPress={() => navigation.navigate('TourReturnScan', { tourId })}
+              accessibilityRole="button"
+            >
+              <Text style={s.btnPrimaryText}>
+                {returnSummary.pendingAssignments.length > 0
+                  ? t('tour.detail.openReturnScanPending', { count: returnSummary.pendingAssignments.length })
+                  : t('tour.detail.openReturnScan')}
+              </Text>
+            </TouchableOpacity>
+          </Card>
+        ) : null}
+
         <Card>
-          <Text style={s.step}>{t('tour.detail.howItWorks')}</Text>
           <Text style={s.help}>
             1) Créez les lieux (ville, salle, camion…).{'\n'}
             2) Importez les documents utiles (plans AutoCAD, PDF techniques, etc.) pour l’équipe terrain.{'\n'}

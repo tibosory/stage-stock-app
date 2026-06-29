@@ -78,6 +78,8 @@ export async function tryApplyPairingFromScan(raw: string): Promise<boolean> {
   if (parsed.apiKey?.trim()) {
     await setApiKeyOverride(parsed.apiKey.trim());
   }
+  const { setDataBackendMode } = await import('./backendMode');
+  await setDataBackendMode('local_server');
   return true;
 }
 
@@ -88,5 +90,7 @@ export async function applyPairingDeepLink(url: string): Promise<boolean> {
   if (parsed.apiKey?.trim()) {
     await setApiKeyOverride(parsed.apiKey.trim());
   }
+  const { setDataBackendMode } = await import('./backendMode');
+  await setDataBackendMode('local_server');
   return true;
 }

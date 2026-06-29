@@ -208,6 +208,24 @@ async function runSchemaMigrations(database: SQLite.SQLiteDatabase): Promise<voi
   await addCol('materiels', 'tracking_state', 'TEXT');
   await addCol('materiels', 'current_tour_id', 'TEXT');
   await addCol('materiels', 'current_location_id', 'TEXT');
+  await addCol('materiels', 'gestion_lot', 'INTEGER DEFAULT 0');
+  await addCol('materiels', 'stock_actuel', 'INTEGER DEFAULT 1');
+  await addCol('materiels', 'unite', "TEXT DEFAULT 'pièce'");
+  await addCol('materiels', 'seuil_minimum', 'INTEGER DEFAULT 0');
+  await addCol('materiels', 'flightcase', 'TEXT');
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS stock_flightcases (
+      id TEXT PRIMARY KEY,
+      localisation_id TEXT,
+      label TEXT NOT NULL,
+      label_norm TEXT NOT NULL,
+      qr_code TEXT NOT NULL UNIQUE,
+      synced INTEGER DEFAULT 0
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_fc_loc_label
+      ON stock_flightcases(COALESCE(localisation_id, ''), label_norm);
+    CREATE INDEX IF NOT EXISTS idx_stock_fc_qr ON stock_flightcases(qr_code);
+  `);
   await addCol('material_assignments', 'flightcase_id', 'TEXT');
   await addCol('material_assignments', 'packaging_photo_local', 'TEXT');
   await addCol('tour_documents', 'mime_type', 'TEXT');
@@ -532,6 +550,8 @@ export const initDB = async (): Promise<void> => {
   `);
 
   await runSchemaMigrations(database);
+  const { backfillStockFlightcasesFromMateriels } = await import('./stockFlightcasesDb');
+  await backfillStockFlightcasesFromMateriels(database);
   await seedDefaultAdminIfNeeded(database);
   const acc = await import('./accueilProDb');
   await acc.ensureAccueilProSchema(database);
@@ -562,6 +582,18 @@ function materielInsertSqlAndParams(
       : data.technical_data != null
         ? JSON.stringify(data.technical_data)
         : null;
+  const gestionLot = data.gestion_lot === 1 || data.gestion_lot === true ? 1 : 0;
+  const stockActuel =
+    data.stock_actuel != null && Number.isFinite(Number(data.stock_actuel))
+      ? Math.max(0, Math.floor(Number(data.stock_actuel)))
+      : gestionLot
+        ? 0
+        : 1;
+  const unite = data.unite?.trim() || 'pièce';
+  const seuilMin =
+    data.seuil_minimum != null && Number.isFinite(Number(data.seuil_minimum))
+      ? Math.max(0, Math.floor(Number(data.seuil_minimum)))
+      : 0;
   const params: (string | number | null)[] = [
     id,
     data.nom,
@@ -571,6 +603,7 @@ function materielInsertSqlAndParams(
     data.poids_kg ?? null,
     data.categorie_id ?? null,
     data.localisation_id ?? null,
+    data.flightcase?.trim() || null,
     data.etat,
     data.statut,
     data.date_achat ?? null,
@@ -599,15 +632,19 @@ function materielInsertSqlAndParams(
     technicalData,
     data.profile_id ?? null,
     data.profile_version ?? null,
+    gestionLot,
+    stockActuel,
+    unite,
+    seuilMin,
     now,
     now,
   ];
-  if (params.length !== 38) {
-    throw new Error(`insert materiel: 38 paramètres attendus, ${params.length} fournis`);
+  if (params.length !== 43) {
+    throw new Error(`insert materiel: 43 paramètres attendus, ${params.length} fournis`);
   }
-  const placeholders = Array(38).fill('?').join(', ');
+  const placeholders = Array(43).fill('?').join(', ');
   const sql = `
-    INSERT INTO materiels (id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id,
+    INSERT INTO materiels (id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id, flightcase,
       etat, statut, date_achat, date_validite, prochain_controle, intervalle_controle_jours,
       maintenance_todo, maintenance_last_comment,
       technicien, qr_code, nfc_tag_id, photo_url, photo_local,
@@ -616,6 +653,7 @@ function materielInsertSqlAndParams(
       gel_brand, gel_code, gel_instead_of_photo,
       technical_data,
       profile_id, profile_version,
+      gestion_lot, stock_actuel, unite, seuil_minimum,
       created_at, updated_at, synced)
     VALUES (${placeholders}, 0)`;
   return { sql, params };

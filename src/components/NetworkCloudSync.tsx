@@ -163,6 +163,11 @@ export function NetworkCloudSync() {
             {t('network.cloudSync.offlineSupabase')}
           </Text>
         ) : null}
+        {isSupabaseConfigured() && isLocal ? (
+          <Text style={[styles.hintMuted, { marginTop: 8, color: '#f59e0b' }]}>
+            {t('network.cloudSync.supabaseConfiguredButLocalMode')}
+          </Text>
+        ) : null}
       </Card>
     </>
   );

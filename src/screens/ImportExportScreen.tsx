@@ -25,6 +25,7 @@ import {
   importMaterielsFromCsv,
 } from '../lib/csvExportImport';
 import { getMateriel, getConsommablesAlerte } from '../db/inventoryDb';
+import { invalidateInventorySnapshotCache } from '../db/materialRepository';
 import { rescheduleVgpDueReminders } from '../lib/vgpNotifications';
 import { rescheduleSeuilBasReminders } from '../lib/seuilNotifications';
 import {
@@ -390,6 +391,7 @@ export default function ImportExportScreen() {
             style={[styles.syncBtnOutline, { marginTop: 10 }]}
             onPress={async () => {
               const r = await importMaterielsFromCsv();
+              if (!r.err && r.ok > 0) invalidateInventorySnapshotCache();
               Alert.alert(t('importExport.importMatAlertTitle'), r.err ?? t('importExport.importMatLines', { n: r.ok }));
               await afterImport();
             }}

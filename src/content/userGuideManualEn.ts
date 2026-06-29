@@ -8,7 +8,7 @@ export const USER_GUIDE_META_EN = {
   title: 'CATRACK Pro — User guide',
   subtitle: 'Step-by-step guide with practical examples',
   versionLabel:
-    'June 25, 2026 (QR labels: name + reference, adaptive text)',
+    'June 24, 2026 (stock flightcase QR, content label)',
 };
 
 export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
@@ -65,6 +65,7 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
       'Camera: when several codes are visible, aim at the one you want and tap the screen to read it (no automatic scan on the first code detected).',
       'Server pairing QR: Connection / Network → Scan pairing QR code (or Scanner tab) and aim at the QR on the PC /pair page — not the address line under the QR alone. The QR includes URL and API key. If “API key required”: reload /pair on the PC and scan again; after server reinstall, old QR codes are invalid.',
       'Equipment: the code opens the record or creates a minimal one if your organisation allows it.',
+      'Stock flightcase: an SS-FC:… QR opens the list of items stored in that case (same flightcase label + same location).',
       'Consumables: stock in or out; burst mode applies the same quantity at each scan.',
     ],
     examples: [
@@ -75,8 +76,10 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     icon: '📦',
     title: 'Equipment stock',
     paragraphs: [
-      'Filterable list by status and text search (equipment and consumables from the search bar). Tap a search result to open and edit its record. Long-press to select several records and export a PDF.',
-      'When adding or editing a record: pick an existing category or create one (optional parent for a subcategory, e.g. Lighting › LED).',
+      'Filterable list by status and text search (equipment and consumables from the search bar). Tap a search result to open and edit its record. Long-press a row or 🗑️: selection mode (check rows, select all, bulk delete or export PDF).',
+      'When creating a record, the Quantity field replaces the old type field. Quantity 1 = single item with its own QR. Quantity > 1 = lot (one QR, stock adjusted like a consumable, ± Adjust button and Scanner).',
+      'When adding or editing a record: pick an existing category or create one (optional parent for a subcategory, e.g. Lighting › LED). Below location (store, stage…), you can add a flightcase label (e.g. FC-Lighting 3) when several items are stored together.',
+      'Each flightcase (same label in the same location) has a dedicated QR in the form SS-FC:fc_…, separate from each item’s QR. Scanning the flightcase QR opens the contents list; scanning an item’s QR always opens that item’s record.',
       'Print QR labels (Stock, Consumables, bulk print): each label shows the QR code, item name and reference; text size adapts so nothing is clipped.',
       'The detail view shows only filled fields.',
     ],
@@ -86,6 +89,7 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     title: 'Consumables',
     paragraphs: [
       'List with low-stock filter and search bar (name, reference, category, QR…). Tap a search result to open the edit form. When adding a record: subcategories and locations can be created inline (same as Stock). Movements from the record, Scanner or spreadsheet import.',
+      'On each tile, the “± Adjust” button offers Stock in or Stock out, then a numeric keypad to enter the exact quantity.',
     ],
   },
   {
@@ -101,6 +105,7 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     paragraphs: [
       'Create a tour, add locations, assign gear by list or scan. Track each line with a status.',
       'Gear on a tour can only change status from the Tour screen.',
+      'When the tour ends (status completed or active), open “Tour return scan”: scan QR codes to put gear back in stock, or search manually for items without labels. The app lists missing items vs the initial load-out.',
     ],
   },
   {
@@ -114,7 +119,7 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     icon: '📤',
     title: 'Import / export',
     paragraphs: [
-      'CSV import and export for bulk updates. Manual sync from Network.',
+      'CSV import and export for bulk updates. Equipment CSV import: categorie_nom and localisation_nom (or a label in categorie_id / localisation_id) create missing categories and locations; category paths like Parent › Child are supported. Manual sync from Network.',
     ],
   },
   {
@@ -140,7 +145,9 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
       '• Supabase cloud (Internet) — inventory, loans, run sheets, technical plots and Accueil Pro go through the cloud, with no PC server.',
       'Only the cards for the chosen mode are shown below.',
       'In local mode: install the server, pair with the QR, then Push ↑ and Pull ↓.',
-      'In Supabase mode: export SQL, set URL + anon key. Switch Connection → “Supabase cloud”: the invitation QR appears at the top of the tab (green 📲 card). Share by email or scan; colleague then signs in to Supabase.',
+      'In Supabase mode: export SQL, set URL + anon key. Switch Connection → “Supabase cloud”: the invitation QR appears at the top of the tab (green 📲 card). Share by email or scan; scanning switches the phone to cloud mode automatically.',
+      'Several phones on cloud: the device that changed a quantity runs Push ↑, others run Pull ↓. Everyone must see “Inventory sync (Supabase)” (not “with PC”).',
+      'The same Push ↑ / Pull ↓ also syncs venue identity (theatre name, address, logo, admin contact in Profile) and Accueil Pro data (venues, events…).',
 
       'In local mode: Connection tile → “Local PC server” (pairing QR or PC address). Only one mode active at a time; all devices must match.',
       'All team phones must use the same mode.',

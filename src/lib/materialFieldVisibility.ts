@@ -30,7 +30,7 @@ const TECHNICAL_LABELS: Record<string, string> = {
 const PREDEFINED_TECHNICAL_KEYS = Object.keys(TECHNICAL_LABELS);
 
 const STOCK_KEYS = ['status', 'total_quantity', 'available_quantity', 'broken_quantity'] as const;
-const LOCATION_KEYS = ['location', 'storage_box', 'rack_position'] as const;
+const LOCATION_KEYS = ['location', 'flightcase', 'rack_position'] as const;
 
 export interface MaterialEntity {
   id: string;
@@ -44,7 +44,7 @@ export interface MaterialEntity {
   broken_quantity?: number;
   status?: MaterialStatus;
   location?: string;
-  storage_box?: string;
+  flightcase?: string;
   rack_position?: string;
   technical_data: Record<string, string | number | undefined>;
 }
@@ -95,7 +95,9 @@ function toMaterialEntity(mat: Materiel): MaterialEntity {
     broken_quantity: mat.etat === 'hors service' ? 1 : 0,
     status: parseStatus(mat),
     location: matWithJoins.localisation_nom ?? mat.localisation_id ?? undefined,
-    storage_box: typeof storageBoxRaw === 'string' ? storageBoxRaw : undefined,
+    flightcase:
+      mat.flightcase?.trim() ||
+      (typeof storageBoxRaw === 'string' && storageBoxRaw.trim() ? storageBoxRaw.trim() : undefined),
     rack_position: typeof rackPositionRaw === 'string' ? rackPositionRaw : undefined,
     technical_data: {
       ...baseTechnical,
@@ -144,12 +146,12 @@ export function getVisibleFields(material: Materiel): VisibleMaterialSections {
 
   const localisationEntries: Record<string, string | number | undefined> = {
     location: entity.location,
-    storage_box: entity.storage_box,
+    flightcase: entity.flightcase,
     rack_position: entity.rack_position,
   };
   const localisationLabels: Record<string, string> = {
     location: 'Localisation',
-    storage_box: 'Bac de stockage',
+    flightcase: 'Flightcase / caisse',
     rack_position: 'Position rack',
   };
   const localisation = LOCATION_KEYS.map(k => ({

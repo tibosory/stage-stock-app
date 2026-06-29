@@ -428,6 +428,7 @@ function LoggedInNavigator() {
       <RootStack.Screen name="ProfileEditor" getComponent={() => require('./src/screens/ProfileEditorScreen').default} />
       <RootStack.Screen name="TourList" getComponent={() => require('./src/screens/TourListScreen').default} />
       <RootStack.Screen name="TourDetail" getComponent={() => require('./src/screens/TourDetailScreen').default} />
+      <RootStack.Screen name="TourReturnScan" getComponent={() => require('./src/screens/TourReturnScanScreen').default} />
       <RootStack.Screen name="Tracking" getComponent={() => require('./src/screens/TrackingScreen').default} />
       <RootStack.Screen name="ActivityLog" getComponent={() => require('./src/screens/ActivityLogScreen').default} />
       <RootStack.Screen name="ConduiteList" getComponent={() => require('./src/screens/ConduiteListScreen').default} />

@@ -3,6 +3,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import StockScreen from '../screens/StockScreen';
 import StockBrowseScreen from '../screens/StockBrowseScreen';
 import MaterielDetailScreen from '../screens/MaterielDetailScreen';
+import FlightcaseDetailScreen from '../screens/FlightcaseDetailScreen';
 import VgpScreen from '../screens/VgpScreen';
 
 const Stack = createStackNavigator();
@@ -16,6 +17,7 @@ export function StockStackNavigator() {
       <Stack.Screen name="StockList" component={StockScreen} />
       <Stack.Screen name="StockBrowse" component={StockBrowseScreen} />
       <Stack.Screen name="MaterielDetail" component={MaterielDetailScreen} />
+      <Stack.Screen name="FlightcaseDetail" component={FlightcaseDetailScreen} />
     </Stack.Navigator>
   );
 }

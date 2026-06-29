@@ -17,7 +17,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../theme/colors';
-import { deleteMateriel } from '../db/inventoryOpsDb';
+import { deleteMateriel, ajusterMaterielLotStock } from '../db/inventoryOpsDb';
 import { getCategories, getLocalisations } from '../db/catalogDb';
 import { getMaterielById } from '../db/inventoryDb';
 import { getStats } from '../db/metadataDb';
@@ -44,6 +44,10 @@ import { useStockListViewModel } from '../ui/hooks/useStockListViewModel';
 import { filterConsommableList } from '../core/stock/stockListFilters';
 import { listTours } from '../db/trackingDb';
 import { useLanguage } from '../context/LanguageContext';
+import { BurstQtyNumpadModal } from '../components/BurstQtyNumpadModal';
+import { isMaterielGestionLot, materielLotUnite, materielStockActuel } from '../lib/materielLot';
+import { formatMaterielEmplacement } from '../lib/materielLocation';
+import { stockFlightcaseKeyFromMateriel } from '../lib/stockFlightcase';
 
 const STOCK_LIST_PAGE_SIZE = 80;
 const STOCK_CONSO_SEARCH_PREVIEW = 8;
@@ -80,6 +84,9 @@ export default function StockScreen({ navigation, route }: any) {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [adjustTarget, setAdjustTarget] = useState<Materiel | null>(null);
+  const [adjustMoveType, setAdjustMoveType] = useState<'entrée' | 'sortie'>('sortie');
   const { height: screenHeight } = useWindowDimensions();
   const bottomDockPad =
     Platform.OS === 'android' ? Math.max(insets.bottom, 52) : Math.max(insets.bottom, 12);
@@ -239,6 +246,109 @@ export default function StockScreen({ navigation, route }: any) {
     [selectMode, toggleSelect, debouncedSearch, editOk, navigation]
   );
 
+  const onTrashLongPress = useCallback(
+    (item: Materiel) => {
+      if (!editOk) return;
+      if (!selectMode) {
+        setSelectMode(true);
+        setSelectedIds([item.id]);
+        setInfoFocusItem(null);
+        return;
+      }
+      toggleSelect(item.id);
+    },
+    [editOk, selectMode, toggleSelect]
+  );
+
+  const handleBulkDelete = useCallback(() => {
+    if (!editOk || selectedIds.length === 0) return;
+    const count = selectedIds.length;
+    Alert.alert(t('stock.delete.bulkTitle'), t('stock.delete.bulkBody', { count }), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('stock.delete.title'),
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            setDeleteBusy(true);
+            let ok = 0;
+            let fail = 0;
+            const ids = [...selectedIds];
+            for (const id of ids) {
+              try {
+                await deleteMateriel(id);
+                ok += 1;
+              } catch {
+                fail += 1;
+              }
+            }
+            invalidateInventorySnapshotCache();
+            await load();
+            void triggerSyncAfterActionIfEnabled();
+            setDeleteBusy(false);
+            exitSelectMode();
+            if (fail === 0) {
+              Alert.alert(t('stock.delete.title'), t('stock.delete.bulkDone', { count: ok }));
+            } else {
+              Alert.alert(t('stock.delete.error'), t('stock.delete.bulkPartial', { ok, fail }));
+            }
+          })();
+        },
+      },
+    ]);
+  }, [editOk, selectedIds, load, exitSelectMode, t]);
+
+  const applyAdjustLotQty = useCallback(
+    async (qty: number) => {
+      if (!adjustTarget) return;
+      const delta = adjustMoveType === 'entrée' ? qty : -qty;
+      try {
+        await ajusterMaterielLotStock(adjustTarget.id, delta);
+        invalidateInventorySnapshotCache();
+        await load();
+        void triggerSyncAfterActionIfEnabled();
+        setAdjustTarget(null);
+      } catch (e: unknown) {
+        Alert.alert(
+          t('stock.lot.adjustError'),
+          e instanceof Error ? e.message : String(e)
+        );
+      }
+    },
+    [adjustMoveType, adjustTarget, load, t]
+  );
+
+  const promptAdjustLotMovement = useCallback(
+    (item: Materiel) => {
+      if (!editOk || !isMaterielGestionLot(item)) return;
+      Alert.alert(
+        item.nom,
+        t('stock.lot.adjustChooseType', {
+          stock: materielStockActuel(item),
+          unit: materielLotUnite(item),
+        }),
+        [
+          {
+            text: t('consumables.adjustEntry'),
+            onPress: () => {
+              setAdjustMoveType('entrée');
+              setAdjustTarget(item);
+            },
+          },
+          {
+            text: t('consumables.adjustExit'),
+            onPress: () => {
+              setAdjustMoveType('sortie');
+              setAdjustTarget(item);
+            },
+          },
+          { text: t('common.cancel'), style: 'cancel' },
+        ]
+      );
+    },
+    [editOk, t]
+  );
+
   const handleExportFichesPdf = useCallback(async () => {
     if (selectedIds.length === 0) {
       Alert.alert(t('stock.export.none_title'), t('stock.export.none_body'));
@@ -364,6 +474,7 @@ export default function StockScreen({ navigation, route }: any) {
   const renderItem = ({ item }: { item: Materiel }) => {
     const isFocused = !selectMode && infoFocusItem?.id === item.id;
     const isSelected = selectMode && selectedSet.has(item.id);
+    const isLot = isMaterielGestionLot(item);
     return (
     <Card
       style={[
@@ -402,9 +513,9 @@ export default function StockScreen({ navigation, route }: any) {
               {item.marque ? item.marque + ' · ' : ''}
               {item.numero_serie ?? ''}
             </Text>
-            {(item as any).localisation_nom && (
-              <Text style={s.sub}>{(item as any).localisation_nom}</Text>
-            )}
+            {formatMaterielEmplacement(item) ? (
+              <Text style={s.sub}>{formatMaterielEmplacement(item)}</Text>
+            ) : null}
             {item.statut === 'en tournée' && (
               <Text style={s.sub}>
                 {t('stock.on_tour_prefix')} {tourNamesById[item.current_tour_id ?? ''] ?? item.current_tour_id ?? t('stock.on_tour_fallback')}
@@ -413,14 +524,51 @@ export default function StockScreen({ navigation, route }: any) {
             </View>
           </View>
           <View style={{ alignItems: 'flex-end', gap: 4 }}>
-            <EtatBadge etat={item.etat} />
-            <StatutBadge statut={item.statut} />
+            {isLot ? (
+              <StockBadge
+                actuel={materielStockActuel(item)}
+                seuil={item.seuil_minimum ?? 0}
+                unite={materielLotUnite(item)}
+              />
+            ) : (
+              <>
+                <EtatBadge etat={item.etat} />
+                <StatutBadge statut={item.statut} />
+              </>
+            )}
           </View>
         </View>
       </TouchableOpacity>
 
       {!selectMode && (
         <View style={s.actions}>
+          {item.flightcase?.trim() ? (
+            <TouchableOpacity
+              onPress={() => {
+                const key = stockFlightcaseKeyFromMateriel(item);
+                if (!key) return;
+                navigation.navigate('FlightcaseDetail', {
+                  localisationId: key.localisationId,
+                  flightcase: key.flightcase,
+                });
+              }}
+              style={s.qrBtn}
+              accessibilityRole="button"
+              accessibilityLabel={`${t('stock.flightcase.openContent')} ${item.flightcase}`}
+            >
+              <Text style={s.qrBtnText}>📦</Text>
+            </TouchableOpacity>
+          ) : null}
+          {isLot && editOk && (
+            <TouchableOpacity
+              onPress={() => promptAdjustLotMovement(item)}
+              style={s.adjBtn}
+              accessibilityRole="button"
+              accessibilityLabel={`${t('stock.lot.adjust')} ${item.nom}`}
+            >
+              <Text style={{ color: Colors.white, fontSize: 12 }}>{t('stock.lot.adjust')}</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             onPress={() => onPrintQr(item)}
             style={s.qrBtn}
@@ -449,7 +597,15 @@ export default function StockScreen({ navigation, route }: any) {
             </TouchableOpacity>
           )}
           {editOk && (
-            <TouchableOpacity onPress={() => handleDelete(item)} style={s.iconBtn}>
+            <TouchableOpacity
+              onPress={() => handleDelete(item)}
+              onLongPress={() => onTrashLongPress(item)}
+              delayLongPress={450}
+              style={s.iconBtn}
+              accessibilityRole="button"
+              accessibilityLabel={`${t('stock.delete.title')} ${item.nom}`}
+              accessibilityHint={t('stock.select.hint')}
+            >
               <Text style={{ color: Colors.red, fontSize: 18 }}>🗑️</Text>
             </TouchableOpacity>
           )}
@@ -607,30 +763,49 @@ export default function StockScreen({ navigation, route }: any) {
                       {selectedIds.length} {t('stock.select.count_suffix')}
                       {selectedIds.length > 1 ? 's' : ''} {t('stock.select.filtered')}
                     </Text>
-                    <Text style={s.selectBannerHint}>
-                      Touchez une ligne pour l’ajouter ou la retirer — ou appui long. PDF : photo, infos, QR.
-                    </Text>
+                    <Text style={s.selectBannerHint}>{t('stock.select.hint')}</Text>
                   </View>
-                  <TouchableOpacity onPress={exitSelectMode} style={s.selectPill} disabled={pdfBusy}>
+                  <TouchableOpacity
+                    onPress={exitSelectMode}
+                    style={s.selectPill}
+                    disabled={pdfBusy || deleteBusy}
+                  >
                     <Text style={s.selectPillText}>{t('stock.select.cancel')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={toggleSelectAllFiltered}
                     style={s.selectPill}
-                    disabled={pdfBusy || filteredIds.length === 0}
+                    disabled={pdfBusy || deleteBusy || filteredIds.length === 0}
                   >
                     <Text style={s.selectPillText}>
                       {allFilteredSelected ? t('stock.select.none') : t('stock.select.all')}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
+                    onPress={() => void handleBulkDelete()}
+                    style={[
+                      s.selectPill,
+                      s.selectPillDanger,
+                      (deleteBusy || selectedIds.length === 0) && { opacity: 0.45 },
+                    ]}
+                    disabled={deleteBusy || selectedIds.length === 0}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('stock.select.delete')}
+                  >
+                    {deleteBusy ? (
+                      <ActivityIndicator size="small" color={Colors.white} />
+                    ) : (
+                      <Text style={s.selectPillTextDanger}>🗑 {t('stock.select.delete')}</Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     onPress={() => void handleExportFichesPdf()}
                     style={[
                       s.selectPill,
                       s.selectPillGo,
-                      (pdfBusy || selectedIds.length === 0) && { opacity: 0.45 },
+                      (pdfBusy || deleteBusy || selectedIds.length === 0) && { opacity: 0.45 },
                     ]}
-                    disabled={pdfBusy || selectedIds.length === 0}
+                    disabled={pdfBusy || deleteBusy || selectedIds.length === 0}
                   >
                     {pdfBusy ? (
                       <ActivityIndicator size="small" color={Colors.white} />
@@ -779,12 +954,31 @@ export default function StockScreen({ navigation, route }: any) {
           title: m.nom,
           subtitle: [
             (m as any).localisation_nom,
+            m.flightcase,
             (m as any).categorie_nom,
             m.numero_serie ? `S/N ${m.numero_serie}` : undefined,
           ]
             .filter(Boolean)
             .join(' · '),
         }))}
+      />
+
+      <BurstQtyNumpadModal
+        visible={!!adjustTarget}
+        productName={adjustTarget?.nom ?? ''}
+        stockHint={
+          adjustTarget
+            ? t('stock.lot.stockCurrent', {
+                stock: materielStockActuel(adjustTarget),
+                unit: materielLotUnite(adjustTarget),
+              })
+            : undefined
+        }
+        unite={adjustTarget ? materielLotUnite(adjustTarget) : 'pièce'}
+        moveType={adjustMoveType}
+        initialQtyString="1"
+        onCancel={() => setAdjustTarget(null)}
+        onConfirm={qty => void applyAdjustLotQty(qty)}
       />
     </TabScreenSafeArea>
   );
@@ -938,6 +1132,7 @@ const s = StyleSheet.create({
   actions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 8, gap: 4 },
   iconBtn: { padding: 6 },
   qrBtn: { borderWidth: 1, borderColor: Colors.green, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
+  adjBtn: { backgroundColor: Colors.green, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, marginRight: 4 },
   qrBtnText: { color: Colors.green, fontSize: 12, fontWeight: '700' },
   empty: { alignItems: 'center', marginTop: 60 },
   consoSearchBlock: { marginBottom: 12 },
@@ -1032,8 +1227,10 @@ const s = StyleSheet.create({
     backgroundColor: Colors.bgCard,
   },
   selectPillGo: { backgroundColor: Colors.green, borderColor: Colors.green },
+  selectPillDanger: { backgroundColor: Colors.red, borderColor: Colors.red },
   selectPillText: { color: Colors.textSecondary, fontWeight: '700', fontSize: 13 },
   selectPillTextGo: { color: Colors.white, fontWeight: '800', fontSize: 13 },
+  selectPillTextDanger: { color: Colors.white, fontWeight: '800', fontSize: 13 },
   cardSelected: {
     borderColor: Colors.green,
     borderWidth: 2,

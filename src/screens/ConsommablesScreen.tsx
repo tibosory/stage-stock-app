@@ -2,7 +2,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput,
-  Alert, RefreshControl, Platform, Image,
+  Alert, RefreshControl, Platform, Image, ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
@@ -37,6 +37,7 @@ import { getConsommablesCached, invalidateInventorySnapshotCache } from '../db/m
 import { useDebouncedValue } from '../ui/hooks/useDebouncedValue';
 import { filterConsommableList } from '../core/stock/stockListFilters';
 import { useLanguage } from '../context/LanguageContext';
+import { BurstQtyNumpadModal } from '../components/BurstQtyNumpadModal';
 
 const CONSOMMABLE_UNITE_OPTIONS = [
   'pièce',
@@ -69,6 +70,11 @@ export default function ConsommablesScreen() {
   const [visibleCount, setVisibleCount] = useState(CONSO_LIST_PAGE_SIZE);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 220);
+  const [adjustTarget, setAdjustTarget] = useState<Consommable | null>(null);
+  const [adjustMoveType, setAdjustMoveType] = useState<'entrée' | 'sortie'>('sortie');
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const load = useCallback(async () => {
     const [data, cats, locs] = await Promise.all([
@@ -109,6 +115,49 @@ export default function ConsommablesScreen() {
     setVisibleCount(CONSO_LIST_PAGE_SIZE);
   }, [displayedItems.length, filterLowStock, debouncedSearch]);
 
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const filteredIds = useMemo(() => displayedItems.map(c => c.id), [displayedItems]);
+  const allFilteredSelected = useMemo(
+    () => filteredIds.length > 0 && filteredIds.every(id => selectedSet.has(id)),
+    [filteredIds, selectedSet]
+  );
+
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds([]);
+  }, []);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  }, []);
+
+  const toggleSelectAllFiltered = useCallback(() => {
+    if (filteredIds.length === 0) return;
+    setSelectedIds(prev => {
+      const prevSet = new Set(prev);
+      const allSelected = filteredIds.every(id => prevSet.has(id));
+      if (allSelected) {
+        return prev.filter(id => !filteredIds.includes(id));
+      }
+      const merged = new Set(prev);
+      for (const id of filteredIds) merged.add(id);
+      return Array.from(merged);
+    });
+  }, [filteredIds]);
+
+  const onRowLongPress = useCallback(
+    (item: Consommable) => {
+      if (!editOk) return;
+      if (!selectMode) {
+        setSelectMode(true);
+        setSelectedIds([item.id]);
+        return;
+      }
+      toggleSelect(item.id);
+    },
+    [editOk, selectMode, toggleSelect]
+  );
+
   useFocusEffect(
     useCallback(() => {
       const initialSearch = route.params?.initialSearch as string | undefined;
@@ -116,62 +165,6 @@ export default function ConsommablesScreen() {
       setSearch(initialSearch.trim());
       navigation.setParams({ initialSearch: undefined } as never);
     }, [route.params?.initialSearch, navigation])
-  );
-
-  useFocusEffect(
-    useCallback(() => {
-      const openId = route.params?.openConsoId as string | undefined;
-      if (!openId) return;
-      (async () => {
-        const c = await getConsommableById(openId);
-        if (c) {
-          Alert.alert(
-            c.nom,
-            t('consumables.stockCurrent', { stock: c.stock_actuel, unit: c.unite }),
-            [
-              {
-                text: '-1',
-                onPress: () =>
-                  ajusterStock(c.id, -1).then(() => {
-                    invalidateInventorySnapshotCache();
-                    load();
-                    void triggerSyncAfterActionIfEnabled();
-                  }),
-              },
-              {
-                text: '-5',
-                onPress: () =>
-                  ajusterStock(c.id, -5).then(() => {
-                    invalidateInventorySnapshotCache();
-                    load();
-                    void triggerSyncAfterActionIfEnabled();
-                  }),
-              },
-              {
-                text: '+5',
-                onPress: () =>
-                  ajusterStock(c.id, 5).then(() => {
-                    invalidateInventorySnapshotCache();
-                    load();
-                    void triggerSyncAfterActionIfEnabled();
-                  }),
-              },
-              {
-                text: '+1',
-                onPress: () =>
-                  ajusterStock(c.id, 1).then(() => {
-                    invalidateInventorySnapshotCache();
-                    load();
-                    void triggerSyncAfterActionIfEnabled();
-                  }),
-              },
-              { text: t('common.close'), style: 'cancel' },
-            ]
-          );
-        }
-        navigation.setParams({ openConsoId: undefined });
-      })();
-    }, [route.params?.openConsoId, navigation, load])
   );
 
   /** Depuis Alertes : ouvrir directement la fiche consommable en édition */
@@ -197,52 +190,71 @@ export default function ConsommablesScreen() {
     setRefreshing(false);
   };
 
-  const handleAjusterStock = useCallback((item: Consommable) => {
-    if (!editOk) return;
-    Alert.alert(
-      item.nom,
-      t('consumables.stockCurrent', { stock: item.stock_actuel, unit: item.unite }),
-      [
+  const applyAdjustQty = useCallback(
+    async (qty: number) => {
+      if (!adjustTarget) return;
+      const delta = adjustMoveType === 'entrée' ? qty : -qty;
+      try {
+        await ajusterStock(adjustTarget.id, delta);
+        invalidateInventorySnapshotCache();
+        await load();
+        void triggerSyncAfterActionIfEnabled();
+        setAdjustTarget(null);
+      } catch (e: unknown) {
+        Alert.alert(
+          t('consumables.adjustError'),
+          e instanceof Error ? e.message : String(e)
+        );
+      }
+    },
+    [adjustMoveType, adjustTarget, load, t]
+  );
+
+  const promptAdjustMovement = useCallback(
+    (item: Consommable) => {
+      if (!editOk) return;
+      Alert.alert(item.nom, t('consumables.adjustChooseType', { stock: item.stock_actuel, unit: item.unite }), [
         {
-          text: '-1',
-          onPress: () =>
-            ajusterStock(item.id, -1).then(() => {
-              invalidateInventorySnapshotCache();
-              load();
-              void triggerSyncAfterActionIfEnabled();
-            }),
+          text: t('consumables.adjustEntry'),
+          onPress: () => {
+            setAdjustMoveType('entrée');
+            setAdjustTarget(item);
+          },
         },
         {
-          text: '-5',
-          onPress: () =>
-            ajusterStock(item.id, -5).then(() => {
-              invalidateInventorySnapshotCache();
-              load();
-              void triggerSyncAfterActionIfEnabled();
-            }),
-        },
-        {
-          text: '+5',
-          onPress: () =>
-            ajusterStock(item.id, 5).then(() => {
-              invalidateInventorySnapshotCache();
-              load();
-              void triggerSyncAfterActionIfEnabled();
-            }),
-        },
-        {
-          text: '+1',
-          onPress: () =>
-            ajusterStock(item.id, 1).then(() => {
-              invalidateInventorySnapshotCache();
-              load();
-              void triggerSyncAfterActionIfEnabled();
-            }),
+          text: t('consumables.adjustExit'),
+          onPress: () => {
+            setAdjustMoveType('sortie');
+            setAdjustTarget(item);
+          },
         },
         { text: t('common.cancel'), style: 'cancel' },
-      ]
-    );
-  }, [editOk, load]);
+      ]);
+    },
+    [editOk, t]
+  );
+
+  const handleAjusterStock = useCallback(
+    (item: Consommable) => {
+      promptAdjustMovement(item);
+    },
+    [promptAdjustMovement]
+  );
+
+  /** Depuis une autre vue : ouvrir l’ajustement de stock sur un consommable précis */
+  useFocusEffect(
+    useCallback(() => {
+      const openId = route.params?.openConsoId as string | undefined;
+      if (!openId) return;
+      (async () => {
+        const c = await getConsommableById(openId);
+        if (c) {
+          promptAdjustMovement(c);
+        }
+        navigation.setParams({ openConsoId: undefined });
+      })();
+    }, [route.params?.openConsoId, navigation, promptAdjustMovement])
+  );
 
   const handleDelete = useCallback((item: Consommable) => {
     if (!editOk) return;
@@ -283,21 +295,98 @@ export default function ConsommablesScreen() {
     [editOk]
   );
 
+  const onRowPress = useCallback(
+    (item: Consommable) => {
+      if (selectMode) {
+        toggleSelect(item.id);
+        return;
+      }
+      if (debouncedSearch.trim()) {
+        openConsoFromSearch(item);
+      }
+    },
+    [selectMode, toggleSelect, debouncedSearch, openConsoFromSearch]
+  );
+
+  const onTrashLongPress = useCallback(
+    (item: Consommable) => {
+      if (!editOk) return;
+      if (!selectMode) {
+        setSelectMode(true);
+        setSelectedIds([item.id]);
+        return;
+      }
+      toggleSelect(item.id);
+    },
+    [editOk, selectMode, toggleSelect]
+  );
+
+  const handleBulkDelete = useCallback(() => {
+    if (!editOk || selectedIds.length === 0) return;
+    const count = selectedIds.length;
+    Alert.alert(t('consumables.delete.bulkTitle'), t('consumables.delete.bulkBody', { count }), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('consumables.deleteTitle'),
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            setDeleteBusy(true);
+            let ok = 0;
+            let fail = 0;
+            const ids = [...selectedIds];
+            for (const id of ids) {
+              try {
+                await deleteConsommable(id);
+                ok += 1;
+              } catch {
+                fail += 1;
+              }
+            }
+            invalidateInventorySnapshotCache();
+            await load();
+            void triggerSyncAfterActionIfEnabled();
+            setDeleteBusy(false);
+            exitSelectMode();
+            if (fail === 0) {
+              Alert.alert(t('consumables.deleteTitle'), t('consumables.delete.bulkDone', { count: ok }));
+            } else {
+              Alert.alert(t('consumables.deleteError'), t('consumables.delete.bulkPartial', { ok, fail }));
+            }
+          })();
+        },
+      },
+    ]);
+  }, [editOk, selectedIds, load, exitSelectMode, t]);
+
   const renderItem = useCallback(({ item }: { item: Consommable }) => {
     const stockBas = item.stock_actuel <= item.seuil_minimum;
     const photoUri = item.photo_local ?? item.photo_url;
     const hasGel = !!(item.gel_brand && item.gel_code?.trim());
     const preferGel = !!(item.gel_instead_of_photo && hasGel);
     const gelSw = hasGel ? getGelSwatch(item.gel_brand, item.gel_code!.trim()) : null;
-    const searchPick = Boolean(debouncedSearch.trim());
+    const isSelected = selectMode && selectedSet.has(item.id);
     return (
-      <Card style={stockBas ? { borderWidth: 1, borderColor: Colors.red } : {}}>
+      <Card
+        style={[
+          stockBas ? { borderWidth: 1, borderColor: Colors.red } : {},
+          isSelected ? s.cardSelected : undefined,
+          selectMode ? s.cardSelectMode : undefined,
+        ]}
+      >
         <TouchableOpacity
-          activeOpacity={searchPick ? 0.88 : 1}
-          onPress={searchPick ? () => openConsoFromSearch(item) : undefined}
-          disabled={!searchPick}
+          activeOpacity={0.88}
+          onPress={() => onRowPress(item)}
+          onLongPress={() => onRowLongPress(item)}
+          delayLongPress={480}
+          disabled={!selectMode && !debouncedSearch.trim() && !editOk}
         >
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          {selectMode && (
+            <View style={s.selectMark}>
+              <Text style={s.selectMarkText}>{isSelected ? '☑' : '☐'}</Text>
+            </View>
+          )}
           <View style={{ flexDirection: 'row', flex: 1, marginRight: 8, alignItems: 'flex-start' }}>
             {preferGel && gelSw ? (
               <View
@@ -347,6 +436,7 @@ export default function ConsommablesScreen() {
         </View>
         </TouchableOpacity>
 
+        {!selectMode && (
         <View style={s.actions}>
           <TouchableOpacity
             onPress={() => onPrintQr(item)}
@@ -370,14 +460,35 @@ export default function ConsommablesScreen() {
             </TouchableOpacity>
           )}
           {editOk && (
-            <TouchableOpacity onPress={() => handleDelete(item)} style={s.iconBtn}>
+            <TouchableOpacity
+              onPress={() => handleDelete(item)}
+              onLongPress={() => onTrashLongPress(item)}
+              delayLongPress={450}
+              style={s.iconBtn}
+              accessibilityRole="button"
+              accessibilityLabel={`${t('consumables.deleteTitle')} ${item.nom}`}
+            >
               <Text style={{ color: Colors.red, fontSize: 18 }}>🗑️</Text>
             </TouchableOpacity>
           )}
         </View>
+        )}
       </Card>
     );
-  }, [debouncedSearch, editOk, handleAjusterStock, handleDelete, onPrintQr, openConsoFromSearch, qrBusyId, t]);
+  }, [
+    debouncedSearch,
+    editOk,
+    handleAjusterStock,
+    handleDelete,
+    onPrintQr,
+    onRowLongPress,
+    onRowPress,
+    onTrashLongPress,
+    qrBusyId,
+    selectMode,
+    selectedSet,
+    t,
+  ]);
 
   const keyExtractor = useCallback((item: Consommable) => item.id, []);
 
@@ -426,7 +537,54 @@ export default function ConsommablesScreen() {
         data={visibleDisplayedItems}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
+        extraData={{ selectMode, nSel: selectedIds.length }}
         contentContainerStyle={{ padding: 20, paddingTop: 10 }}
+        ListHeaderComponent={
+          selectMode ? (
+            <View style={s.selectBanner}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={s.selectBannerTitle}>
+                  {selectedIds.length} {t('consumables.select.count_suffix')}
+                  {selectedIds.length > 1 ? 's' : ''} {t('consumables.select.filtered')}
+                </Text>
+                <Text style={s.selectBannerHint}>{t('consumables.select.hint')}</Text>
+              </View>
+              <TouchableOpacity
+                onPress={exitSelectMode}
+                style={s.selectPill}
+                disabled={deleteBusy}
+              >
+                <Text style={s.selectPillText}>{t('consumables.select.cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={toggleSelectAllFiltered}
+                style={s.selectPill}
+                disabled={deleteBusy || filteredIds.length === 0}
+              >
+                <Text style={s.selectPillText}>
+                  {allFilteredSelected ? t('consumables.select.none') : t('consumables.select.all')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => void handleBulkDelete()}
+                style={[
+                  s.selectPill,
+                  s.selectPillDanger,
+                  (deleteBusy || selectedIds.length === 0) && { opacity: 0.45 },
+                ]}
+                disabled={deleteBusy || selectedIds.length === 0}
+                accessibilityRole="button"
+                accessibilityLabel={t('consumables.select.delete')}
+              >
+                {deleteBusy ? (
+                  <ActivityIndicator size="small" color={Colors.white} />
+                ) : (
+                  <Text style={s.selectPillTextDanger}>🗑 {t('consumables.select.delete')}</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : null
+        }
         initialNumToRender={12}
         maxToRenderPerBatch={16}
         windowSize={7}
@@ -480,6 +638,21 @@ export default function ConsommablesScreen() {
           title: c.nom,
           subtitle: [c.reference, (c as any).localisation_nom].filter(Boolean).join(' · '),
         }))}
+      />
+
+      <BurstQtyNumpadModal
+        visible={!!adjustTarget}
+        productName={adjustTarget?.nom ?? ''}
+        stockHint={
+          adjustTarget
+            ? t('consumables.stockCurrent', { stock: adjustTarget.stock_actuel, unit: adjustTarget.unite })
+            : undefined
+        }
+        unite={adjustTarget?.unite ?? 'pièce'}
+        moveType={adjustMoveType}
+        initialQtyString="1"
+        onCancel={() => setAdjustTarget(null)}
+        onConfirm={qty => void applyAdjustQty(qty)}
       />
     </TabScreenSafeArea>
   );
@@ -935,6 +1108,35 @@ const s = StyleSheet.create({
   qrBtn: { borderWidth: 1, borderColor: Colors.green, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, marginRight: 4 },
   qrBtnText: { color: Colors.green, fontSize: 12, fontWeight: '700' },
   iconBtn: { padding: 6 },
+  selectBanner: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(52, 211, 153, 0.12)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.4)',
+    padding: 12,
+    marginBottom: 12,
+  },
+  selectBannerTitle: { color: Colors.white, fontSize: 14, fontWeight: '800' },
+  selectBannerHint: { color: Colors.textMuted, fontSize: 11, marginTop: 4, lineHeight: 15 },
+  selectPill: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.bgCard,
+  },
+  selectPillDanger: { backgroundColor: Colors.red, borderColor: Colors.red },
+  selectPillText: { color: Colors.textSecondary, fontWeight: '700', fontSize: 13 },
+  selectPillTextDanger: { color: Colors.white, fontWeight: '800', fontSize: 13 },
+  cardSelected: { borderColor: Colors.green, borderWidth: 2 },
+  cardSelectMode: { borderColor: Colors.border },
+  selectMark: { marginRight: 8, justifyContent: 'center' },
+  selectMarkText: { fontSize: 20, color: Colors.green },
   empty: { alignItems: 'center', marginTop: 60 },
   consoMetaBlock: {
     marginTop: 4,
