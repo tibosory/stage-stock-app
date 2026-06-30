@@ -52,7 +52,16 @@ function hasCsvColumn(header: string[], name: string): boolean {
   return header.indexOf(name) >= 0;
 }
 
-function parseCsv(text: string): string[][] {
+function detectCsvDelimiter(sampleLine: string): ',' | ';' | '\t' {
+  const commas = (sampleLine.match(/,/g) || []).length;
+  const semis = (sampleLine.match(/;/g) || []).length;
+  const tabs = (sampleLine.match(/\t/g) || []).length;
+  if (tabs > commas && tabs > semis) return '\t';
+  if (semis > commas) return ';';
+  return ',';
+}
+
+function parseCsv(text: string, delimiter = ','): string[][] {
   const rows: string[][] = [];
   let cur = '';
   let row: string[] = [];
@@ -68,7 +77,7 @@ function parseCsv(text: string): string[][] {
       } else cur += c;
     } else {
       if (c === '"') inQ = true;
-      else if (c === ',') {
+      else if (c === delimiter) {
         row.push(cur);
         cur = '';
       } else if (c === '\n' || c === '\r') {
@@ -83,6 +92,14 @@ function parseCsv(text: string): string[][] {
   row.push(cur);
   if (row.some(x => x.length)) rows.push(row);
   return rows;
+}
+
+/** Rejette les ids issus d'un CSV mal parsé (virgules, guillemets, texte trop long). */
+function isValidImportMaterielId(id: string): boolean {
+  const t = id.trim();
+  if (!t || t.length > 80) return false;
+  if (/[\/\\:*?"<>|,;\n\r]/.test(t)) return false;
+  return true;
 }
 
 function cachePath(name: string): string {
@@ -709,7 +726,11 @@ export async function importMaterielsFromCsv(): Promise<{ ok: number; err: strin
       : (pick as { assets?: { uri: string }[] }).assets?.[0]?.uri ?? (pick as { uri?: string }).uri;
   if (!uri) return { ok: 0, err: 'Annulé' };
   const text = await FileSystem.readAsStringAsync(uri);
-  const table = parseCsv(text.trim());
+  const trimmed = text.trim();
+  const firstBreak = trimmed.search(/\r?\n/);
+  const headerLine = firstBreak >= 0 ? trimmed.slice(0, firstBreak) : trimmed;
+  const delimiter = detectCsvDelimiter(headerLine);
+  const table = parseCsv(trimmed, delimiter);
   if (table.length < 2) return { ok: 0, err: 'Fichier vide' };
   const header = table[0].map(h => h.trim().toLowerCase());
   const idx = (name: string) => header.indexOf(name);
@@ -722,7 +743,8 @@ export async function importMaterielsFromCsv(): Promise<{ ok: number; err: strin
     if (!row.length) continue;
     const g = (n: string) => (idx(n) >= 0 ? row[idx(n)] ?? '' : '');
     try {
-      const id = g('id') || generateId();
+      const rawId = g('id').trim();
+      const id = isValidImportMaterielId(rawId) ? rawId : generateId();
       const now = new Date().toISOString();
       const existing = await database.getFirstAsync<any>(
         `SELECT created_at, poids_kg, nfc_tag_id, photo_url, photo_local,

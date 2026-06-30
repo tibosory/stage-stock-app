@@ -7,6 +7,14 @@ function norm(uri: string): string {
   return uri.replace(/\\/g, '/');
 }
 
+/** Id utilisable comme segment de chemin (évite les crash après import CSV mal formé). */
+export function isSafeMaterielIdForPath(materielId: string): boolean {
+  const t = materielId.trim();
+  if (!t || t.length > 120) return false;
+  if (/[\/\\:*?"<>|,;\n\r]/.test(t)) return false;
+  return true;
+}
+
 export function storedNoticePdfPath(materielId: string): string {
   const base = FileSystem.documentDirectory;
   if (!base) throw new Error('Stockage document indisponible');
@@ -55,12 +63,17 @@ export function isPersistedNoticePhoto(uri: string, materielId: string): boolean
 }
 
 export async function ensureMaterielAttachmentsDir(materielId: string): Promise<void> {
+  if (!isSafeMaterielIdForPath(materielId)) return;
   const base = FileSystem.documentDirectory;
   if (!base) throw new Error('Stockage document indisponible');
   const dir = `${base}${ROOT}/${materielId}/`;
-  const info = await FileSystem.getInfoAsync(dir);
-  if (!info.exists) {
-    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+  try {
+    const info = await FileSystem.getInfoAsync(dir);
+    if (!info.exists) {
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+    }
+  } catch {
+    // chemin illisible — ignorer
   }
 }
 
@@ -73,24 +86,39 @@ async function copyReplace(dest: string, fromUri: string): Promise<void> {
 }
 
 export async function removeNoticePdfFile(materielId: string): Promise<void> {
+  if (!isSafeMaterielIdForPath(materielId)) return;
   const p = storedNoticePdfPath(materielId);
-  const info = await FileSystem.getInfoAsync(p);
-  if (info.exists) await FileSystem.deleteAsync(p, { idempotent: true });
+  try {
+    const info = await FileSystem.getInfoAsync(p);
+    if (info.exists) await FileSystem.deleteAsync(p, { idempotent: true });
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function removeNoticePhotoFile(materielId: string): Promise<void> {
+  if (!isSafeMaterielIdForPath(materielId)) return;
   const p = storedNoticePhotoPath(materielId);
-  const info = await FileSystem.getInfoAsync(p);
-  if (info.exists) await FileSystem.deleteAsync(p, { idempotent: true });
+  try {
+    const info = await FileSystem.getInfoAsync(p);
+    if (info.exists) await FileSystem.deleteAsync(p, { idempotent: true });
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Supprime le dossier local des pièces jointes (notice PDF / photo). */
 export async function removeMaterielAttachmentsDir(materielId: string): Promise<void> {
+  if (!isSafeMaterielIdForPath(materielId)) return;
   const base = FileSystem.documentDirectory;
   if (!base) return;
   const dir = `${base}${ROOT}/${materielId}/`;
-  const info = await FileSystem.getInfoAsync(dir);
-  if (info.exists) await FileSystem.deleteAsync(dir, { idempotent: true });
+  try {
+    const info = await FileSystem.getInfoAsync(dir);
+    if (info.exists) await FileSystem.deleteAsync(dir, { idempotent: true });
+  } catch {
+    // id import CSV corrompu ou chemin illisible — ne pas bloquer la suppression fiche
+  }
 }
 
 /**

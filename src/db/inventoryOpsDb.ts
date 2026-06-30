@@ -265,7 +265,11 @@ export async function insertMaterielsSerieBatch(
 
 export async function deleteMateriel(id: string, database?: InventoryOpsDbExecutor): Promise<void> {
   const { removeMaterielAttachmentsDir } = await import('../lib/materielAttachments');
-  await removeMaterielAttachmentsDir(id);
+  try {
+    await removeMaterielAttachmentsDir(id);
+  } catch {
+    // ne pas bloquer la suppression en base
+  }
   const db = await resolveInventoryDb(database);
   await db.withTransactionAsync(async () => {
     await db.runAsync('DELETE FROM pret_materiels WHERE materiel_id = ?', [id]);
