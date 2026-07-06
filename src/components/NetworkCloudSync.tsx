@@ -17,6 +17,7 @@ import {
 import { loadSyncTelemetry, type SyncStamp, type SyncTelemetry } from '../lib/syncTelemetry';
 import { getDataBackendMode, type DataBackendMode } from '../lib/backendMode';
 import { runInventorySync } from '../lib/inventorySyncOrchestrator';
+import { isPartialInventorySync } from '../lib/inventorySyncPartial';
 import { useLanguage } from '../context/LanguageContext';
 
 export function NetworkCloudSync() {
@@ -52,11 +53,12 @@ export function NetworkCloudSync() {
     }, [refreshTelemetry])
   );
 
-  const handleSync = async (direction: 'push' | 'pull') => {
+  const handleSync = async (direction: 'push' | 'pull', pushMode: 'incremental' | 'full' = 'incremental') => {
     setSyncing(true);
     const result = await runInventorySync({
-      scope: `NetworkCloudSync:${direction}`,
+      scope: `NetworkCloudSync:${direction}${pushMode === 'full' ? ':full' : ''}`,
       direction,
+      pushMode: direction === 'push' ? pushMode : undefined,
     });
     setSyncing(false);
     await refreshTelemetry();
@@ -70,11 +72,50 @@ export function NetworkCloudSync() {
         result.backend === 'supabase'
           ? t('network.backendMode.supabase')
           : t('network.backendMode.local');
+
+      if (direction === 'push' && result.pushNothingPushed && result.localInventory) {
+        const { materiels: matN, consommables: consoN } = result.localInventory;
+        Alert.alert(
+          t('network.cloudSync.emptyPushTitle'),
+          t('network.cloudSync.emptyPushBody', { materiels: String(matN), consommables: String(consoN) }),
+          [
+            { text: t('common.cancel'), style: 'cancel' },
+            {
+              text: t('network.cloudSync.fullPush'),
+              onPress: () => void handleSync('push', 'full'),
+            },
+          ]
+        );
+        return;
+      }
+
+      if (direction === 'push' && result.pushed && pushMode === 'full') {
+        Alert.alert(
+          t('network.cloudSync.doneTitle'),
+          t('network.cloudSync.fullPushDone', {
+            materiels: String(result.pushed.materiels),
+            consommables: String(result.pushed.consommables),
+          })
+        );
+        return;
+      }
+
       Alert.alert(
         t('network.cloudSync.doneTitle'),
         t('network.cloudSync.doneBody', { target, direction: direction === 'push' ? '↑' : '↓' })
       );
     } else {
+      if (isPartialInventorySync(result)) {
+        const hint =
+          result.pushOk && result.pullOk === false
+            ? t('network.cloudSync.partialPushOk')
+            : t('network.cloudSync.partialPullOk');
+        Alert.alert(
+          t('network.cloudSync.partialTitle'),
+          result.error ? `${hint}\n\n${result.error}` : hint
+        );
+        return;
+      }
       Alert.alert(
         t('network.cloudSync.errorTitle'),
         result.error ?? t('network.cloudSync.errorUnknown')
@@ -128,6 +169,14 @@ export function NetworkCloudSync() {
             </TouchableOpacity>
           </View>
         )}
+        {!syncing && !isLocal ? (
+          <TouchableOpacity
+            style={[styles.secondaryBtn, { marginTop: 10 }]}
+            onPress={() => void handleSync('push', 'full')}
+          >
+            <Text style={styles.secondaryBtnText}>{t('network.cloudSync.fullPush')}</Text>
+          </TouchableOpacity>
+        ) : null}
         <View style={styles.syncMetaBox}>
           <Text style={styles.syncMetaTitle}>{t('network.cloudSync.lastSync')}</Text>
           {isLocal ? (

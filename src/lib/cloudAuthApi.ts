@@ -1,6 +1,8 @@
 import { getResolvedApiBase } from '../config/stageStockApi';
 import { getAccessToken, setAccessToken } from './apiEndpointStorage';
 import { runAutoLanDiscoveryWhenUnreachable } from './consumerAutoConnect';
+import { fetchWithTimeout } from './fetchWithTimeout';
+import { toUserFriendlyNetworkMessage } from './userFriendlyNetworkError';
 
 const API_BASE_REQUIRED_MSG =
   'Aucun serveur configuré. Jumelez d’abord le PC (QR /pair, recherche Wi‑Fi ou URL dans la section « Serveur » de l’écran de connexion), puis réessayez.';
@@ -52,15 +54,19 @@ export async function registerCloud(
   if (!resolved.ok) return resolved;
   const url = `${resolved.base}/auth/register`;
   try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: email.trim(),
-        password,
-        displayName: displayName?.trim() || undefined,
-      }),
-    });
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          displayName: displayName?.trim() || undefined,
+        }),
+      },
+      45_000,
+    );
     const text = await res.text();
     let body: unknown;
     try {
@@ -79,7 +85,7 @@ export async function registerCloud(
     await setAccessToken(data.token);
     return { ok: true, user: mapUser(data.user) };
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    return { ok: false, message: toUserFriendlyNetworkMessage(e instanceof Error ? e.message : String(e)) };
   }
 }
 
@@ -91,11 +97,15 @@ export async function loginCloud(
   if (!resolved.ok) return resolved;
   const url = `${resolved.base}/auth/login`;
   try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.trim(), password }),
-    });
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password }),
+      },
+      45_000,
+    );
     const text = await res.text();
     let body: unknown;
     try {
@@ -114,7 +124,7 @@ export async function loginCloud(
     await setAccessToken(data.token);
     return { ok: true, user: mapUser(data.user) };
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    return { ok: false, message: toUserFriendlyNetworkMessage(e instanceof Error ? e.message : String(e)) };
   }
 }
 
@@ -124,10 +134,14 @@ export async function fetchCloudUser(): Promise<CloudUser | null> {
   const base = await getResolvedApiBase();
   const url = `${base.replace(/\/+$/, '')}/auth/me`;
   try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-    });
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      },
+      35_000,
+    );
     if (!res.ok) {
       if (res.status === 401) {
         await setAccessToken(null);

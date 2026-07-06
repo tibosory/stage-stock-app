@@ -8,6 +8,7 @@ import { getIsOnlineRuntime } from './networkRuntime';
 import { hasLocalSyncApiKey } from './serverAuthHeaders';
 import { getSupabase, isSupabaseConfigured } from './supabase';
 import type { ConnectionDiagnosticsDeps } from './connectionDiagnosticsCore';
+import { formatSyncHealthPendingDetail, loadSyncHealthSnapshot } from './syncHealthSnapshot';
 
 export type {
   DiagnosticCheck,
@@ -34,5 +35,12 @@ export function defaultConnectionDiagnosticsDeps(): ConnectionDiagnosticsDeps {
       }
     },
     hasLocalSyncApiKey,
+    getInventorySyncHealth: async () => {
+      const snapshot = await loadSyncHealthSnapshot();
+      return {
+        hasPendingWork: snapshot.hasPendingWork,
+        detail: snapshot.hasPendingWork ? formatSyncHealthPendingDetail(snapshot) : undefined,
+      };
+    },
   };
 }

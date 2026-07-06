@@ -61,6 +61,8 @@ export interface ApVenue {
   plan_local_uri?: string | null;
   plan_filename?: string | null;
   plan_storage_path?: string | null;
+  /** Référence lieu CAPI synchronisée (salle / extérieur). */
+  capi_lieu_ref_id?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   synced?: boolean;
@@ -75,6 +77,8 @@ export interface ApSpace {
   description?: string | null;
   /** Points de contrôle / vigilance propres à cet espace (checklist EDL). */
   control_points?: ApInspectionControlPoint[] | null;
+  /** Référence espace CAPI synchronisée. */
+  capi_espace_ref_id?: string | null;
   updated_at?: string | null;
   synced?: boolean;
 }
@@ -115,6 +119,8 @@ export interface ApOrganizationContact {
   phone?: string | null;
   email?: string | null;
   is_primary: boolean;
+  capi_contact_ref_id?: string | null;
+  capi_contact_kind?: string | null;
   updated_at?: string | null;
   synced?: boolean;
 }
@@ -184,6 +190,10 @@ export interface ApEvent {
   feuille_note?: string | null;
   /** Matériel / consignes par espace pour la feuille de route (JSON local). */
   feuille_info?: ApEventFeuilleInfo | null;
+  /** Spectacle CAPI (catégories associations / location). */
+  capi_spectacle_ref_id?: string | null;
+  /** Lieu CAPI lié (prioritaire sur venue_id local si renseigné). */
+  capi_lieu_ref_id?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   synced?: boolean;
@@ -267,6 +277,8 @@ export interface ApPersonnel {
   /** URI locale (documentDirectory) — photo de profil. */
   photo_uri?: string | null;
   photo_storage_path?: string | null;
+  capi_contact_ref_id?: string | null;
+  capi_contact_kind?: string | null;
   updated_at?: string | null;
   synced?: boolean;
 }
@@ -314,4 +326,79 @@ export interface ApDayNote {
   note: string;
   updated_at?: string | null;
   synced?: boolean;
+}
+
+/** Catalogues CAPI synchronisés pour Accueil Pro. */
+export interface ApCapiLieuRef {
+  id: string;
+  kind: 'salle' | 'exterieur';
+  nom: string;
+  adresse?: string | null;
+  ville?: string | null;
+  capiRef: string;
+}
+
+export interface ApCapiSpectacleRef {
+  id: string;
+  titre: string;
+  compagnie: string;
+  categorieCode: string;
+  categorieLibelle: string;
+  salleId: string;
+  salleNom: string;
+  capiLieuRefId: string;
+  dateDebut: string;
+  dateFin: string;
+  capiRef: string;
+}
+
+export interface ApCapiContactRef {
+  id: string;
+  kind: 'personnel' | 'prestataire' | 'contact_utile';
+  nom: string;
+  role?: string | null;
+  organisation?: string | null;
+  telephone?: string | null;
+  email?: string | null;
+  capiRef: string;
+}
+
+export interface ApCapiEspaceRef {
+  id: string;
+  salleId: string;
+  capiLieuRefId: string;
+  nom: string;
+  type?: string | null;
+  jauge?: number | null;
+  description?: string | null;
+  controlPoints?: ApInspectionControlPoint[] | null;
+  ordre: number;
+  capiRef: string;
+}
+
+export interface ApCapiPlanningRef {
+  id: string;
+  capiSpectacleRefId: string;
+  dateKey: string;
+  timeStart?: string | null;
+  timeEnd?: string | null;
+  title: string;
+  assigneeName?: string | null;
+  capiEspaceRefId?: string | null;
+  notes?: string | null;
+  sortOrder?: number;
+  capiRef: string;
+}
+
+export interface ApCapiDocumentRef {
+  id: string;
+  capiSpectacleRefId: string;
+  nom: string;
+  cheminDossier?: string | null;
+  mimeType?: string | null;
+  tailleOctets?: number | null;
+  pole?: string | null;
+  versionId: string;
+  familleId: string;
+  capiRef: string;
 }

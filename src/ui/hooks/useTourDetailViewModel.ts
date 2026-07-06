@@ -3,7 +3,8 @@ import { AssignmentService, TourService } from '../../services/tracking';
 import { MaterialService } from '../../application/services';
 import { assignMaterialToTour, getTourUseCase } from '../../application/usecases';
 import { createTourFlightcases, listTourFlightcases } from '../../db/trackingDb';
-import type { Assignment, Materiel, Tour, TourFlightcase, TourLocation } from '../../types';
+import { listTourLieuRefs } from '../../db/tourLieuRefDb';
+import type { Assignment, Materiel, Tour, TourFlightcase, TourLocation, TourLieuRef } from '../../types';
 
 export function useTourDetailViewModel(tourId: string, userId?: string) {
   const [tour, setTour] = useState<Tour | null>(null);
@@ -11,26 +12,30 @@ export function useTourDetailViewModel(tourId: string, userId?: string) {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [materials, setMaterials] = useState<Materiel[]>([]);
   const [flightcases, setFlightcases] = useState<TourFlightcase[]>([]);
+  const [tourLieuRefs, setTourLieuRefs] = useState<TourLieuRef[]>([]);
   const [locName, setLocName] = useState('');
   const [locAddress, setLocAddress] = useState('');
+  const [tourLieuRefId, setTourLieuRefId] = useState('');
   const [materialId, setMaterialId] = useState('');
   const [locationId, setLocationId] = useState('');
   const [flightcaseId, setFlightcaseId] = useState('');
   const [quantity, setQuantity] = useState('1');
 
   const load = useCallback(async () => {
-    const [t, locs, asg, mats, fcs] = await Promise.all([
+    const [t, locs, asg, mats, fcs, refs] = await Promise.all([
       getTourUseCase(tourId),
       TourService.listLocations(tourId),
       AssignmentService.listByTour(tourId),
       MaterialService.listAll(),
       listTourFlightcases(tourId),
+      listTourLieuRefs(),
     ]);
     setTour(t);
     setLocations(locs);
     setAssignments(asg);
     setMaterials(mats);
     setFlightcases(fcs);
+    setTourLieuRefs(refs);
   }, [tourId]);
 
   const createFlightcasesBatch = useCallback(
@@ -41,13 +46,33 @@ export function useTourDetailViewModel(tourId: string, userId?: string) {
     [load, tourId]
   );
 
+  const onTourLieuRefChange = useCallback(
+    (refId: string) => {
+      setTourLieuRefId(refId);
+      if (!refId) return;
+      const ref = tourLieuRefs.find((r) => r.id === refId);
+      if (!ref) return;
+      setLocName(ref.nom);
+      setLocAddress(ref.adresse?.trim() || '');
+    },
+    [tourLieuRefs]
+  );
+
   const addLocation = useCallback(async () => {
     if (!locName.trim()) return;
-    await TourService.addLocation({ tourId, name: locName.trim(), address: locAddress.trim() || null });
+    const ref = tourLieuRefId ? tourLieuRefs.find((r) => r.id === tourLieuRefId) : null;
+    await TourService.addLocation({
+      tourId,
+      name: locName.trim(),
+      address: locAddress.trim() || null,
+      capiKind: ref?.kind ?? null,
+      capiRefId: ref?.capiRef ?? null,
+    });
     setLocName('');
     setLocAddress('');
+    setTourLieuRefId('');
     await load();
-  }, [locAddress, locName, load, tourId]);
+  }, [locAddress, locName, load, tourId, tourLieuRefId, tourLieuRefs]);
 
   const assign = useCallback(async () => {
     const created = await assignMaterialToTour({
@@ -98,17 +123,37 @@ export function useTourDetailViewModel(tourId: string, userId?: string) {
     [flightcases]
   );
 
+  const tourLieuRefOptions = useMemo(() => {
+    const kindLabel = (kind: TourLieuRef['kind']) => {
+      if (kind === 'salle') return 'Salle';
+      if (kind === 'exterieur') return 'Ext.';
+      return 'Véh.';
+    };
+    return [
+      { label: '— Saisie libre ou sync CAPI —', value: '' },
+      ...tourLieuRefs.map((r) => ({
+        label: `[${kindLabel(r.kind)}] ${r.nom}`,
+        value: r.id,
+      })),
+    ];
+  }, [tourLieuRefs]);
+
   return {
     tour,
     locations,
     assignments,
     flightcases,
+    tourLieuRefs,
     /** Liste matériels (noms pour l’affichage des affectations). */
     materials,
     locName,
     setLocName,
     locAddress,
     setLocAddress,
+    tourLieuRefId,
+    setTourLieuRefId,
+    onTourLieuRefChange,
+    tourLieuRefOptions,
     materialId,
     setMaterialId,
     locationId,
@@ -118,8 +163,8 @@ export function useTourDetailViewModel(tourId: string, userId?: string) {
     quantity,
     setQuantity,
     load,
-    addLocation,
     createFlightcasesBatch,
+    addLocation,
     assign,
     assignWithMaterialId,
     materialOptions,

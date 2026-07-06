@@ -5,7 +5,7 @@ export type StockStatusFilter = 'tous' | StatutMateriel;
 export function matchesStockSearch(m: Materiel, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  const extra = m as Materiel & { categorie_nom?: string; localisation_nom?: string };
+  const extra = m as Materiel & { categorie_nom?: string; localisation_nom?: string; lieu_nom?: string };
   return (
     m.nom.toLowerCase().includes(q) ||
     m.qr_code?.toLowerCase().includes(q) ||
@@ -13,6 +13,7 @@ export function matchesStockSearch(m: Materiel, query: string): boolean {
     m.marque?.toLowerCase().includes(q) ||
     m.flightcase?.toLowerCase().includes(q) === true ||
     extra.categorie_nom?.toLowerCase().includes(q) === true ||
+    extra.lieu_nom?.toLowerCase().includes(q) === true ||
     extra.localisation_nom?.toLowerCase().includes(q) === true
   );
 }
@@ -33,7 +34,7 @@ export function filterStockList(
 export function matchesConsommableSearch(c: Consommable, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  const extra = c as Consommable & { categorie_nom?: string; localisation_nom?: string };
+  const extra = c as Consommable & { categorie_nom?: string; localisation_nom?: string; lieu_nom?: string };
   return (
     c.nom.toLowerCase().includes(q) ||
     c.reference?.toLowerCase().includes(q) ||
@@ -41,6 +42,7 @@ export function matchesConsommableSearch(c: Consommable, query: string): boolean
     c.nfc_tag_id?.toLowerCase().includes(q) ||
     c.fournisseur?.toLowerCase().includes(q) ||
     extra.categorie_nom?.toLowerCase().includes(q) === true ||
+    extra.lieu_nom?.toLowerCase().includes(q) === true ||
     extra.localisation_nom?.toLowerCase().includes(q) === true
   );
 }

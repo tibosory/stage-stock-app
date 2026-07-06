@@ -25,6 +25,7 @@ export default function TourListScreen() {
   const [items, setItems] = useState<Tour[]>([]);
   const [name, setName] = useState('');
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [endDate, setEndDate] = useState('');
   const [flightcaseTotal, setFlightcaseTotal] = useState('');
   const [creating, setCreating] = useState(false);
 
@@ -40,9 +41,19 @@ export default function TourListScreen() {
 
   const createTour = async () => {
     if (!name.trim()) return;
+    const end = endDate.trim() || startDate;
+    if (end < startDate) {
+      Alert.alert(t('tour.list.createError'), t('tour.list.endDateBeforeStart'));
+      return;
+    }
     setCreating(true);
     try {
-      const created = await createTourUseCase({ name: name.trim(), startDate, status: 'planned' });
+      const created = await createTourUseCase({
+        name: name.trim(),
+        startDate,
+        endDate: end,
+        status: 'planned',
+      });
       const total = Math.floor(Number(flightcaseTotal) || 0);
       if (total > 0) {
         await createTourFlightcases({ tourId: created.id, totalCases: Math.min(200, total) });
@@ -116,6 +127,7 @@ export default function TourListScreen() {
             placeholder={t('tour.list.namePlaceholder')}
           />
           <DateField label={t('tour.list.startDate')} value={startDate} onChange={setStartDate} />
+          <DateField label={t('tour.list.endDate')} value={endDate || startDate} onChange={setEndDate} />
           <Input
             label={t('tour.list.flightcaseCount')}
             value={flightcaseTotal}

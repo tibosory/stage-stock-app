@@ -204,6 +204,17 @@ export default function AccueilProEventDetailScreen() {
                 label={t('accueilpro.feuille.openEvent')}
                 onPress={() => navigation.navigate('AccueilProFeuilleRouteEvent', { eventId: event.id })}
               />
+              {event.capi_spectacle_ref_id ? (
+                <AccueilProLinkButton
+                  label="Documents CAPI (fiche spectacle)"
+                  onPress={() =>
+                    navigation.navigate('AccueilProCapiDocuments', {
+                      spectacleRefId: event.capi_spectacle_ref_id,
+                      eventName: event.name,
+                    })
+                  }
+                />
+              ) : null}
 
               <AccueilProLinkButton
                 label={t('accueilpro.infoSheet.open')}

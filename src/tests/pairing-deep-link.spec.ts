@@ -4,7 +4,7 @@ import {
   parsePairingDeepLink,
   getPairingHostIssue,
   isLoopbackHost,
-} from '../lib/pairingDeepLink';
+} from '../lib/pairingDeepLinkParse';
 
 function testDeepLink() {
   const p = parsePairingDeepLink(

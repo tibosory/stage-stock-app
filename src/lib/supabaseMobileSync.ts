@@ -3,8 +3,10 @@
  */
 import type { PostgrestError } from '@supabase/supabase-js';
 import { getDB } from '../db/coreDb';
+import { loadPendingInventoryDeletions, clearPendingInventoryDeletions } from '../db/regieDeletionSyncDb';
 import { getSupabase, isSupabaseConfigured } from './supabase';
 import { applyInventorySnapshotRows } from './inventoryApiSync';
+import { reconcileInventoryFromSnapshot, type InventoryReconcileDb } from './inventorySnapshotReconcile';
 import {
   reconcileRegieFromSnapshot,
   loadRegiePushPayload,
@@ -24,6 +26,7 @@ import {
   uploadPendingMaterielMedia,
   downloadMissingMaterielMedia,
 } from './materielPhotoSync';
+import { invalidateInventorySnapshotCache } from '../db/materialRepository';
 
 const MSG_SUPABASE_MANQUE =
   'Supabase n’est pas configuré. Renseignez l’URL du projet et la clé anon (Paramètres → Projet Supabase sur cet appareil), ' +
@@ -203,6 +206,47 @@ async function applyRegieDeletions(
   return { ok: true };
 }
 
+async function applyInventoryDeletions(
+  deletions: { table: string; id: string }[]
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const sb = getSupabase();
+  const materielIds: string[] = [];
+  const consoIds: string[] = [];
+  for (const d of deletions) {
+    const id = String(d.id).trim();
+    if (!id) continue;
+    if (d.table === 'materiels') materielIds.push(id);
+    else if (d.table === 'consommables') consoIds.push(id);
+  }
+  if (materielIds.length > 0) {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const { error: pmErr } = await sb.from('pret_materiels').delete().in('materiel_id', materielIds);
+      if (pmErr && !isSchemaCacheError(pmErr.message)) {
+        return { ok: false, error: `Supabase suppression pret_materiels: ${pmErr.message}` };
+      }
+      const { error } = await sb.from('materiels').delete().in('id', materielIds);
+      if (!error) break;
+      if (isSchemaCacheError(error.message) && attempt < 3) {
+        await sleep(1200 * (attempt + 1));
+        continue;
+      }
+      return { ok: false, error: `Supabase suppression materiels: ${error.message}` };
+    }
+  }
+  if (consoIds.length > 0) {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const { error } = await sb.from('consommables').delete().in('id', consoIds);
+      if (!error) break;
+      if (isSchemaCacheError(error.message) && attempt < 3) {
+        await sleep(1200 * (attempt + 1));
+        continue;
+      }
+      return { ok: false, error: `Supabase suppression consommables: ${error.message}` };
+    }
+  }
+  return { ok: true };
+}
+
 async function fetchAllRows(table: string): Promise<Record<string, unknown>[]> {
   const sb = getSupabase();
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -222,30 +266,87 @@ async function fetchAllRows(table: string): Promise<Record<string, unknown>[]> {
   throw new Error(`Table Supabase « ${table} » : cache schéma API — réessayez dans une minute.`);
 }
 
-export async function syncToSupabase(): Promise<{ ok: boolean; error?: string }> {
+export type SupabaseSyncPushResult = {
+  ok: boolean;
+  error?: string;
+  /** Envoi incrémental sans rien à pousser alors que l’inventaire local n’est pas vide. */
+  nothingPushed?: boolean;
+  localInventory?: { materiels: number; consommables: number };
+  pushed?: { materiels: number; consommables: number; prets: number };
+};
+
+async function countLocalInventory(database: Awaited<ReturnType<typeof getDB>>): Promise<{
+  materiels: number;
+  consommables: number;
+}> {
+  const [m, c] = await Promise.all([
+    database.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM materiels'),
+    database.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM consommables'),
+  ]);
+  return { materiels: Number(m?.n ?? 0), consommables: Number(c?.n ?? 0) };
+}
+
+/** Envoie tout l’inventaire local vers Supabase (pas seulement `synced = 0`). */
+export async function pushFullInventoryToSupabase(): Promise<SupabaseSyncPushResult> {
+  return syncToSupabase({ mode: 'full' });
+}
+
+export async function syncToSupabase(
+  options?: { mode?: 'incremental' | 'full' }
+): Promise<SupabaseSyncPushResult> {
+  const mode = options?.mode ?? 'incremental';
   if (!isSupabaseConfigured()) {
     return { ok: false, error: MSG_SUPABASE_MANQUE };
   }
   try {
     const database = await getDB();
-    const materielsToSync = await database.getAllAsync<Record<string, unknown>>(
-      'SELECT * FROM materiels WHERE synced = 0'
-    );
-    const consoToSync = await database.getAllAsync<Record<string, unknown>>(
-      'SELECT * FROM consommables WHERE synced = 0'
-    );
-    const pretsToSync = await database.getAllAsync<Record<string, unknown>>(
-      'SELECT * FROM prets WHERE synced = 0'
-    );
-    const regiePayload = await loadRegiePushPayload(database, 'unsynced');
+    const materielSql =
+      mode === 'full' ? 'SELECT * FROM materiels' : 'SELECT * FROM materiels WHERE synced = 0';
+    const consoSql =
+      mode === 'full' ? 'SELECT * FROM consommables' : 'SELECT * FROM consommables WHERE synced = 0';
+    const pretSql = mode === 'full' ? 'SELECT * FROM prets' : 'SELECT * FROM prets WHERE synced = 0';
+    const materielsToSync = await database.getAllAsync<Record<string, unknown>>(materielSql);
+    const consoToSync = await database.getAllAsync<Record<string, unknown>>(consoSql);
+    const pretsToSync = await database.getAllAsync<Record<string, unknown>>(pretSql);
+    const regiePayload = await loadRegiePushPayload(database, mode === 'full' ? 'full' : 'unsynced');
+    const inventoryDeletions = await loadPendingInventoryDeletions();
 
     if (
+      mode === 'incremental' &&
       materielsToSync.length === 0 &&
       consoToSync.length === 0 &&
       pretsToSync.length === 0 &&
+      inventoryDeletions.length === 0 &&
       regiePayloadIsEmpty(regiePayload)
     ) {
+      const localInventory = await countLocalInventory(database);
+      if (localInventory.materiels > 0 || localInventory.consommables > 0) {
+        return { ok: true, nothingPushed: true, localInventory };
+      }
       return { ok: true };
+    }
+
+    if (mode === 'full') {
+      const total =
+        materielsToSync.length +
+        consoToSync.length +
+        pretsToSync.length +
+        inventoryDeletions.length;
+      const regieRows =
+        regiePayload.conduites.length +
+        regiePayload.tops.length +
+        regiePayload.mises_techniques.length +
+        regiePayload.etapes.length +
+        regiePayload.positions.length +
+        regiePayload.position_photos.length;
+      if (total === 0 && regieRows === 0 && regiePayload.regie_deletions.length === 0) {
+        return { ok: true };
+      }
+    }
+
+    if (inventoryDeletions.length > 0) {
+      const invDel = await applyInventoryDeletions(inventoryDeletions);
+      if (!invDel.ok) return invDel;
     }
 
     const { cat: catIds, loc: locIds } = uniqueCatLocIds([...materielsToSync, ...consoToSync]);
@@ -276,9 +377,7 @@ export async function syncToSupabase(): Promise<{ ok: boolean; error?: string }>
       } catch {
         /* best effort */
       }
-      const materielsFresh = await database.getAllAsync<Record<string, unknown>>(
-        'SELECT * FROM materiels WHERE synced = 0'
-      );
+      const materielsFresh = await database.getAllAsync<Record<string, unknown>>(materielSql);
       const r = await upsertRowsOrFail(
         'materiels',
         materielsFresh.map(m => materielRowForRemote(m))
@@ -292,9 +391,7 @@ export async function syncToSupabase(): Promise<{ ok: boolean; error?: string }>
       } catch {
         /* best effort */
       }
-      const consoFresh = await database.getAllAsync<Record<string, unknown>>(
-        'SELECT * FROM consommables WHERE synced = 0'
-      );
+      const consoFresh = await database.getAllAsync<Record<string, unknown>>(consoSql);
       const r = await upsertRowsOrFail(
         'consommables',
         consoFresh.map(c => consoRowForRemote(c))
@@ -335,24 +432,32 @@ export async function syncToSupabase(): Promise<{ ok: boolean; error?: string }>
 
     await database.execAsync('BEGIN IMMEDIATE;');
     try {
-      const markSynced = async (table: string, ids: string[]) => {
-        if (ids.length === 0) return;
-        const ph = ids.map(() => '?').join(',');
-        await database.runAsync(`UPDATE ${table} SET synced = 1 WHERE id IN (${ph})`, ids);
-      };
-      await markSynced(
-        'materiels',
-        materielsToSync.map(m => String(m.id))
-      );
-      await markSynced(
-        'consommables',
-        consoToSync.map(c => String(c.id))
-      );
-      await markSynced(
-        'prets',
-        pretsToSync.map(p => String(p.id))
-      );
-      await markRegieSynced(database, 'unsynced');
+      if (mode === 'full') {
+        await database.execAsync('UPDATE materiels SET synced = 1');
+        await database.execAsync('UPDATE consommables SET synced = 1');
+        await database.execAsync('UPDATE prets SET synced = 1');
+        await markRegieSynced(database, 'full');
+      } else {
+        const markSynced = async (table: string, ids: string[]) => {
+          if (ids.length === 0) return;
+          const ph = ids.map(() => '?').join(',');
+          await database.runAsync(`UPDATE ${table} SET synced = 1 WHERE id IN (${ph})`, ids);
+        };
+        await markSynced(
+          'materiels',
+          materielsToSync.map(m => String(m.id))
+        );
+        await markSynced(
+          'consommables',
+          consoToSync.map(c => String(c.id))
+        );
+        await markSynced(
+          'prets',
+          pretsToSync.map(p => String(p.id))
+        );
+        await markRegieSynced(database, 'unsynced');
+      }
+      await clearPendingInventoryDeletions();
       await clearRegieDeletionsAfterPush();
       await database.execAsync('COMMIT;');
     } catch (e) {
@@ -382,7 +487,14 @@ export async function syncToSupabase(): Promise<{ ok: boolean; error?: string }>
       /* best effort */
     }
 
-    return { ok: true };
+    return {
+      ok: true,
+      pushed: {
+        materiels: materielsToSync.length,
+        consommables: consoToSync.length,
+        prets: pretsToSync.length,
+      },
+    };
   } catch (e: unknown) {
     return { ok: false, error: formatSyncError(e) };
   }
@@ -440,6 +552,7 @@ export async function syncFromSupabase(): Promise<{ ok: boolean; error?: string 
     await database.execAsync('BEGIN IMMEDIATE;');
     try {
       await applyInventorySnapshotRows(database, snap);
+      await reconcileInventoryFromSnapshot(database as InventoryReconcileDb, snap);
       await reconcileRegieFromSnapshot(database, snap as RegieSnapshotSlice);
       await database.execAsync('COMMIT;');
     } catch (e) {
@@ -467,6 +580,7 @@ export async function syncFromSupabase(): Promise<{ ok: boolean; error?: string 
       /* best effort */
     }
 
+    invalidateInventorySnapshotCache();
     return { ok: true };
   } catch (e: unknown) {
     return { ok: false, error: formatSyncError(e) };

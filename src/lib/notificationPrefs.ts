@@ -14,6 +14,8 @@ export type NotificationPrefs = {
   mailSuggestionPrets: boolean;
   /** Envoi auto récap. alertes (Wi‑Fi / données) via le serveur si SMTP configuré */
   mailAutoSendWifiCellular: boolean;
+  /** Rappels échéances rétroplanning CAPI (via sync CATRACK) */
+  pushCapiRetro: boolean;
 };
 
 const DEFAULT_PREFS: NotificationPrefs = {
@@ -24,6 +26,7 @@ const DEFAULT_PREFS: NotificationPrefs = {
   mailSuggestionVgp: true,
   mailSuggestionPrets: true,
   mailAutoSendWifiCellular: true,
+  pushCapiRetro: true,
 };
 
 function normalizePrefs(p: Partial<NotificationPrefs> | null | undefined): NotificationPrefs {
@@ -35,6 +38,7 @@ function normalizePrefs(p: Partial<NotificationPrefs> | null | undefined): Notif
     mailSuggestionVgp: p?.mailSuggestionVgp !== false,
     mailSuggestionPrets: p?.mailSuggestionPrets !== false,
     mailAutoSendWifiCellular: p?.mailAutoSendWifiCellular !== false,
+    pushCapiRetro: p?.pushCapiRetro !== false,
   };
 }
 

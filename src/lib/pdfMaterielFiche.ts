@@ -7,6 +7,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { format, parseISO, isValid } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Materiel } from '../types';
+import { formatMaterielEmplacement } from './materielLocation';
 import { qrCodeImgTagForHtml } from './qrHtml';
 import { getPdfBranding, buildPdfOrgHeaderHtml, type PdfBranding } from './theatreBranding';
 
@@ -97,7 +98,7 @@ export async function buildMaterielFichePageHtml(
 
   const rows: [string, string][] = [
     ['Type / catégorie', val([mat.type, (mat as any).categorie_nom].filter(Boolean).join(' — ') || undefined)],
-    ['Emplacement / zone', val((mat as any).localisation_nom)],
+    ['Emplacement / zone', val(formatMaterielEmplacement(mat as Materiel) || undefined)],
     ['Marque / modèle', val([mat.marque, mat.type].filter(Boolean).join(' · '))],
     ['N° de série', val(mat.numero_serie)],
     ['État', val(mat.etat)],

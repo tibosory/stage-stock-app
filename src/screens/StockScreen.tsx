@@ -18,10 +18,10 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../theme/colors';
 import { deleteMateriel, ajusterMaterielLotStock } from '../db/inventoryOpsDb';
-import { getCategories, getLocalisations } from '../db/catalogDb';
+import { getCategories, getLocalisations, getLieux } from '../db/catalogDb';
 import { getMaterielById } from '../db/inventoryDb';
 import { getStats } from '../db/metadataDb';
-import { Materiel, Consommable, Categorie, Localisation, StatutMateriel } from '../types';
+import { Materiel, Consommable, Categorie, Localisation, Lieu, StatutMateriel } from '../types';
 import {
   EtatBadge,
   StatutBadge,
@@ -46,7 +46,7 @@ import { listTours } from '../db/trackingDb';
 import { useLanguage } from '../context/LanguageContext';
 import { BurstQtyNumpadModal } from '../components/BurstQtyNumpadModal';
 import { isMaterielGestionLot, materielLotUnite, materielStockActuel } from '../lib/materielLot';
-import { formatMaterielEmplacement } from '../lib/materielLocation';
+import { formatLieuLocalisation, formatMaterielEmplacement } from '../lib/materielLocation';
 import { stockFlightcaseKeyFromMateriel } from '../lib/stockFlightcase';
 
 const STOCK_LIST_PAGE_SIZE = 80;
@@ -67,6 +67,7 @@ export default function StockScreen({ navigation, route }: any) {
   const [editItem, setEditItem] = useState<Materiel | null>(null);
   const [categories, setCategories] = useState<Categorie[]>([]);
   const [localisations, setLocalisations] = useState<Localisation[]>([]);
+  const [lieux, setLieux] = useState<Lieu[]>([]);
   const [stats, setStats] = useState({
     totalMateriels: 0,
     enPret: 0,
@@ -131,11 +132,12 @@ export default function StockScreen({ navigation, route }: any) {
   const load = useCallback(async () => {
     const gen = ++loadGenerationRef.current;
     try {
-      const [mats, consos, cats, locs, st, tours] = await Promise.all([
+      const [mats, consos, cats, locs, lx, st, tours] = await Promise.all([
         getMaterielsCached(),
         getConsommablesCached(),
         getCategories(),
         getLocalisations(),
+        getLieux(),
         getStats(),
         listTours(),
       ]);
@@ -144,6 +146,7 @@ export default function StockScreen({ navigation, route }: any) {
       setConsommables(consos);
       setCategories(cats);
       setLocalisations(locs);
+      setLieux(lx);
       setStats(st);
       setTourNamesById(
         tours.reduce<Record<string, string>>((acc, t) => {
@@ -857,7 +860,7 @@ export default function StockScreen({ navigation, route }: any) {
                           <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
                             <Text style={s.consoSearchName}>🛒 {c.nom}</Text>
                             <Text style={s.sub}>
-                              {[c.reference, (c as Consommable & { fournisseur?: string }).fournisseur]
+                              {[c.reference, c.fournisseur, formatLieuLocalisation(c)]
                                 .filter(Boolean)
                                 .join(' · ')}
                             </Text>
@@ -915,6 +918,7 @@ export default function StockScreen({ navigation, route }: any) {
         item={editItem}
         categories={categories}
         localisations={localisations}
+        lieux={lieux}
         initialQr={route.params?.newQr}
         initialNfc={route.params?.newNfc}
         sameNameEnStockCount={
@@ -937,6 +941,7 @@ export default function StockScreen({ navigation, route }: any) {
         onMetaRefresh={load}
         categories={categories}
         localisations={localisations}
+        lieux={lieux}
       />
 
       <BulkQrPrintModal
@@ -953,9 +958,8 @@ export default function StockScreen({ navigation, route }: any) {
           id: m.id,
           title: m.nom,
           subtitle: [
-            (m as any).localisation_nom,
-            m.flightcase,
-            (m as any).categorie_nom,
+            formatMaterielEmplacement(m),
+            (m as Materiel).categorie_nom,
             m.numero_serie ? `S/N ${m.numero_serie}` : undefined,
           ]
             .filter(Boolean)

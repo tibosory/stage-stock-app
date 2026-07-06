@@ -67,6 +67,10 @@ async function testDeleteConsommableDeletesRow() {
   const db = new FakeInventoryDb();
   await deleteConsommable('c-9', db as any);
   assert.ok(
+    db.calls.some(c => c.sql.includes('INSERT OR REPLACE INTO sync_regie_deletions')),
+    'should queue deletion for sync'
+  );
+  assert.ok(
     db.calls.some(c => c.sql.includes('DELETE FROM consommables WHERE id = ?')),
     'should delete consumable by id'
   );

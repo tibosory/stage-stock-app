@@ -40,6 +40,7 @@ function materielInsertSqlAndParams(
     data.poids_kg ?? null,
     data.categorie_id ?? null,
     data.localisation_id ?? null,
+    data.lieu_id ?? null,
     data.flightcase?.trim() || null,
     data.etat,
     data.statut,
@@ -76,12 +77,12 @@ function materielInsertSqlAndParams(
     now,
     now,
   ];
-  if (params.length !== 43) {
-    throw new Error(`insert materiel: 43 parametres attendus, ${params.length} fournis`);
+  if (params.length !== 44) {
+    throw new Error(`insert materiel: 44 parametres attendus, ${params.length} fournis`);
   }
-  const placeholders = Array(43).fill('?').join(', ');
+  const placeholders = Array(44).fill('?').join(', ');
   const sql = `
-    INSERT INTO materiels (id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id, flightcase,
+    INSERT INTO materiels (id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id, lieu_id, flightcase,
       etat, statut, date_achat, date_validite, prochain_controle, intervalle_controle_jours,
       maintenance_todo, maintenance_last_comment,
       technicien, qr_code, nfc_tag_id, photo_url, photo_local,
@@ -114,6 +115,7 @@ function consommableInsertSqlAndParams(
     data.seuil_minimum,
     data.categorie_id ?? null,
     data.localisation_id ?? null,
+    data.lieu_id ?? null,
     data.fournisseur ?? null,
     data.prix_unitaire ?? null,
     qrCode,
@@ -126,13 +128,13 @@ function consommableInsertSqlAndParams(
     now,
     now,
   ];
-  if (params.length !== 19) {
-    throw new Error(`insert consommable: 19 parametres attendus, ${params.length} fournis`);
+  if (params.length !== 20) {
+    throw new Error(`insert consommable: 20 parametres attendus, ${params.length} fournis`);
   }
-  const placeholders = Array(19).fill('?').join(', ');
+  const placeholders = Array(20).fill('?').join(', ');
   const sql = `
     INSERT INTO consommables (id, nom, reference, unite, stock_actuel, seuil_minimum,
-      categorie_id, localisation_id, fournisseur, prix_unitaire, qr_code, nfc_tag_id,
+      categorie_id, localisation_id, lieu_id, fournisseur, prix_unitaire, qr_code, nfc_tag_id,
       photo_local, photo_url, gel_brand, gel_code, gel_instead_of_photo,
       created_at, updated_at, synced)
     VALUES (${placeholders}, 0)`;
@@ -143,10 +145,11 @@ export async function getMateriel(): Promise<Materiel[]> {
   const database = await getDB();
   const cats = await getCategories();
   const rows = await database.getAllAsync<any>(`
-    SELECT m.*, c.nom as categorie_nom, l.nom as localisation_nom
+    SELECT m.*, c.nom as categorie_nom, l.nom as localisation_nom, li.nom as lieu_nom
     FROM materiels m
     LEFT JOIN categories c ON m.categorie_id = c.id
     LEFT JOIN localisations l ON m.localisation_id = l.id
+    LEFT JOIN lieux li ON m.lieu_id = li.id
     ORDER BY m.created_at DESC
   `);
   return rows.map(r => ({
@@ -169,10 +172,11 @@ export async function getConsommables(): Promise<Consommable[]> {
   const database = await getDB();
   const cats = await getCategories();
   const rows = await database.getAllAsync<any>(`
-    SELECT c.*, cat.nom as categorie_nom, l.nom as localisation_nom
+    SELECT c.*, cat.nom as categorie_nom, l.nom as localisation_nom, li.nom as lieu_nom
     FROM consommables c
     LEFT JOIN categories cat ON c.categorie_id = cat.id
     LEFT JOIN localisations l ON c.localisation_id = l.id
+    LEFT JOIN lieux li ON c.lieu_id = li.id
     ORDER BY c.nom ASC
   `);
   return rows.map(r => ({

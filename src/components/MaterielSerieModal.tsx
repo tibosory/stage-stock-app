@@ -5,7 +5,7 @@ import { Colors } from '../theme/colors';
 import { insertMaterielsSerieBatch } from '../db/inventoryOpsDb';
 import { insertCategorie, insertLocalisation, categoryPathById } from '../db/catalogDb';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
-import { Categorie, Localisation, EtatMateriel, StatutMateriel } from '../types';
+import { Categorie, Localisation, Lieu, EtatMateriel, StatutMateriel } from '../types';
 import { Input, SelectPicker, BottomModal, FormButtons, DateField } from './UI';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -15,6 +15,7 @@ interface Props {
   onSaved: () => void;
   categories: Categorie[];
   localisations: Localisation[];
+  lieux: Lieu[];
   onMetaRefresh?: () => void | Promise<void>;
 }
 
@@ -61,6 +62,7 @@ export default function MaterielSerieModal({
   onSaved,
   categories,
   localisations,
+  lieux,
   onMetaRefresh,
 }: Props) {
   const { t } = useLanguage();
@@ -68,6 +70,7 @@ export default function MaterielSerieModal({
   const [marque, setMarque] = useState('');
   const [type, setType] = useState('');
   const [categorieId, setCategorieId] = useState('');
+  const [lieuId, setLieuId] = useState('');
   const [localisationId, setLocalisationId] = useState('');
   const [etat, setEtat] = useState<EtatMateriel>('bon');
   const [statut, setStatut] = useState<StatutMateriel>('en stock');
@@ -90,6 +93,7 @@ export default function MaterielSerieModal({
     setMarque('');
     setType('');
     setCategorieId('');
+    setLieuId('');
     setLocalisationId('');
     setEtat('bon');
     setStatut('en stock');
@@ -108,12 +112,16 @@ export default function MaterielSerieModal({
 
   const handleAddLocalisation = async () => {
     const t = newLocalisationName.trim();
+    if (!lieuId.trim()) {
+      Alert.alert('Lieu requis', 'Choisissez d’abord un lieu (salle CAPI).');
+      return;
+    }
     if (!t) {
       Alert.alert('Localisation', 'Saisissez un nom pour la nouvelle localisation.');
       return;
     }
     try {
-      const id = await insertLocalisation(t);
+      const id = await insertLocalisation(t, lieuId);
       setNewLocalisationName('');
       setLocalisationId(id);
       await onMetaRefresh?.();
@@ -173,10 +181,21 @@ export default function MaterielSerieModal({
     ],
     [categories, sortedCats, t]
   );
-  const locOptions = [
-    { label: 'Aucune', value: '' },
-    ...localisations.map(l => ({ label: l.nom, value: l.id })),
-  ];
+  const lieuOptions = useMemo(
+    () => [
+      { label: '— Choisir un lieu —', value: '' },
+      ...lieux.map(l => ({
+        label: l.source === 'capi' ? `${l.nom} (CAPI)` : l.nom,
+        value: l.id,
+      })),
+    ],
+    [lieux]
+  );
+
+  const locOptions = useMemo(() => {
+    const filtered = lieuId ? localisations.filter(l => l.lieu_id === lieuId) : [];
+    return [{ label: 'Aucune', value: '' }, ...filtered.map(l => ({ label: l.nom, value: l.id }))];
+  }, [localisations, lieuId]);
 
   const preview = (): string => {
     const start = parseInt(serieDebut, 10);
@@ -229,6 +248,7 @@ export default function MaterielSerieModal({
         numero_serie: serial,
         poids_kg: undefined,
         categorie_id: categorieId || undefined,
+        lieu_id: lieuId || undefined,
         localisation_id: localisationId || undefined,
         etat,
         statut,
@@ -278,10 +298,16 @@ export default function MaterielSerieModal({
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
-          <SelectPicker label="Catégorie" value={categorieId} options={catOptions} onChange={setCategorieId} />
+          <SelectPicker label="Lieu (salle CAPI)" value={lieuId} options={lieuOptions} onChange={setLieuId} />
         </View>
         <View style={{ flex: 1 }}>
-          <SelectPicker label="Localisation" value={localisationId} options={locOptions} onChange={setLocalisationId} />
+          <SelectPicker label="Localisation (local)" value={localisationId} options={locOptions} onChange={setLocalisationId} />
+        </View>
+      </View>
+
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flex: 1 }}>
+          <SelectPicker label="Catégorie" value={categorieId} options={catOptions} onChange={setCategorieId} />
         </View>
       </View>
 

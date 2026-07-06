@@ -14,8 +14,14 @@ import { buildServerAuthHeaders } from './serverAuthHeaders';
 import { getDB } from '../db/coreDb';
 import { invalidateInventorySnapshotCache } from '../db/materialRepository';
 import { getSessionAppUserRole } from '../db/userDb';
+import { loadPendingInventoryDeletions, clearPendingInventoryDeletions } from '../db/regieDeletionSyncDb';
 import { canCallApiSync, isLocalBackendDisabledReason } from './syncGuards';
 import { mergeMaterielLocalMedia, mergeConsommableLocalMedia, filterSnapshotRowsByUnsyncedIds, type MaterielLocalMedia, type ConsommableLocalMedia } from './inventorySnapshotMerge';
+import {
+  reconcileInventoryFromSnapshot,
+  type InventoryReconcileDb,
+} from './inventorySnapshotReconcile';
+export { reconcileInventoryFromSnapshot } from './inventorySnapshotReconcile';
 import { syncSnapshotInvalidJsonMessage } from './syncSnapshotResponseHint';
 import {
   applyRegieSnapshotRows,
@@ -142,6 +148,16 @@ type Snapshot = {
   etapes?: Record<string, unknown>[];
   positions?: Record<string, unknown>[];
   position_photos?: Record<string, unknown>[];
+  lieux?: Record<string, unknown>[];
+  beneficiaires?: Record<string, unknown>[];
+  tour_lieu_refs?: Record<string, unknown>[];
+  ap_capi_lieu_refs?: Record<string, unknown>[];
+  ap_capi_spectacle_refs?: Record<string, unknown>[];
+  ap_capi_contact_refs?: Record<string, unknown>[];
+  ap_capi_espace_refs?: Record<string, unknown>[];
+  ap_capi_planning_refs?: Record<string, unknown>[];
+  ap_capi_document_refs?: Record<string, unknown>[];
+  capi_retro_notifications?: Record<string, unknown>[];
 };
 
 function joinBasePath(base: string, path: string): string {
@@ -192,6 +208,7 @@ function materielSnapshotParams(m: Record<string, unknown>): (string | number | 
     sqlVal(m.poids_kg ?? null),
     sqlVal(m.categorie_id ?? null),
     sqlVal(m.localisation_id ?? null),
+    sqlVal(m.lieu_id ?? null),
     sqlVal((m as { flightcase?: unknown }).flightcase ?? null),
     sqlVal(m.etat ?? 'bon'),
     sqlVal(m.statut ?? 'en stock'),
@@ -232,7 +249,7 @@ function materielSnapshotParams(m: Record<string, unknown>): (string | number | 
 }
 
 const MATERIEL_SNAPSHOT_INSERT_SQL = `INSERT OR REPLACE INTO materiels (
-            id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id, flightcase,
+            id, nom, type, marque, numero_serie, poids_kg, categorie_id, localisation_id, lieu_id, flightcase,
             etat, statut, date_achat, date_validite, prochain_controle, intervalle_controle_jours,
             maintenance_todo, maintenance_last_comment,
             technicien, qr_code, nfc_tag_id, photo_url, photo_local,
@@ -243,7 +260,7 @@ const MATERIEL_SNAPSHOT_INSERT_SQL = `INSERT OR REPLACE INTO materiels (
             created_at, updated_at, synced
           ) VALUES `;
 
-const MATERIEL_SNAPSHOT_VALUES_TUPLE = `(${Array(40).fill('?').join(',')},1)`;
+const MATERIEL_SNAPSHOT_VALUES_TUPLE = `(${Array(41).fill('?').join(',')},1)`;
 
 function consoSnapshotParams(c: Record<string, unknown>): (string | number | null)[] {
   return [
@@ -255,6 +272,7 @@ function consoSnapshotParams(c: Record<string, unknown>): (string | number | nul
     Number(c.seuil_minimum ?? 5),
     sqlVal(c.categorie_id ?? null),
     sqlVal(c.localisation_id ?? null),
+    sqlVal(c.lieu_id ?? null),
     sqlVal(c.fournisseur ?? null),
     sqlVal(c.prix_unitaire ?? null),
     sqlVal(c.qr_code ?? null),
@@ -273,12 +291,12 @@ function consoSnapshotParams(c: Record<string, unknown>): (string | number | nul
 
 const CONSO_SNAPSHOT_INSERT_SQL = `INSERT OR REPLACE INTO consommables (
             id, nom, reference, unite, stock_actuel, seuil_minimum,
-            categorie_id, localisation_id, fournisseur, prix_unitaire, qr_code, nfc_tag_id,
+            categorie_id, localisation_id, lieu_id, fournisseur, prix_unitaire, qr_code, nfc_tag_id,
             photo_local, photo_url, gel_brand, gel_code, gel_instead_of_photo,
             created_at, updated_at, synced
           ) VALUES `;
 
-const CONSO_SNAPSHOT_VALUES_TUPLE = `(${Array(19).fill('?').join(',')},1)`;
+const CONSO_SNAPSHOT_VALUES_TUPLE = `(${Array(20).fill('?').join(',')},1)`;
 
 function pretSnapshotParams(p: Record<string, unknown>): (string | number | null)[] {
   const rappel =
@@ -383,7 +401,7 @@ async function loadUnsyncedLocalIds(database: SqliteDb, table: 'materiels' | 'co
   return new Set(rows.map(r => String(r.id)));
 }
 
-export async function applyInventorySnapshotRows(database: SqliteDb, snap: Snapshot): Promise<void> {
+export async function applyInventorySnapshotRows(database: SqliteDb, snap: Partial<Snapshot>): Promise<void> {
   const cats = (snap.categories ?? []).filter((c): c is Record<string, unknown> => Boolean(c?.id && c?.nom));
   const perCat = 3;
   const catChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perCat));
@@ -399,13 +417,290 @@ export async function applyInventorySnapshotRows(database: SqliteDb, snap: Snaps
   }
 
   const locs = (snap.localisations ?? []).filter((l): l is Record<string, unknown> => Boolean(l?.id && l?.nom));
-  const perLoc = 2;
+  const perLoc = 3;
   const locChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perLoc));
   for (let i = 0; i < locs.length; i += locChunk) {
     const chunk = locs.slice(i, i + locChunk);
-    const tuples = chunk.map(() => '(?, ?)').join(', ');
-    const flat = chunk.flatMap(l => [String(l.id), String(l.nom)]);
-    await database.runAsync(`INSERT OR REPLACE INTO localisations (id, nom) VALUES ${tuples}`, flat);
+    const tuples = chunk.map(() => '(?, ?, ?)').join(', ');
+    const flat = chunk.flatMap(l => [
+      String(l.id),
+      String(l.nom),
+      l.lieu_id != null ? String(l.lieu_id) : null,
+    ]);
+    await database.runAsync(`INSERT OR REPLACE INTO localisations (id, nom, lieu_id) VALUES ${tuples}`, flat);
+  }
+
+  const lieuxRows = (snap.lieux ?? []).filter((l): l is Record<string, unknown> => Boolean(l?.id && l?.nom));
+  const perLieu = 6;
+  const lieuChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perLieu));
+  for (let i = 0; i < lieuxRows.length; i += lieuChunk) {
+    const chunk = lieuxRows.slice(i, i + lieuChunk);
+    const tuples = chunk.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+    const nowIso = new Date().toISOString();
+    const flat = chunk.flatMap(l => [
+      String(l.id),
+      String(l.nom),
+      l.source != null ? String(l.source) : null,
+      l.capi_ref != null ? String(l.capi_ref) : null,
+      l.created_at != null ? String(l.created_at) : nowIso,
+      l.updated_at != null ? String(l.updated_at) : nowIso,
+    ]);
+    await database.runAsync(
+      `INSERT OR REPLACE INTO lieux (id, nom, source, capi_ref, created_at, updated_at) VALUES ${tuples}`,
+      flat
+    );
+  }
+
+  const benefs = (snap.beneficiaires ?? []).filter(
+    (b): b is Record<string, unknown> => Boolean(b?.id && b?.nom)
+  );
+  const perBenef = 7;
+  const benefChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perBenef));
+  for (let i = 0; i < benefs.length; i += benefChunk) {
+    const chunk = benefs.slice(i, i + benefChunk);
+    const tuples = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+    const nowIso = new Date().toISOString();
+    const flat = chunk.flatMap(b => [
+      String(b.id),
+      String(b.nom),
+      b.organisation != null ? String(b.organisation) : null,
+      b.telephone != null ? String(b.telephone) : null,
+      b.email != null ? String(b.email) : null,
+      b.created_at != null ? String(b.created_at) : nowIso,
+      b.updated_at != null ? String(b.updated_at) : nowIso,
+    ]);
+    await database.runAsync(
+      `INSERT OR REPLACE INTO beneficiaires (id, nom, organisation, telephone, email, created_at, updated_at) VALUES ${tuples}`,
+      flat
+    );
+  }
+
+  const tourLieux = (snap.tour_lieu_refs ?? []).filter(
+    (l): l is Record<string, unknown> => Boolean(l?.id && l?.nom && l?.kind && l?.capi_ref)
+  );
+  if (tourLieux.length) {
+    await database.runAsync('DELETE FROM tour_lieu_refs');
+    const perTourLieu = 7;
+    const tourLieuChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perTourLieu));
+    for (let i = 0; i < tourLieux.length; i += tourLieuChunk) {
+      const chunk = tourLieux.slice(i, i + tourLieuChunk);
+      const tuples = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const nowIso = new Date().toISOString();
+      const flat = chunk.flatMap(l => [
+        String(l.id),
+        String(l.kind),
+        String(l.nom),
+        l.adresse != null ? String(l.adresse) : null,
+        String(l.capi_ref),
+        l.created_at != null ? String(l.created_at) : nowIso,
+        l.updated_at != null ? String(l.updated_at) : nowIso,
+      ]);
+      await database.runAsync(
+        `INSERT OR REPLACE INTO tour_lieu_refs (id, kind, nom, adresse, capi_ref, created_at, updated_at) VALUES ${tuples}`,
+        flat
+      );
+    }
+  }
+
+  const apLieux = (snap.ap_capi_lieu_refs ?? []).filter(
+    (l): l is Record<string, unknown> => Boolean(l?.id && l?.nom && l?.kind && l?.capi_ref)
+  );
+  if (apLieux.length) {
+    await database.runAsync('DELETE FROM ap_capi_lieu_refs');
+    const perApLieu = 8;
+    const apLieuChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perApLieu));
+    for (let i = 0; i < apLieux.length; i += apLieuChunk) {
+      const chunk = apLieux.slice(i, i + apLieuChunk);
+      const tuples = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const nowIso = new Date().toISOString();
+      const flat = chunk.flatMap(l => [
+        String(l.id),
+        String(l.kind),
+        String(l.nom),
+        l.adresse != null ? String(l.adresse) : null,
+        l.ville != null ? String(l.ville) : null,
+        String(l.capi_ref),
+        l.created_at != null ? String(l.created_at) : nowIso,
+        l.updated_at != null ? String(l.updated_at) : nowIso,
+      ]);
+      await database.runAsync(
+        `INSERT OR REPLACE INTO ap_capi_lieu_refs (id, kind, nom, adresse, ville, capi_ref, created_at, updated_at) VALUES ${tuples}`,
+        flat
+      );
+    }
+  }
+
+  const apSpectacles = (snap.ap_capi_spectacle_refs ?? []).filter(
+    (s): s is Record<string, unknown> => Boolean(s?.id && s?.titre && s?.capi_ref)
+  );
+  if (apSpectacles.length) {
+    await database.runAsync('DELETE FROM ap_capi_spectacle_refs');
+    const perApSpec = 13;
+    const apSpecChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perApSpec));
+    for (let i = 0; i < apSpectacles.length; i += apSpecChunk) {
+      const chunk = apSpectacles.slice(i, i + apSpecChunk);
+      const tuples = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const nowIso = new Date().toISOString();
+      const flat = chunk.flatMap(s => [
+        String(s.id),
+        String(s.titre),
+        s.compagnie != null ? String(s.compagnie) : null,
+        s.categorie_code != null ? String(s.categorie_code) : null,
+        s.categorie_libelle != null ? String(s.categorie_libelle) : null,
+        s.salle_id != null ? String(s.salle_id) : null,
+        s.salle_nom != null ? String(s.salle_nom) : null,
+        s.capi_lieu_ref_id != null ? String(s.capi_lieu_ref_id) : null,
+        s.date_debut != null ? String(s.date_debut) : null,
+        s.date_fin != null ? String(s.date_fin) : null,
+        String(s.capi_ref),
+        s.created_at != null ? String(s.created_at) : nowIso,
+        s.updated_at != null ? String(s.updated_at) : nowIso,
+      ]);
+      await database.runAsync(
+        `INSERT OR REPLACE INTO ap_capi_spectacle_refs (id, titre, compagnie, categorie_code, categorie_libelle, salle_id, salle_nom, capi_lieu_ref_id, date_debut, date_fin, capi_ref, created_at, updated_at) VALUES ${tuples}`,
+        flat
+      );
+    }
+  }
+
+  const apContacts = (snap.ap_capi_contact_refs ?? []).filter(
+    (c): c is Record<string, unknown> => Boolean(c?.id && c?.nom && c?.kind && c?.capi_ref)
+  );
+  if (apContacts.length) {
+    await database.runAsync('DELETE FROM ap_capi_contact_refs');
+    const perApContact = 9;
+    const apContactChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perApContact));
+    for (let i = 0; i < apContacts.length; i += apContactChunk) {
+      const chunk = apContacts.slice(i, i + apContactChunk);
+      const tuples = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const nowIso = new Date().toISOString();
+      const flat = chunk.flatMap(c => [
+        String(c.id),
+        String(c.kind),
+        String(c.nom),
+        c.role != null ? String(c.role) : null,
+        c.organisation != null ? String(c.organisation) : null,
+        c.telephone != null ? String(c.telephone) : null,
+        c.email != null ? String(c.email) : null,
+        String(c.capi_ref),
+        c.created_at != null ? String(c.created_at) : nowIso,
+        c.updated_at != null ? String(c.updated_at) : nowIso,
+      ]);
+      await database.runAsync(
+        `INSERT OR REPLACE INTO ap_capi_contact_refs (id, kind, nom, role, organisation, telephone, email, capi_ref, created_at, updated_at) VALUES ${tuples}`,
+        flat
+      );
+    }
+  }
+
+  const apEspaces = (snap.ap_capi_espace_refs ?? []).filter(
+    (e): e is Record<string, unknown> => Boolean(e?.id && e?.nom && e?.capi_ref),
+  );
+  if (apEspaces.length) {
+    await database.runAsync('DELETE FROM ap_capi_espace_refs');
+    const per = 11;
+    const chunkSize = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / per));
+    for (let i = 0; i < apEspaces.length; i += chunkSize) {
+      const chunk = apEspaces.slice(i, i + chunkSize);
+      const tuples = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const nowIso = new Date().toISOString();
+      const flat = chunk.flatMap((e) => [
+        String(e.id),
+        String(e.salle_id),
+        String(e.capi_lieu_ref_id),
+        String(e.nom),
+        e.type != null ? String(e.type) : null,
+        e.jauge != null ? Number(e.jauge) : null,
+        e.description != null ? String(e.description) : null,
+        e.control_points_json != null ? String(e.control_points_json) : null,
+        e.ordre != null ? Number(e.ordre) : 0,
+        String(e.capi_ref),
+        e.updated_at != null ? String(e.updated_at) : nowIso,
+      ]);
+      await database.runAsync(
+        `INSERT OR REPLACE INTO ap_capi_espace_refs (id, salle_id, capi_lieu_ref_id, nom, type, jauge, description, control_points_json, ordre, capi_ref, updated_at) VALUES ${tuples}`,
+        flat,
+      );
+    }
+  }
+
+  const apPlanning = (snap.ap_capi_planning_refs ?? []).filter(
+    (p): p is Record<string, unknown> => Boolean(p?.id && p?.title && p?.capi_ref && p?.date_key),
+  );
+  if (apPlanning.length) {
+    await database.runAsync('DELETE FROM ap_capi_planning_refs');
+    const per = 12;
+    const chunkSize = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / per));
+    for (let i = 0; i < apPlanning.length; i += chunkSize) {
+      const chunk = apPlanning.slice(i, i + chunkSize);
+      const tuples = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const nowIso = new Date().toISOString();
+      const flat = chunk.flatMap((p) => [
+        String(p.id),
+        String(p.capi_spectacle_ref_id),
+        String(p.date_key),
+        p.time_start != null ? String(p.time_start) : null,
+        p.time_end != null ? String(p.time_end) : null,
+        String(p.title),
+        p.assignee_name != null ? String(p.assignee_name) : null,
+        p.capi_espace_ref_id != null ? String(p.capi_espace_ref_id) : null,
+        p.notes != null ? String(p.notes) : null,
+        p.sort_order != null ? Number(p.sort_order) : 0,
+        String(p.capi_ref),
+        p.updated_at != null ? String(p.updated_at) : nowIso,
+      ]);
+      await database.runAsync(
+        `INSERT OR REPLACE INTO ap_capi_planning_refs (id, capi_spectacle_ref_id, date_key, time_start, time_end, title, assignee_name, capi_espace_ref_id, notes, sort_order, capi_ref, updated_at) VALUES ${tuples}`,
+        flat,
+      );
+    }
+  }
+
+  const apDocs = (snap.ap_capi_document_refs ?? []).filter(
+    (d): d is Record<string, unknown> => Boolean(d?.id && d?.nom && d?.capi_ref && d?.version_id),
+  );
+  if (apDocs.length) {
+    await database.runAsync('DELETE FROM ap_capi_document_refs');
+    const per = 11;
+    const chunkSize = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / per));
+    for (let i = 0; i < apDocs.length; i += chunkSize) {
+      const chunk = apDocs.slice(i, i + chunkSize);
+      const tuples = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const nowIso = new Date().toISOString();
+      const flat = chunk.flatMap((d) => [
+        String(d.id),
+        String(d.capi_spectacle_ref_id),
+        String(d.nom),
+        d.chemin_dossier != null ? String(d.chemin_dossier) : null,
+        d.mime_type != null ? String(d.mime_type) : null,
+        d.taille_octets != null ? Number(d.taille_octets) : null,
+        d.pole != null ? String(d.pole) : null,
+        String(d.version_id),
+        String(d.famille_id),
+        String(d.capi_ref),
+        d.updated_at != null ? String(d.updated_at) : nowIso,
+      ]);
+      await database.runAsync(
+        `INSERT OR REPLACE INTO ap_capi_document_refs (id, capi_spectacle_ref_id, nom, chemin_dossier, mime_type, taille_octets, pole, version_id, famille_id, capi_ref, updated_at) VALUES ${tuples}`,
+        flat,
+      );
+    }
+  }
+
+  if (apLieux.length || apSpectacles.length || apContacts.length || apEspaces.length || apPlanning.length || apDocs.length) {
+    const { materializeCapiAccueilProCatalog } = await import('./capiAccueilProMaterialize');
+    await materializeCapiAccueilProCatalog();
+  }
+
+  if (Array.isArray(snap.capi_retro_notifications)) {
+    const capiRetroRows = snap.capi_retro_notifications.filter(
+      (n): n is Record<string, unknown> =>
+        Boolean(n?.id && n?.spectacle_id && n?.action_libelle && n?.niveau),
+    );
+    const { replaceCapiRetroNotifications } = await import('../db/capiRetroNotificationDb');
+    await replaceCapiRetroNotifications(capiRetroRows);
+    const { rescheduleCapiRetroReminders } = await import('./capiRetroNotifications');
+    void rescheduleCapiRetroReminders();
   }
 
   const unsyncedMateriels = await loadUnsyncedLocalIds(database, 'materiels');
@@ -533,6 +828,7 @@ export async function syncFromInventoryApi(
     await database.execAsync('BEGIN IMMEDIATE;');
     try {
       await applyInventorySnapshotRows(database, snap);
+      await reconcileInventoryFromSnapshot(database as InventoryReconcileDb, snap);
       await reconcileRegieFromSnapshot(database, snap as RegieSnapshotSlice);
 
       const appUsersSnap = snap.app_users;
@@ -718,6 +1014,7 @@ export async function syncToInventoryApi(
     const consommablesPayload = consosForPush.map(c => ({ ...c, photo_local: null, synced: true }));
     const pretsPayload = pretsToSync.map(p => ({ ...p, synced: true }));
     const regiePayload = await loadRegiePushPayload(database, 'unsynced');
+    const inventoryDeletions = await loadPendingInventoryDeletions();
 
     if (
       materielsPayload.length === 0 &&
@@ -726,6 +1023,7 @@ export async function syncToInventoryApi(
       categoriesPayload.length === 0 &&
       localisationsPayload.length === 0 &&
       appUsersPayload.length === 0 &&
+      inventoryDeletions.length === 0 &&
       regiePayloadIsEmpty(regiePayload)
     ) {
       return { ok: true };
@@ -743,6 +1041,7 @@ export async function syncToInventoryApi(
       prets: pretsPayload,
       pret_materiels: pretMaterielsPayload,
       app_users: appUsersPayload,
+      inventory_deletions: inventoryDeletions,
       ...regiePayload,
     };
 
@@ -780,6 +1079,7 @@ export async function syncToInventoryApi(
         pretsToSync.map(p => String(p.id))
       );
       await markRegieSynced(database, 'unsynced');
+      await clearPendingInventoryDeletions();
       await clearRegieDeletionsAfterPush();
       await database.execAsync('COMMIT;');
     } catch (e) {
@@ -912,12 +1212,11 @@ export async function pushFullInventoryToApi(
       notice_photo_local: null,
       synced: true,
     }));
-    const consosForPush = await database.getAllAsync<Record<string, unknown>>(
-      'SELECT * FROM consommables WHERE synced = 0'
-    );
+    const consosForPush = await database.getAllAsync<Record<string, unknown>>('SELECT * FROM consommables');
     const consommablesPayload = consosForPush.map(c => ({ ...c, photo_local: null, synced: true }));
     const pretsPayload = pretsToSync.map(p => ({ ...p, synced: true }));
     const regiePayload = await loadRegiePushPayload(database, 'full');
+    const inventoryDeletions = await loadPendingInventoryDeletions();
 
     if (
       materielsPayload.length === 0 &&
@@ -926,6 +1225,7 @@ export async function pushFullInventoryToApi(
       categoriesPayload.length === 0 &&
       localisationsPayload.length === 0 &&
       appUsersPayload.length === 0 &&
+      inventoryDeletions.length === 0 &&
       regiePayloadIsEmpty(regiePayload)
     ) {
       return { ok: true };
@@ -939,6 +1239,7 @@ export async function pushFullInventoryToApi(
       prets: pretsPayload,
       pret_materiels: pretMaterielsPayload,
       app_users: appUsersPayload,
+      inventory_deletions: inventoryDeletions,
       ...regiePayload,
     };
 
@@ -962,6 +1263,7 @@ export async function pushFullInventoryToApi(
       await database.execAsync('UPDATE consommables SET synced = 1');
       await database.execAsync('UPDATE prets SET synced = 1');
       await markRegieSynced(database, 'full');
+      await clearPendingInventoryDeletions();
       await clearRegieDeletionsAfterPush();
       await database.execAsync('COMMIT;');
     } catch (e) {

@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { getMateriel, getConsommables } from '../db/inventoryDb';
 import { Materiel, Consommable } from '../types';
+import { formatLieuLocalisation, formatMaterielEmplacement } from '../lib/materielLocation';
 import { TabScreenSafeArea, ScreenHeader } from '../components/UI';
 import { Colors } from '../theme/colors';
 import { Typography } from '../theme/typography';
@@ -108,8 +109,8 @@ export default function PrintHubScreen() {
           id: m.id,
           title: m.nom,
           subtitle: [
-            (m as any).localisation_nom,
-            (m as any).categorie_nom,
+            formatMaterielEmplacement(m),
+            m.categorie_nom,
             m.numero_serie ? `S/N ${m.numero_serie}` : undefined,
           ]
             .filter(Boolean)
@@ -123,7 +124,7 @@ export default function PrintHubScreen() {
         items={consos.map(c => ({
           id: c.id,
           title: c.nom,
-          subtitle: [c.unite, (c as any).localisation_nom].filter(Boolean).join(' · '),
+          subtitle: [c.unite, formatLieuLocalisation(c)].filter(Boolean).join(' · '),
         }))}
       />
     </TabScreenSafeArea>

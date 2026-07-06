@@ -27,7 +27,11 @@ export interface Materiel {
   categorie_id?: string;
   /** Chemin catégorie (affichage / recherche), optionnel */
   categorie_nom?: string;
+  localisation_nom?: string;
+  lieu_nom?: string;
   localisation_id?: string;
+  /** Lieu (salle CAPI synchronisée) — distinct de la localisation fine. */
+  lieu_id?: string | null;
   /** Flightcase / caisse (plusieurs pièces peuvent partager le même libellé). */
   flightcase?: string | null;
   etat: EtatMateriel;
@@ -139,9 +143,22 @@ export interface TourLocation {
   dateStart?: string | null;
   dateEnd?: string | null;
   tourId: string;
+  /** salle | exterieur | vehicule — référence CAPI synchronisée */
+  capiKind?: 'salle' | 'exterieur' | 'vehicule' | null;
+  capiRefId?: string | null;
   createdAt: string;
   updatedAt: string;
   synced: boolean;
+}
+
+export interface TourLieuRef {
+  id: string;
+  kind: 'salle' | 'exterieur' | 'vehicule';
+  nom: string;
+  adresse?: string | null;
+  capiRef: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Assignment {
@@ -212,6 +229,7 @@ export interface Consommable {
   seuil_minimum: number;
   categorie_id?: string;
   localisation_id?: string;
+  lieu_id?: string | null;
   fournisseur?: string;
   prix_unitaire?: number;
   qr_code?: string;
@@ -226,6 +244,7 @@ export interface Consommable {
   /** Chemin catégorie (jointure / recherche), affichage seulement */
   categorie_nom?: string;
   localisation_nom?: string;
+  lieu_nom?: string;
   created_at: string;
   updated_at: string;
   synced: boolean;
@@ -319,7 +338,18 @@ export interface Categorie {
 export interface Localisation {
   id: string;
   nom: string;
+  lieu_id?: string | null;
   created_at: string;
+}
+
+/** Salle / site (synchronisé CAPI ou saisi localement). */
+export interface Lieu {
+  id: string;
+  nom: string;
+  source?: string | null;
+  capi_ref?: string | null;
+  created_at: string;
+  updated_at?: string;
 }
 
 export interface AlerteEmail {

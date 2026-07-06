@@ -13,7 +13,7 @@ import {
   insertCategorie, insertLocalisation, categoryPathById,
 } from '../db/catalogDb';
 import { getTourById } from '../db/trackingDb';
-import { Materiel, Categorie, Localisation, EtatMateriel, StatutMateriel, Profile, FieldDefinition } from '../types';
+import { Materiel, Categorie, Localisation, Lieu, EtatMateriel, StatutMateriel, Profile, FieldDefinition } from '../types';
 import {
   Input, SelectPicker, BottomModal, FormButtons, DateField,
 } from './UI';
@@ -35,6 +35,7 @@ interface Props {
   item?: Materiel | null;
   categories: Categorie[];
   localisations: Localisation[];
+  lieux: Lieu[];
   initialQr?: string;
   initialNfc?: string;
   /** Recharger catégories / localisations après création inline. */
@@ -71,7 +72,7 @@ function parseWeightKg(raw: string): number | undefined | null {
 
 export default function MaterielModal({
   visible, onClose, onSaved, item,
-  categories, localisations, initialQr, initialNfc, onMetaRefresh,
+  categories, localisations, lieux, initialQr, initialNfc, onMetaRefresh,
   sameNameEnStockCount,
   onOpenProfileEditor,
 }: Props) {
@@ -83,6 +84,7 @@ export default function MaterielModal({
   const [numeroSerie, setNumeroSerie] = useState('');
   const [poids, setPoids] = useState('');
   const [categorieId, setCategorieId] = useState('');
+  const [lieuId, setLieuId] = useState('');
   const [localisationId, setLocalisationId] = useState('');
   const [flightcase, setFlightcase] = useState('');
   const [etat, setEtat] = useState<EtatMateriel>('bon');
@@ -127,6 +129,7 @@ export default function MaterielModal({
       setNumeroSerie(item.numero_serie ?? '');
       setPoids(item.poids_kg?.toString() ?? '');
       setCategorieId(item.categorie_id ?? '');
+      setLieuId(item.lieu_id ?? '');
       setLocalisationId(item.localisation_id ?? '');
       setFlightcase(item.flightcase ?? '');
       setEtat(item.etat);
@@ -147,7 +150,7 @@ export default function MaterielModal({
       setNoticePhotoUri(item.notice_photo_local ?? item.notice_photo_url ?? '');
     } else {
       setNom(''); setQuantite('1'); setMarque(''); setNumeroSerie('');
-      setPoids(''); setCategorieId(''); setLocalisationId(''); setFlightcase('');
+      setPoids(''); setCategorieId(''); setLieuId(''); setLocalisationId(''); setFlightcase('');
       setEtat('bon'); setStatut('en stock');
       setDateAchat(''); setDateValidite(''); setProchainControle(''); setIntervalleControle('');
       setMaintenanceTodo(''); setMaintenanceLastComment('');
@@ -228,12 +231,16 @@ export default function MaterielModal({
 
   const handleAddLocalisation = async () => {
     const t = newLocalisationName.trim();
+    if (!lieuId.trim()) {
+      Alert.alert('Lieu requis', 'Choisissez d’abord un lieu (salle CAPI).');
+      return;
+    }
     if (!t) {
-      Alert.alert('Localisation', 'Saisissez un nom (ex. réserve, scène, atelier…).');
+      Alert.alert('Localisation', 'Saisissez un nom de local (ex. réserve, rack A, atelier…).');
       return;
     }
     try {
-      const id = await insertLocalisation(t);
+      const id = await insertLocalisation(t, lieuId);
       setNewLocalisationName('');
       setLocalisationId(id);
       await onMetaRefresh?.();
@@ -394,6 +401,7 @@ export default function MaterielModal({
         numero_serie: gestionLot ? undefined : numeroSerie || undefined,
         poids_kg: parsedWeight,
         categorie_id: categorieId || undefined,
+        lieu_id: lieuId || undefined,
         localisation_id: localisationId || undefined,
         flightcase: flightcase.trim() || undefined,
         etat,
@@ -478,10 +486,34 @@ export default function MaterielModal({
     ],
     [categories, sortedCats, t]
   );
-  const locOptions = [
-    { label: 'Aucune', value: '' },
-    ...localisations.map(l => ({ label: l.nom, value: l.id })),
-  ];
+  const lieuOptions = useMemo(
+    () => [
+      { label: '— Choisir un lieu —', value: '' },
+      ...lieux.map(l => ({
+        label: l.source === 'capi' ? `${l.nom} (CAPI)` : l.nom,
+        value: l.id,
+      })),
+    ],
+    [lieux]
+  );
+
+  const locOptions = useMemo(() => {
+    const filtered = lieuId
+      ? localisations.filter(l => l.lieu_id === lieuId)
+      : [];
+    return [
+      { label: 'Aucune', value: '' },
+      ...filtered.map(l => ({ label: l.nom, value: l.id })),
+    ];
+  }, [localisations, lieuId]);
+
+  const onLieuChange = (next: string) => {
+    setLieuId(next);
+    if (localisationId) {
+      const loc = localisations.find(l => l.id === localisationId);
+      if (loc?.lieu_id !== next) setLocalisationId('');
+    }
+  };
 
   return (
     <BottomModal
@@ -546,10 +578,24 @@ export default function MaterielModal({
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
-          <SelectPicker label="Catégorie" value={categorieId} options={catOptions} onChange={setCategorieId} />
+          <SelectPicker label="Lieu (salle CAPI)" value={lieuId} options={lieuOptions} onChange={onLieuChange} />
         </View>
         <View style={{ flex: 1 }}>
-          <SelectPicker label="Localisation" value={localisationId} options={locOptions} onChange={setLocalisationId} />
+          <SelectPicker
+            label="Localisation (local dans le lieu)"
+            value={localisationId}
+            options={locOptions}
+            onChange={setLocalisationId}
+          />
+        </View>
+      </View>
+      {!lieuId ? (
+        <Text style={s.lotHint}>Synchronisez les lieux depuis CAPI ou choisissez un lieu avant la localisation.</Text>
+      ) : null}
+
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flex: 1 }}>
+          <SelectPicker label="Catégorie" value={categorieId} options={catOptions} onChange={setCategorieId} />
         </View>
       </View>
 
@@ -605,7 +651,7 @@ export default function MaterielModal({
       <View style={s.newCatRow}>
         <View style={{ flex: 1 }}>
           <Input
-            label="Nouvelle localisation"
+            label="Nouvelle localisation (dans le lieu)"
             value={newLocalisationName}
             onChangeText={setNewLocalisationName}
             placeholder="Nom puis « Créer »"

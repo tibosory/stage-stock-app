@@ -22,7 +22,11 @@ import {
 } from '../../db/accueilProDb';
 import type { ApSpacesMode, ApEventStatus } from '../../types/accueilPro';
 import { SpaceSelectionEditor } from '../../components/accueilpro/SpaceSelectionEditor';
-import { todayIsoDate, useAccueilProReferenceData } from './accueilProScreenCommon';
+import { todayIsoDate, useAccueilProReferenceData, useCapiAccueilProCatalog } from './accueilProScreenCommon';
+import {
+  getApCapiSpectacleRef,
+  linkEventVenueFromCapiLieuRef,
+} from '../../lib/capiAccueilProHelpers';
 import {
   findBookingConflictsForDraft,
   formatBookingConflictLine,
@@ -38,10 +42,18 @@ export default function AccueilProEventEditScreen() {
   const { user } = useAppAuth();
   const eventId = route.params?.id as string | undefined;
   const { orgOptions, venueOptions, loading: refLoading, reload: reloadRefs } = useAccueilProReferenceData();
+  const {
+    capiSpectacleOptions,
+    capiLieuOptions,
+    loading: capiLoading,
+    reload: reloadCapi,
+  } = useCapiAccueilProCatalog();
   const [loading, setLoading] = useState(!!eventId);
   const [saving, setSaving] = useState(false);
   const [organizationId, setOrganizationId] = useState('');
   const [venueId, setVenueId] = useState('');
+  const [capiSpectacleRefId, setCapiSpectacleRefId] = useState('');
+  const [capiLieuRefId, setCapiLieuRefId] = useState('');
   const [spaceId, setSpaceId] = useState('');
   const [name, setName] = useState('');
   const [type, setType] = useState('');
@@ -77,6 +89,8 @@ export default function AccueilProEventEditScreen() {
         setSpacesMode(ev.spaces_mode ?? 'all');
         setSelectedSpaceIds(await listEventSpaceIds(eventId));
         setStatus(ev.status ?? 'confirmé');
+        setCapiSpectacleRefId(ev.capi_spectacle_ref_id ?? '');
+        setCapiLieuRefId(ev.capi_lieu_ref_id ?? '');
       }
       setLoading(false);
     })();
@@ -85,6 +99,7 @@ export default function AccueilProEventEditScreen() {
   useFocusEffect(
     useCallback(() => {
       reloadRefs();
+      reloadCapi();
       const selectOrg = route.params?.selectOrganizationId as string | undefined;
       const selectOrgName = route.params?.selectOrganizationName as string | undefined;
       const selectVenue = route.params?.selectVenueId as string | undefined;
@@ -96,7 +111,44 @@ export default function AccueilProEventEditScreen() {
         setVenueId(selectVenue);
         setSpaceId('');
       }
-    }, [reloadRefs, route.params?.selectOrganizationId, route.params?.selectOrganizationName, route.params?.selectVenueId, eventId])
+    }, [reloadRefs, reloadCapi, route.params?.selectOrganizationId, route.params?.selectOrganizationName, route.params?.selectVenueId, eventId])
+  );
+
+  const onCapiSpectacleChange = useCallback(
+    async (refId: string) => {
+      setCapiSpectacleRefId(refId);
+      if (!refId) return;
+      const ref = await getApCapiSpectacleRef(refId);
+      if (!ref) return;
+      setName(ref.titre);
+      setType(ref.categorieLibelle || ref.categorieCode || '');
+      if (ref.dateDebut) setDateDebut(ref.dateDebut.slice(0, 10));
+      if (ref.dateFin) setDateFin(ref.dateFin.slice(0, 10));
+      if (ref.capiLieuRefId) {
+        const linked = await linkEventVenueFromCapiLieuRef(ref.capiLieuRefId);
+        if (linked) {
+          setCapiLieuRefId(linked.capiLieuRefId);
+          setVenueId(linked.venueId);
+          setSpaceId('');
+          reloadRefs();
+        }
+      }
+    },
+    [reloadRefs],
+  );
+
+  const onCapiLieuChange = useCallback(
+    async (refId: string) => {
+      setCapiLieuRefId(refId);
+      if (!refId) return;
+      const linked = await linkEventVenueFromCapiLieuRef(refId);
+      if (linked) {
+        setVenueId(linked.venueId);
+        setSpaceId('');
+        reloadRefs();
+      }
+    },
+    [reloadRefs],
   );
 
   const persistEvent = useCallback(async () => {
@@ -119,6 +171,8 @@ export default function AccueilProEventEditScreen() {
       spaces_mode: spacesMode,
       selected_space_ids: selectedSpaceIds,
       readiness_manual: existing?.readiness_manual ?? {},
+      capi_spectacle_ref_id: capiSpectacleRefId || null,
+      capi_lieu_ref_id: capiLieuRefId || null,
     });
     await setEventSpaces(id, selectedSpaceIds, spacesMode);
     void logAccueilProAction({
@@ -149,6 +203,8 @@ export default function AccueilProEventEditScreen() {
     spacesMode,
     selectedSpaceIds,
     status,
+    capiSpectacleRefId,
+    capiLieuRefId,
     navigation,
     user?.nom,
   ]);
@@ -211,7 +267,7 @@ export default function AccueilProEventEditScreen() {
       onBack={() => navigation.goBack()}
       headerIcon={<Text style={{ fontSize: 22 }}>📅</Text>}
       headerTitle={eventId ? t('accueilpro.events.edit') : t('accueilpro.events.new')}
-      loading={loading || refLoading}
+      loading={loading || refLoading || capiLoading}
       footer={
         <AccueilProPrimaryButton
           label={t('accueilpro.save')}
@@ -220,6 +276,19 @@ export default function AccueilProEventEditScreen() {
         />
       }
     >
+      <AccueilProFormCard>
+        <Text style={apStyles.sectionTitle}>{t('accueilpro.capi.sectionSpectacle')}</Text>
+        <AccueilProFormSelectPicker
+          label={t('accueilpro.capi.fieldSpectacle')}
+          value={capiSpectacleRefId}
+          options={capiSpectacleOptions}
+          onChange={v => void onCapiSpectacleChange(v)}
+        />
+        {capiSpectacleOptions.length <= 1 ?
+          <Text style={apStyles.hint}>{t('accueilpro.capi.syncHint')}</Text>
+        : null}
+      </AccueilProFormCard>
+
       <AccueilProFormCard>
         <AccueilProInput label={t('accueilpro.events.fieldName')} value={name} onChangeText={setName} required />
         <AccueilProInput label={t('accueilpro.events.fieldType')} value={type} onChangeText={setType} />
@@ -254,6 +323,15 @@ export default function AccueilProEventEditScreen() {
 
       <AccueilProFormCard>
         <Text style={apStyles.sectionTitle}>{t('accueilpro.events.sectionOrgVenue')}</Text>
+        <AccueilProFormSelectPicker
+          label={t('accueilpro.capi.fieldLieu')}
+          value={capiLieuRefId}
+          options={capiLieuOptions}
+          onChange={v => void onCapiLieuChange(v)}
+        />
+        {capiLieuOptions.length <= 1 ?
+          <Text style={apStyles.hint}>{t('accueilpro.capi.syncHint')}</Text>
+        : null}
         <AccueilProFormSelectPicker
           label={t('accueilpro.requests.fieldOrg')}
           value={organizationId}

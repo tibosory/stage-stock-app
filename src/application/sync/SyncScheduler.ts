@@ -1,6 +1,8 @@
 import { SyncService } from '../services/SyncService';
 import { getSyncState, setSyncState } from './SyncStateStore';
 import { computeSyncBackoffDelay } from './SyncBackoff';
+import { getSyncQueueStats } from '../../saas/services/offlineSync';
+import { listUnsyncedTourEntities } from '../../db/database';
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 let running = false;
@@ -26,13 +28,27 @@ function scheduleNextTick(): void {
   timer = setTimeout(runOneTick, delay);
 }
 
+async function hasPendingTrackingSyncWork(): Promise<boolean> {
+  const [stats, unsynced] = await Promise.all([getSyncQueueStats(), listUnsyncedTourEntities()]);
+  const tourRows =
+    unsynced.tours.length +
+    unsynced.locations.length +
+    unsynced.assignments.length +
+    unsynced.logs.length;
+  return stats.size > 0 || tourRows > 0;
+}
+
 function runOneTick(): void {
   if (running) {
     scheduleNextTick();
     return;
   }
   running = true;
-  void SyncService.syncAllOfflineQueues()
+  void hasPendingTrackingSyncWork()
+    .then(pending => {
+      if (!pending) return;
+      return SyncService.syncAllOfflineQueues();
+    })
     .catch(() => undefined)
     .finally(() => {
       running = false;

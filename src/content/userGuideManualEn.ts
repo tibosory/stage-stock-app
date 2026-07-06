@@ -8,7 +8,7 @@ export const USER_GUIDE_META_EN = {
   title: 'CATRACK Pro — User guide',
   subtitle: 'Step-by-step guide with practical examples',
   versionLabel:
-    'June 24, 2026 (stock flightcase QR, content label)',
+    'June 24, 2026 — v1.0.41 (sync diagnostic, secure keys, partial sync)',
 };
 
 export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
@@ -147,7 +147,11 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
       'In local mode: install the server, pair with the QR, then Push ↑ and Pull ↓.',
       'In Supabase mode: export SQL, set URL + anon key. Switch Connection → “Supabase cloud”: the invitation QR appears at the top of the tab (green 📲 card). Share by email or scan; scanning switches the phone to cloud mode automatically.',
       'Several phones on cloud: the device that changed a quantity runs Push ↑, others run Pull ↓. Everyone must see “Inventory sync (Supabase)” (not “with PC”).',
+      'Deleting equipment or consumable records is sent to the cloud on Push ↑ and removed on other phones on Pull ↓ (same as Régie deletions).',
+      'Do not uninstall the app without Push ↑ first: data lives on the phone until synced. After reinstall, Pull ↓ on the same Supabase project to restore cloud data.',
       'The same Push ↑ / Pull ↓ also syncs venue identity (theatre name, address, logo, admin contact in Profile) and Accueil Pro data (venues, events…).',
+      'Diagnostic tab (Connection): orange “Pending sync changes” if local rows are not synced yet — use Push ↑ or wait for automatic sync.',
+      'If the app reports incomplete sync (push OK but pull failed, or the opposite), run the missing direction manually: Pull ↓ or Push ↑ / “Push all”.',
 
       'In local mode: Connection tile → “Local PC server” (pairing QR or PC address). Only one mode active at a time; all devices must match.',
       'All team phones must use the same mode.',

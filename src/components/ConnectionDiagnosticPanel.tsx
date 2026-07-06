@@ -27,6 +27,9 @@ function detailForCheck(
   if (check.detail === 'not_configured') return t('diagnostic.detail.cloudOff');
   if (check.detail === 'no_session') return t('diagnostic.detail.cloudSession');
   if (check.detail === 'no_key') return t('diagnostic.detail.noKey');
+  if (check.detail === 'pending') return t('diagnostic.detail.syncPendingGeneric');
+  if (check.detail === 'unknown') return t('diagnostic.detail.unknown');
+  if (check.id === 'sync_pending' && check.detail) return check.detail;
   if (check.detail) return toUserFriendlyNetworkMessage(check.detail, language);
   return t('diagnostic.detail.unknown');
 }
@@ -86,6 +89,7 @@ export function ConnectionDiagnosticPanel() {
     api_auth: t('diagnostic.check.apiAuth'),
     cloud_config: t('diagnostic.check.cloudConfig'),
     cloud_session: t('diagnostic.check.cloudSession'),
+    sync_pending: t('diagnostic.check.syncPending'),
   };
 
   return (

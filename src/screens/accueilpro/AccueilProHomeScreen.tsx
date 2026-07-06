@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Alert, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import {
@@ -28,6 +28,7 @@ import {
 } from '../../db/accueilProDb';
 import { countAccueilProConflicts } from '../../lib/accueilProMerge';
 import { syncAccueilProBidirectional } from '../../lib/accueilProApiSync';
+import { pullCapiAccueilProCatalogFromServer } from '../../lib/pullCapiAccueilProCatalog';
 import { useAccueilProRole } from '../../modules/accueilpro/hooks/useAccueilProRole';
 import { todayIsoDate } from './accueilProScreenCommon';
 import type { ApEvent, ApRoomInspection, ApVenue } from '../../types/accueilPro';
@@ -67,6 +68,7 @@ export default function AccueilProHomeScreen() {
   const [events, setEvents] = useState<ApEvent[]>([]);
   const [edl, setEdl] = useState<ApRoomInspection[]>([]);
   const [todayReadiness, setTodayReadiness] = useState<EventReadinessSnapshot[]>([]);
+  const refreshInFlight = useRef(false);
 
   const load = useCallback(async () => {
     const today = todayIsoLocal();
@@ -102,12 +104,25 @@ export default function AccueilProHomeScreen() {
   );
 
   const onRefresh = async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
     setRefreshing(true);
     try {
       if (connStatus === 'needs_pairing') {
         Alert.alert(t('accueilpro.sync.needPairingTitle'), t('network.serverDetectedNeedPairing'));
       } else if (connStatus === 'ok') {
         const { pull } = await syncAccueilProBidirectional(null);
+        try {
+          const { materialized } = await pullCapiAccueilProCatalogFromServer();
+          if (materialized.eventsCreated > 0 || materialized.spacesCreated > 0) {
+            Alert.alert(
+              'Catalogues CAPI',
+              `${materialized.eventsCreated} événement(s), ${materialized.spacesCreated} espace(s), ${materialized.planningItems} ligne(s) d'agenda synchronisés depuis CAPI.`,
+            );
+          }
+        } catch {
+          /* catalogues CAPI optionnels si pas encore sync côté serveur */
+        }
         setConflictCount(await countAccueilProConflicts());
         if (pull.conflicts > 0) {
           Alert.alert(
@@ -124,6 +139,7 @@ export default function AccueilProHomeScreen() {
     } catch (e) {
       Alert.alert(t('accueilpro.sync.errorTitle'), e instanceof Error ? e.message : String(e));
     } finally {
+      refreshInFlight.current = false;
       setRefreshing(false);
     }
   };

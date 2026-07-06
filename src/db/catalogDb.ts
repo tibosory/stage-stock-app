@@ -1,4 +1,4 @@
-import type { Categorie, Localisation } from '../types';
+import type { Categorie, Lieu, Localisation } from '../types';
 import { generateId, getDB } from './database';
 
 /** Chaine "parent › enfant › feuille" pour affichage / listes deroulantes. */
@@ -67,16 +67,35 @@ export async function deleteCategorie(id: string): Promise<void> {
   await database.runAsync('DELETE FROM categories WHERE id = ?', [id]);
 }
 
-export async function getLocalisations(): Promise<Localisation[]> {
+export async function getLieux(): Promise<Lieu[]> {
   const database = await getDB();
+  return database.getAllAsync<Lieu>('SELECT * FROM lieux ORDER BY nom ASC');
+}
+
+export async function getLocalisations(lieuId?: string | null): Promise<Localisation[]> {
+  const database = await getDB();
+  if (lieuId?.trim()) {
+    return database.getAllAsync<Localisation>(
+      'SELECT * FROM localisations WHERE lieu_id = ? ORDER BY nom ASC',
+      [lieuId.trim()]
+    );
+  }
   return database.getAllAsync<Localisation>('SELECT * FROM localisations ORDER BY nom ASC');
 }
 
-export async function insertLocalisation(nom: string): Promise<string> {
+/** Localisation fine dans un lieu (réserve, rack, atelier…). */
+export async function insertLocalisation(nom: string, lieuId?: string | null): Promise<string> {
   const database = await getDB();
   const id = generateId();
+  const now = new Date().toISOString();
+  const lieu = lieuId?.trim() || null;
+  if (lieu) {
+    const exists = await database.getFirstAsync<{ id: string }>('SELECT id FROM lieux WHERE id = ?', [lieu]);
+    if (!exists) throw new Error('Lieu introuvable.');
+  }
   await database.runAsync(
-    'INSERT INTO localisations (id, nom) VALUES (?, ?)', [id, nom]
+    'INSERT INTO localisations (id, nom, lieu_id, created_at) VALUES (?, ?, ?, ?)',
+    [id, nom.trim(), lieu, now]
   );
   return id;
 }

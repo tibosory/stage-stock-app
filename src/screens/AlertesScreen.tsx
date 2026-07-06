@@ -21,6 +21,12 @@ import { Consommable, Pret, Materiel } from '../types';
 import { BottomModal, BtnPrimary, BtnSecondary, Card, TabScreenSafeArea } from '../components/UI';
 import { vgpProchaineEcheanceIso, isVgpEnRetard, isVgpEpi } from '../lib/vgp';
 import { maybeSendAutoAlertEmailsIfNeeded } from '../lib/autoAlertEmails';
+import { listCapiRetroNotifications, type CapiRetroNotification } from '../db/capiRetroNotificationDb';
+import {
+  capiRetroNiveauColor,
+  niveauLabel,
+  rescheduleCapiRetroReminders,
+} from '../lib/capiRetroNotifications';
 import {
   openConsoFicheFromAlerte,
   openMaterielFicheFromAlerte,
@@ -32,7 +38,8 @@ type AlerteRow =
   | { type: 'pret'; data: Pret }
   | { type: 'conso'; data: Consommable }
   | { type: 'maint'; data: Materiel }
-  | { type: 'vgp'; data: Materiel };
+  | { type: 'vgp'; data: Materiel }
+  | { type: 'capi_retro'; data: CapiRetroNotification };
 
 type AlerteSection = { title: string; data: AlerteRow[] };
 type AchatDraft = { id: string; selected: boolean; quantity: string };
@@ -72,6 +79,7 @@ export default function AlertesScreen() {
   const [pretsRetard, setPretsRetard] = useState<Pret[]>([]);
   const [maint, setMaint] = useState<Materiel[]>([]);
   const [vgp, setVgp] = useState<Materiel[]>([]);
+  const [capiRetro, setCapiRetro] = useState<CapiRetroNotification[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [destEmail, setDestEmail] = useState('');
@@ -79,17 +87,19 @@ export default function AlertesScreen() {
   const [mailSeuilEnabled, setMailSeuilEnabled] = useState(true);
 
   const load = useCallback(async () => {
-    const [conso, prets, matMaint, vgpList, prefs] = await Promise.all([
+    const [conso, prets, matMaint, vgpList, capiRows, prefs] = await Promise.all([
       getConsommablesAlerte(),
       getPrets(),
       getMaterielsPourMaintenanceAlertes(30),
       getMaterielsPourVgpAlertes(30),
+      listCapiRetroNotifications(),
       loadNotificationPrefs(),
     ]);
     setMailSeuilEnabled(prefs.mailSuggestionSeuil);
     setConsoBas(conso);
     setMaint(matMaint);
     setVgp(vgpList);
+    setCapiRetro(capiRows);
     const today = new Date().toISOString().split('T')[0];
     setPretsRetard(
       prets.filter(
@@ -105,6 +115,7 @@ export default function AlertesScreen() {
     useCallback(() => {
       load();
       void maybeSendAutoAlertEmailsIfNeeded();
+      void rescheduleCapiRetroReminders();
     }, [load])
   );
 
@@ -213,12 +224,18 @@ export default function AlertesScreen() {
     [navigation]
   );
 
-  const total = consoBas.length + pretsRetard.length + maint.length + vgp.length;
+  const total = capiRetro.length + consoBas.length + pretsRetard.length + maint.length + vgp.length;
   const bottomSafePad =
     Platform.OS === 'android' ? Math.max(insets.bottom, 64) : Math.max(insets.bottom, 16);
 
   const sections = useMemo(() => {
     const out: AlerteSection[] = [];
+    if (capiRetro.length) {
+      out.push({
+        title: t('alerts.capiRetroSection'),
+        data: capiRetro.map((n) => ({ type: 'capi_retro' as const, data: n })),
+      });
+    }
     if (pretsRetard.length) {
       out.push({
         title: 'PRÊTS EN RETARD',
@@ -250,7 +267,7 @@ export default function AlertesScreen() {
       });
     }
     return out;
-  }, [pretsRetard, consoBas, maint, vgpEpi, vgpAutres]);
+  }, [capiRetro, pretsRetard, consoBas, maint, vgpEpi, vgpAutres, t]);
 
   return (
     <TabScreenSafeArea style={s.container}>
@@ -285,14 +302,46 @@ export default function AlertesScreen() {
           contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 + bottomSafePad }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.green} />}
           keyExtractor={(item: AlerteRow) => `${item.type}-${item.data.id}`}
-          renderSectionHeader={({ section }: { section: AlerteSection }) => (
-            <Text style={s.sectionLabel}>
-              {section.title.startsWith('PRÊTS') ? '⚠️ ' : section.title.startsWith('MAINT') ? '🔧 ' : section.title.startsWith('VGP') ? '📅 ' : '📦 '}
-              {section.title}
-              {(section.title.startsWith('STOCKS') || section.title.startsWith('MAINT') || section.title.startsWith('VGP')) ? ` (${section.data.length})` : ''}
-            </Text>
-          )}
+          renderSectionHeader={({ section }: { section: AlerteSection }) => {
+            const isCapi = section.title === t('alerts.capiRetroSection');
+            const icon = isCapi ? '📋 '
+              : section.title.startsWith('PRÊTS') ? '⚠️ '
+              : section.title.startsWith('MAINT') ? '🔧 '
+              : section.title.startsWith('VGP') ? '📅 '
+              : '📦 ';
+            const showCount = isCapi || section.title.startsWith('STOCKS') || section.title.startsWith('MAINT') || section.title.startsWith('VGP');
+            return (
+              <Text style={s.sectionLabel}>
+                {icon}{section.title}{showCount ? ` (${section.data.length})` : ''}
+              </Text>
+            );
+          }}
           renderItem={({ item }: { item: AlerteRow }) => {
+            if (item.type === 'capi_retro') {
+              const n = item.data;
+              const border = capiRetroNiveauColor(n.niveau);
+              return (
+                <Card style={[s.alertCard, { borderColor: border }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Text style={{ fontSize: 20 }}>📋</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.alertName}>{n.spectacleTitre || t('alerts.capiRetroSpectacle')}</Text>
+                      <Text style={s.alertSub}>{n.actionLibelle}</Text>
+                      <Text style={s.alertSub}>
+                        {niveauLabel(n.niveau)}
+                        {n.dateEcheance ? ` · ${formatDateCourt(n.dateEcheance)}` : ''}
+                        {n.joursRestants != null && n.joursRestants < 0
+                          ? ` · retard ${-n.joursRestants} j`
+                          : n.joursRestants != null
+                            ? ` · J-${n.joursRestants}`
+                            : ''}
+                        {n.pole ? ` · ${n.pole}` : ''}
+                      </Text>
+                    </View>
+                  </View>
+                </Card>
+              );
+            }
             if (item.type === 'vgp') {
               const m = item.data;
               const proch = vgpProchaineEcheanceIso(m);

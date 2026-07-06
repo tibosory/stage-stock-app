@@ -23,6 +23,8 @@ function mapLocationRow(r: any): TourLocation {
     dateStart: r.date_start ?? null,
     dateEnd: r.date_end ?? null,
     tourId: r.tour_id,
+    capiKind: r.capi_kind ?? null,
+    capiRefId: r.capi_ref_id ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     synced: !!r.synced,
@@ -289,14 +291,27 @@ export async function createTourLocation(input: {
   dateStart?: string | null;
   dateEnd?: string | null;
   tourId: string;
+  capiKind?: TourLocation['capiKind'];
+  capiRefId?: string | null;
 }): Promise<TourLocation> {
   const database = await getDB();
   const now = new Date().toISOString();
   const id = generateId();
   await database.runAsync(
-    `INSERT INTO tour_locations (id, name, address, date_start, date_end, tour_id, created_at, updated_at, synced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-    [id, input.name.trim(), input.address ?? null, input.dateStart ?? null, input.dateEnd ?? null, input.tourId, now, now]
+    `INSERT INTO tour_locations (id, name, address, date_start, date_end, tour_id, capi_kind, capi_ref_id, created_at, updated_at, synced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [
+      id,
+      input.name.trim(),
+      input.address ?? null,
+      input.dateStart ?? null,
+      input.dateEnd ?? null,
+      input.tourId,
+      input.capiKind ?? null,
+      input.capiRefId ?? null,
+      now,
+      now,
+    ]
   );
   const row = await database.getFirstAsync<any>('SELECT * FROM tour_locations WHERE id = ?', [id]);
   return mapLocationRow(row);

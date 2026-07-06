@@ -12,10 +12,21 @@ import { removeMaterielAttachmentsDir } from '../lib/materielAttachments';
 import { shouldAlertVgp } from '../lib/vgp';
 
 let db: SQLite.SQLiteDatabase;
+let dbPragmasApplied = false;
+
+async function ensureDbPragmas(database: SQLite.SQLiteDatabase): Promise<void> {
+  if (dbPragmasApplied) return;
+  await database.execAsync(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA foreign_keys = ON;
+  `);
+  dbPragmasApplied = true;
+}
 
 export const getDB = async (): Promise<SQLite.SQLiteDatabase> => {
   if (!db) {
     db = await SQLite.openDatabaseAsync('stagestock.db');
+    await ensureDbPragmas(db);
   }
   return db;
 };
@@ -236,6 +247,131 @@ async function runSchemaMigrations(database: SQLite.SQLiteDatabase): Promise<voi
   await addCol('position_photos', 'synced', 'INTEGER DEFAULT 0');
   await addCol('position_photos', 'updated_at', 'TEXT');
   await addCol('position_photos', 'photo_url', 'TEXT');
+
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS lieux (
+      id TEXT PRIMARY KEY,
+      nom TEXT NOT NULL,
+      source TEXT,
+      capi_ref TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  await addCol('localisations', 'lieu_id', 'TEXT');
+  await addCol('materiels', 'lieu_id', 'TEXT');
+  await addCol('consommables', 'lieu_id', 'TEXT');
+
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS tour_lieu_refs (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      nom TEXT NOT NULL,
+      adresse TEXT,
+      capi_ref TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  await addCol('tour_locations', 'capi_kind', 'TEXT');
+  await addCol('tour_locations', 'capi_ref_id', 'TEXT');
+
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS ap_capi_lieu_refs (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      nom TEXT NOT NULL,
+      adresse TEXT,
+      ville TEXT,
+      capi_ref TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS ap_capi_spectacle_refs (
+      id TEXT PRIMARY KEY,
+      titre TEXT NOT NULL,
+      compagnie TEXT,
+      categorie_code TEXT,
+      categorie_libelle TEXT,
+      salle_id TEXT,
+      salle_nom TEXT,
+      capi_lieu_ref_id TEXT,
+      date_debut TEXT,
+      date_fin TEXT,
+      capi_ref TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS ap_capi_contact_refs (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      nom TEXT NOT NULL,
+      role TEXT,
+      organisation TEXT,
+      telephone TEXT,
+      email TEXT,
+      capi_ref TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS ap_capi_espace_refs (
+      id TEXT PRIMARY KEY,
+      salle_id TEXT NOT NULL,
+      capi_lieu_ref_id TEXT NOT NULL,
+      nom TEXT NOT NULL,
+      type TEXT,
+      jauge INTEGER,
+      description TEXT,
+      control_points_json TEXT,
+      ordre INTEGER NOT NULL DEFAULT 0,
+      capi_ref TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS ap_capi_planning_refs (
+      id TEXT PRIMARY KEY,
+      capi_spectacle_ref_id TEXT NOT NULL,
+      date_key TEXT NOT NULL,
+      time_start TEXT,
+      time_end TEXT,
+      title TEXT NOT NULL,
+      assignee_name TEXT,
+      capi_espace_ref_id TEXT,
+      notes TEXT,
+      sort_order INTEGER DEFAULT 0,
+      capi_ref TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS ap_capi_document_refs (
+      id TEXT PRIMARY KEY,
+      capi_spectacle_ref_id TEXT NOT NULL,
+      nom TEXT NOT NULL,
+      chemin_dossier TEXT,
+      mime_type TEXT,
+      taille_octets INTEGER,
+      pole TEXT,
+      version_id TEXT NOT NULL,
+      famille_id TEXT NOT NULL,
+      capi_ref TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS capi_retro_notifications (
+      id TEXT PRIMARY KEY,
+      capi_action_id TEXT NOT NULL,
+      spectacle_id TEXT NOT NULL,
+      spectacle_titre TEXT,
+      action_libelle TEXT NOT NULL,
+      date_echeance TEXT,
+      jours_restants INTEGER,
+      niveau TEXT NOT NULL,
+      pole TEXT,
+      saison_libelle TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
 
   await database.execAsync(`
     CREATE TABLE IF NOT EXISTS sync_regie_deletions (
@@ -730,10 +866,11 @@ export const getMateriel = async (): Promise<Materiel[]> => {
   const cats = await getCategories();
   const pathFor = buildCategoryPathResolver(cats);
   const rows = await database.getAllAsync<any>(`
-    SELECT m.*, c.nom as categorie_nom, l.nom as localisation_nom
+    SELECT m.*, c.nom as categorie_nom, l.nom as localisation_nom, li.nom as lieu_nom
     FROM materiels m
     LEFT JOIN categories c ON m.categorie_id = c.id
     LEFT JOIN localisations l ON m.localisation_id = l.id
+    LEFT JOIN lieux li ON m.lieu_id = li.id
     ORDER BY m.created_at DESC
   `);
   return rows.map(r => ({
@@ -859,10 +996,11 @@ export const getConsommables = async (): Promise<Consommable[]> => {
   const cats = await getCategories();
   const pathFor = buildCategoryPathResolver(cats);
   const rows = await database.getAllAsync<any>(`
-    SELECT c.*, cat.nom as categorie_nom, l.nom as localisation_nom
+    SELECT c.*, cat.nom as categorie_nom, l.nom as localisation_nom, li.nom as lieu_nom
     FROM consommables c
     LEFT JOIN categories cat ON c.categorie_id = cat.id
     LEFT JOIN localisations l ON c.localisation_id = l.id
+    LEFT JOIN lieux li ON c.lieu_id = li.id
     ORDER BY c.nom ASC
   `);
   return rows.map(r => ({

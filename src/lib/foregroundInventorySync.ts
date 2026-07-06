@@ -15,8 +15,12 @@ import { recordSyncTelemetry } from './syncTelemetry';
 import { notifyForegroundSyncIssue } from './syncUserFeedback';
 import { getEffectiveSupabaseUrlForDisplay } from './supabase';
 import { runInventorySync } from './inventorySyncOrchestrator';
+import { getDataBackendMode } from './backendMode';
 import { hasCompletedWorkspaceOnboarding } from './workspaceOnboardingStorage';
 import { isInvalidSnapshotJsonError } from './syncSnapshotResponseHint';
+import { getForegroundSyncSkipWhenIdle } from './securityFlags';
+import { loadSyncHealthSnapshot } from './syncHealthSnapshot';
+import { formatPartialInventorySyncError, isPartialInventorySync } from './inventorySyncPartial';
 
 let lastRunAt = 0;
 const MIN_MS_BETWEEN_RUNS = 4_000;
@@ -38,6 +42,16 @@ export async function runRefreshSessionAfterInventoryPullIfRegistered(): Promise
 export async function runForegroundInventorySync(): Promise<void> {
   const now = Date.now();
   if (lastRunAt > 0 && now - lastRunAt < MIN_MS_BETWEEN_RUNS) return;
+
+  try {
+    if (await getForegroundSyncSkipWhenIdle()) {
+      const health = await loadSyncHealthSnapshot();
+      if (!health.hasPendingWork) return;
+    }
+  } catch {
+    /* continue sync if health probe fails */
+  }
+
   lastRunAt = now;
 
   try {
@@ -59,6 +73,18 @@ export async function runForegroundInventorySync(): Promise<void> {
       if (suppressAlert) {
         return;
       }
+      if (result.error === 'OFFLINE' && backendMode === 'supabase') {
+        await recordSyncTelemetry('supabase', 'push', 'skipped', 'OFFLINE');
+        await recordSyncTelemetry('supabase', 'pull', 'skipped', 'OFFLINE');
+        return;
+      }
+      if (isPartialInventorySync(result)) {
+        notifyForegroundSyncIssue(
+          'Synchronisation incomplète',
+          formatPartialInventorySyncError(result)
+        );
+        return;
+      }
       if (backendMode === 'local_server') {
         const title = isInvalidSnapshotJsonError(result.error)
           ? 'Réponse serveur incorrecte'
@@ -68,9 +94,6 @@ export async function runForegroundInventorySync(): Promise<void> {
           result.error ??
             'Le serveur local ne répond pas. Vérifiez que le PC est allumé, sur le même Wi‑Fi ou Tailscale, puis ouvrez Connexion pour tester.'
         );
-      } else if (backendMode === 'supabase' && result.error === 'OFFLINE') {
-        await recordSyncTelemetry('supabase', 'push', 'skipped', 'OFFLINE');
-        await recordSyncTelemetry('supabase', 'pull', 'skipped', 'OFFLINE');
       } else if (backendMode === 'supabase') {
         const projectUrl = getEffectiveSupabaseUrlForDisplay();
         const urlHint = projectUrl
@@ -80,12 +103,6 @@ export async function runForegroundInventorySync(): Promise<void> {
           'Synchronisation cloud incomplète',
           (result.error ?? 'Impossible de synchroniser avec Supabase. Vérifiez la connexion Internet et la configuration cloud.') +
             urlHint
-        );
-      } else if (backendMode === 'local_server' && (result.pushOk === false || result.pullOk === false)) {
-        notifyForegroundSyncIssue(
-          'Synchronisation incomplète',
-          result.error ??
-            'Le PC de la salle est injoignable ou a refusé la sync. Vérifiez le Wi‑Fi, Tailscale et l’onglet Connexion.'
         );
       }
       return;

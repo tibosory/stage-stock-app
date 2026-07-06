@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, FlatList, Alert, Switch } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
-import { AccueilProFormCard, AccueilProInput } from '../../components/accueilpro/AccueilProUI';
+import { AccueilProFormCard, AccueilProFormSelectPicker, AccueilProInput } from '../../components/accueilpro/AccueilProUI';
 import { AccueilProContactCard } from '../../components/accueilpro/AccueilProContactCard';
 import {
   AccueilProPrimaryButton,
@@ -12,9 +12,12 @@ import {
 import { Colors } from '../../theme/colors';
 import { Spacing } from '../../theme/spacing';
 import { useLanguage } from '../../context/LanguageContext';
-import { generateApId, listApContactsByOrganization, saveApOrganizationContact } from '../../db/accueilProDb';
+import { generateApId, getApOrganization, listApContactsByOrganization, saveApOrganizationContact } from '../../db/accueilProDb';
 import { contactFieldLabelsFromT, organizationContactLines } from '../../lib/accueilProContactDisplay';
 import type { ApOrganizationContact } from '../../types/accueilPro';
+import { useCapiAccueilProCatalog } from './accueilProScreenCommon';
+import { getApCapiContactRef } from '../../lib/capiAccueilProHelpers';
+import { pushAccueilProContactToCapi } from '../../lib/capiAccueilProApi';
 
 export default function AccueilProOrganizationContactsScreen() {
   const navigation = useNavigation();
@@ -29,6 +32,8 @@ export default function AccueilProOrganizationContactsScreen() {
   const [email, setEmail] = useState('');
   const [isPrimary, setIsPrimary] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [capiContactRefId, setCapiContactRefId] = useState('');
+  const { capiContactOptions, loading: capiLoading, reload: reloadCapi } = useCapiAccueilProCatalog();
 
   const load = useCallback(async () => {
     try {
@@ -41,9 +46,21 @@ export default function AccueilProOrganizationContactsScreen() {
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
+      reloadCapi();
       void load();
-    }, [load])
+    }, [load, reloadCapi])
   );
+
+  const onCapiContactChange = useCallback(async (refId: string) => {
+    setCapiContactRefId(refId);
+    if (!refId) return;
+    const ref = await getApCapiContactRef(refId);
+    if (!ref) return;
+    setName(ref.nom);
+    setRole(ref.role ?? '');
+    setPhone(ref.telephone ?? '');
+    setEmail(ref.email ?? '');
+  }, []);
 
   const onAdd = async () => {
     if (!name.trim()) {
@@ -52,6 +69,23 @@ export default function AccueilProOrganizationContactsScreen() {
     }
     setSaving(true);
     try {
+      let capiRefId = capiContactRefId;
+      let capiRef = capiRefId ? await getApCapiContactRef(capiRefId) : null;
+      if (!capiRefId && name.trim()) {
+        const org = await getApOrganization(organizationId);
+        const pushed = await pushAccueilProContactToCapi({
+          nom: name.trim(),
+          role: role.trim() || null,
+          email: email.trim() || null,
+          telephone: phone.trim() || null,
+          organisation: org?.name?.trim() || null,
+          kind: 'personnel',
+        });
+        if (pushed?.capi_contact_ref_id) {
+          capiRefId = pushed.capi_contact_ref_id;
+          capiRef = await getApCapiContactRef(capiRefId);
+        }
+      }
       await saveApOrganizationContact({
         id: generateApId(),
         organization_id: organizationId,
@@ -60,12 +94,15 @@ export default function AccueilProOrganizationContactsScreen() {
         phone: phone.trim() || null,
         email: email.trim() || null,
         is_primary: isPrimary,
+        capi_contact_ref_id: capiRefId || null,
+        capi_contact_kind: capiRef?.kind ?? null,
       });
       setName('');
       setRole('');
       setPhone('');
       setEmail('');
       setIsPrimary(false);
+      setCapiContactRefId('');
       await load();
     } finally {
       setSaving(false);
@@ -80,7 +117,7 @@ export default function AccueilProOrganizationContactsScreen() {
       onBack={() => navigation.goBack()}
       headerIcon={<Text style={{ fontSize: 22 }}>👤</Text>}
       headerTitle={t('accueilpro.contacts.title')}
-      loading={loading}
+      loading={loading || capiLoading}
       scroll={false}
     >
       <FlatList
@@ -90,6 +127,15 @@ export default function AccueilProOrganizationContactsScreen() {
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
           <AccueilProFormCard style={{ marginBottom: Spacing.md }}>
+            <AccueilProFormSelectPicker
+              label={t('accueilpro.capi.fieldContact')}
+              value={capiContactRefId}
+              options={capiContactOptions}
+              onChange={v => void onCapiContactChange(v)}
+            />
+            {capiContactOptions.length <= 1 ?
+              <Text style={[apStyles.hint, { marginBottom: Spacing.sm }]}>{t('accueilpro.capi.syncHint')}</Text>
+            : null}
             <AccueilProInput label={t('accueilpro.contacts.fieldName')} value={name} onChangeText={setName} />
             <AccueilProInput label={t('accueilpro.contacts.fieldRole')} value={role} onChangeText={setRole} />
             <AccueilProInput label={t('accueilpro.field.phone')} value={phone} onChangeText={setPhone} />

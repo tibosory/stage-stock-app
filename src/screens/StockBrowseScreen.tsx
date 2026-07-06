@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../theme/colors';
 import { getCategories, categoryPathById } from '../db/catalogDb';
 import { Materiel, Consommable, Categorie } from '../types';
+import { formatLieuLocalisation, formatMaterielEmplacement } from '../lib/materielLocation';
 import { TabScreenSafeArea } from '../components/UI';
 import { getInventorySnapshot } from '../db/materialRepository';
 import { useLanguage } from '../context/LanguageContext';
@@ -130,7 +131,7 @@ export default function StockBrowseScreen() {
           id: m.id,
           kind: 'materiel',
           nom: m.nom,
-          subtitle: [m.categorie_nom, (m as any).localisation_nom, m.statut].filter(Boolean).join(' · '),
+          subtitle: [m.categorie_nom, formatMaterielEmplacement(m), m.statut].filter(Boolean).join(' · '),
         });
       }
     }
@@ -141,7 +142,7 @@ export default function StockBrowseScreen() {
           id: c.id,
           kind: 'consommable',
           nom: c.nom,
-          subtitle: [c.categorie_nom, c.localisation_nom, `${c.stock_actuel} ${c.unite}`]
+          subtitle: [c.categorie_nom, formatLieuLocalisation(c), `${c.stock_actuel} ${c.unite}`]
             .filter(Boolean)
             .join(' · '),
         });

@@ -204,7 +204,7 @@ export const isSupabaseConfigured = (): boolean => effectiveConfigured;
 /** URL projet Supabase figée au build uniquement (diagnostic ; ne pas logger la clé). */
 export const getSupabaseProjectUrlFromBuild = (): string => buildUrl ?? '';
 
-export { syncToSupabase, syncFromSupabase } from './supabaseMobileSync';
+export { syncToSupabase, syncFromSupabase, pushFullInventoryToSupabase } from './supabaseMobileSync';
 
 export const uploadPhoto = async (localUri: string, materielId: string): Promise<string | null> => {
   try {

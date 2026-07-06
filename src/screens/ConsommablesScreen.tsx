@@ -14,9 +14,10 @@ import {
   insertConsommable, updateConsommable, getConsommableById,
 } from '../db/inventoryDb';
 import {
-  getCategories, getLocalisations, insertCategorie, insertLocalisation, categoryPathById,
+  getCategories, getLocalisations, getLieux, insertCategorie, insertLocalisation, categoryPathById,
 } from '../db/catalogDb';
-import { Consommable, Categorie, Localisation } from '../types';
+import { Consommable, Categorie, Localisation, Lieu } from '../types';
+import { formatLieuLocalisation } from '../lib/materielLocation';
 import {
   StockBadge, Card, ScreenHeader, BottomModal,
   Input, SelectPicker, FormButtons, TabScreenSafeArea,
@@ -66,6 +67,7 @@ export default function ConsommablesScreen() {
   const [qrBusyId, setQrBusyId] = useState<string | null>(null);
   const [categories, setCategories] = useState<Categorie[]>([]);
   const [localisations, setLocalisations] = useState<Localisation[]>([]);
+  const [lieux, setLieux] = useState<Lieu[]>([]);
   const [showShelfModal, setShowShelfModal] = useState(false);
   const [visibleCount, setVisibleCount] = useState(CONSO_LIST_PAGE_SIZE);
   const [search, setSearch] = useState('');
@@ -77,12 +79,13 @@ export default function ConsommablesScreen() {
   const [deleteBusy, setDeleteBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const [data, cats, locs] = await Promise.all([
-      getConsommablesCached(), getCategories(), getLocalisations(),
+    const [data, cats, locs, lx] = await Promise.all([
+      getConsommablesCached(), getCategories(), getLocalisations(), getLieux(),
     ]);
     setItems(data);
     setCategories(cats);
     setLocalisations(locs);
+    setLieux(lx);
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -420,13 +423,11 @@ export default function ConsommablesScreen() {
             ) : null}
             <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={s.name}>{item.nom}</Text>
-            <Text style={s.sub}>
-              {item.reference ? item.reference + ' · ' : ''}
-              {(item as any).fournisseur ? (item as any).fournisseur : ''}
-            </Text>
-            {(item as any).localisation_nom && (
-              <Text style={s.sub}>{(item as any).localisation_nom}</Text>
-            )}
+            {[item.reference, item.fournisseur, formatLieuLocalisation(item)].some(Boolean) ? (
+              <Text style={s.sub}>
+                {[item.reference, item.fournisseur, formatLieuLocalisation(item)].filter(Boolean).join(' · ')}
+              </Text>
+            ) : null}
             </View>
           </View>
           <View style={{ alignItems: 'flex-end', gap: 4 }}>
@@ -625,6 +626,7 @@ export default function ConsommablesScreen() {
         item={editItem}
         categories={categories}
         localisations={localisations}
+        lieux={lieux}
         initialQr={route.params?.newQr}
         initialNfc={route.params?.newNfc}
       />
@@ -636,7 +638,7 @@ export default function ConsommablesScreen() {
         items={visibleDisplayedItems.map(c => ({
           id: c.id,
           title: c.nom,
-          subtitle: [c.reference, (c as any).localisation_nom].filter(Boolean).join(' · '),
+          subtitle: [c.reference, c.fournisseur, formatLieuLocalisation(c)].filter(Boolean).join(' · '),
         }))}
       />
 
@@ -659,7 +661,7 @@ export default function ConsommablesScreen() {
 }
 
 // ── Modal Consommable ────────────────────────────────────────────────────────
-function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, categories, localisations, initialQr, initialNfc }: {
+function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, categories, localisations, lieux, initialQr, initialNfc }: {
   visible: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -667,6 +669,7 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
   item: Consommable | null;
   categories: Categorie[];
   localisations: Localisation[];
+  lieux: Lieu[];
   initialQr?: string;
   initialNfc?: string;
 }) {
@@ -677,6 +680,7 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
   const [stockActuel, setStockActuel] = useState('0');
   const [seuilMin, setSeuilMin] = useState('5');
   const [categorieId, setCategorieId] = useState('');
+  const [lieuId, setLieuId] = useState('');
   const [localisationId, setLocalisationId] = useState('');
   const [fournisseur, setFournisseur] = useState('');
   const [prix, setPrix] = useState('');
@@ -741,7 +745,7 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
     if (item) {
       setNom(item.nom); setReference(item.reference ?? ''); setUnite(item.unite);
       setStockActuel(item.stock_actuel.toString()); setSeuilMin(item.seuil_minimum.toString());
-      setCategorieId(item.categorie_id ?? ''); setLocalisationId(item.localisation_id ?? '');
+      setCategorieId(item.categorie_id ?? ''); setLieuId(item.lieu_id ?? ''); setLocalisationId(item.localisation_id ?? '');
       setFournisseur(item.fournisseur ?? ''); setPrix(item.prix_unitaire?.toString() ?? '');
       setQrCode(item.qr_code ?? ''); setNfcTagId(item.nfc_tag_id ?? '');
       setPhotoLocal(item.photo_local ?? '');
@@ -750,7 +754,7 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
       setGelInsteadOfPhoto(!!item.gel_instead_of_photo);
     } else {
       setNom(''); setReference(''); setUnite('pièce'); setStockActuel('0'); setSeuilMin('5');
-      setCategorieId(''); setLocalisationId(''); setFournisseur(''); setPrix('');
+      setCategorieId(''); setLieuId(''); setLocalisationId(''); setFournisseur(''); setPrix('');
       setQrCode(initialQr ?? '');
       setNfcTagId(initialNfc ?? '');
       setPhotoLocal('');
@@ -825,12 +829,16 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
 
   const handleCreateLocalisation = async () => {
     const name = newLocalisationName.trim();
+    if (!lieuId.trim()) {
+      Alert.alert('Lieu requis', 'Choisissez d’abord un lieu (salle CAPI).');
+      return;
+    }
     if (!name) {
       Alert.alert(t('consumables.location.nameRequired'), t('consumables.location.nameRequiredBody'));
       return;
     }
     try {
-      const id = await insertLocalisation(name);
+      const id = await insertLocalisation(name, lieuId);
       await onCategoriesRefresh?.();
       setLocalisationId(id);
       setNewLocalisationName('');
@@ -860,6 +868,7 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
         stock_actuel: parseInt(stockActuel) || 0,
         seuil_minimum: parseInt(seuilMin) || 5,
         categorie_id: categorieId || undefined,
+        lieu_id: lieuId || undefined,
         localisation_id: localisationId || undefined,
         fournisseur: fournisseur || undefined,
         prix_unitaire: prix ? parseFloat(prix) : undefined,
@@ -900,7 +909,29 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
     }
   };
 
-  const locOptions = [{ label: t('common.none'), value: '' }, ...localisations.map(l => ({ label: l.nom, value: l.id }))];
+  const lieuOptions = useMemo(
+    () => [
+      { label: '— Choisir un lieu —', value: '' },
+      ...lieux.map(l => ({
+        label: l.source === 'capi' ? `${l.nom} (CAPI)` : l.nom,
+        value: l.id,
+      })),
+    ],
+    [lieux]
+  );
+
+  const locOptions = useMemo(() => {
+    const filtered = lieuId ? localisations.filter(l => l.lieu_id === lieuId) : [];
+    return [{ label: t('common.none'), value: '' }, ...filtered.map(l => ({ label: l.nom, value: l.id }))];
+  }, [localisations, lieuId, t]);
+
+  const onLieuChange = (next: string) => {
+    setLieuId(next);
+    if (localisationId) {
+      const loc = localisations.find(l => l.id === localisationId);
+      if (loc?.lieu_id !== next) setLocalisationId('');
+    }
+  };
 
   return (
     <BottomModal
@@ -930,10 +961,21 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
-          <SelectPicker label={t('consumables.field.category')} value={categorieId} options={catOptions} onChange={setCategorieId} />
+          <SelectPicker label="Lieu (salle CAPI)" value={lieuId} options={lieuOptions} onChange={onLieuChange} />
         </View>
         <View style={{ flex: 1 }}>
-          <SelectPicker label={t('consumables.field.location')} value={localisationId} options={locOptions} onChange={setLocalisationId} />
+          <SelectPicker
+            label="Localisation (local dans le lieu)"
+            value={localisationId}
+            options={locOptions}
+            onChange={setLocalisationId}
+          />
+        </View>
+      </View>
+
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flex: 1 }}>
+          <SelectPicker label={t('consumables.field.category')} value={categorieId} options={catOptions} onChange={setCategorieId} />
         </View>
       </View>
 

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Text, Alert, TouchableOpacity } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { VenuePlanSection } from '../../components/accueilpro/VenuePlanSection';
-import { AccueilProFormCard, AccueilProInput } from '../../components/accueilpro/AccueilProUI';
+import { AccueilProFormCard, AccueilProFormSelectPicker, AccueilProInput } from '../../components/accueilpro/AccueilProUI';
 import {
   AccueilProLinkButton,
   AccueilProPrimaryButton,
@@ -21,6 +21,8 @@ import {
 } from '../../db/accueilProDb';
 import { ERP_CATS, ERP_TYPES } from '../../lib/inspectionChecklist';
 import type { ApConvention } from '../../types/accueilPro';
+import { useCapiAccueilProCatalog } from './accueilProScreenCommon';
+import { getApCapiLieuRefById } from '../../db/capiAccueilProRefDb';
 
 export default function AccueilProVenueEditScreen() {
   const navigation = useNavigation<any>();
@@ -47,6 +49,8 @@ export default function AccueilProVenueEditScreen() {
   const [planFilename, setPlanFilename] = useState<string | null>(null);
   const [spaceCount, setSpaceCount] = useState(0);
   const [conventions, setConventions] = useState<ApConvention[]>([]);
+  const [capiLieuRefId, setCapiLieuRefId] = useState('');
+  const { capiLieuOptions, loading: capiLoading, reload: reloadCapi } = useCapiAccueilProCatalog();
 
   const loadVenue = useCallback(async (id: string) => {
     const v = await getApVenue(id);
@@ -64,6 +68,7 @@ export default function AccueilProVenueEditScreen() {
       setSafetyRules(v.safety_rules ?? '');
       setPlanLocalUri(v.plan_local_uri ?? null);
       setPlanFilename(v.plan_filename ?? null);
+      setCapiLieuRefId(v.capi_lieu_ref_id ?? '');
       const [sp, conv] = await Promise.all([listApSpaces(id), listApConventionsByVenue(id)]);
       setSpaceCount(sp.length);
       setConventions(conv);
@@ -77,10 +82,21 @@ export default function AccueilProVenueEditScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      reloadCapi();
       if (!venueId) return;
       void loadVenue(venueId);
-    }, [venueId, loadVenue])
+    }, [venueId, loadVenue, reloadCapi])
   );
+
+  const onCapiLieuChange = useCallback(async (refId: string) => {
+    setCapiLieuRefId(refId);
+    if (!refId) return;
+    const ref = await getApCapiLieuRefById(refId);
+    if (!ref) return;
+    setName(ref.nom);
+    setAddress(ref.adresse ?? '');
+    setCity(ref.ville ?? '');
+  }, []);
 
   const onSave = useCallback(async () => {
     if (!name.trim()) {
@@ -105,6 +121,7 @@ export default function AccueilProVenueEditScreen() {
         safety_rules: safetyRules.trim() || null,
         plan_local_uri: planLocalUri,
         plan_filename: planFilename,
+        capi_lieu_ref_id: capiLieuRefId || null,
       });
       if (venueId) {
         navigation.goBack();
@@ -136,6 +153,7 @@ export default function AccueilProVenueEditScreen() {
     safetyRules,
     planLocalUri,
     planFilename,
+    capiLieuRefId,
     navigation,
     t,
     returnToEvent,
@@ -160,7 +178,7 @@ export default function AccueilProVenueEditScreen() {
       onBack={() => navigation.goBack()}
       headerIcon={<Text style={{ fontSize: 22 }}>🏢</Text>}
       headerTitle={venueId ? t('accueilpro.venues.edit') : t('accueilpro.venues.new')}
-      loading={loading}
+      loading={loading || capiLoading}
       footer={
         <AccueilProPrimaryButton
           label={t('accueilpro.save')}
@@ -170,6 +188,16 @@ export default function AccueilProVenueEditScreen() {
       }
     >
       <AccueilProFormCard>
+        <Text style={apStyles.sectionTitle}>{t('accueilpro.capi.sectionLieu')}</Text>
+        <AccueilProFormSelectPicker
+          label={t('accueilpro.capi.fieldLieu')}
+          value={capiLieuRefId}
+          options={capiLieuOptions}
+          onChange={v => void onCapiLieuChange(v)}
+        />
+        {capiLieuOptions.length <= 1 ?
+          <Text style={apStyles.hint}>{t('accueilpro.capi.syncHint')}</Text>
+        : null}
         <AccueilProInput label={t('accueilpro.venues.fieldName')} value={name} onChangeText={setName} required />
         <AccueilProInput label={t('accueilpro.venues.fieldAddress')} value={address} onChangeText={setAddress} />
         <AccueilProInput label={t('accueilpro.field.cp')} value={cp} onChangeText={setCp} />

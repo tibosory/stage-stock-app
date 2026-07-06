@@ -1,5 +1,6 @@
 import { TourRepository } from '../../infrastructure/repositories';
 import type { Tour, TourLocation } from '../../types';
+import { syncTourVehiculePlanningToCapi } from '../../lib/capiTourSync';
 import { enqueueTrackingUpsert } from './syncQueue';
 import { DomainEventBus } from '../../application/events';
 
@@ -34,6 +35,7 @@ export const TourService = {
       startDate: tour.startDate,
       endDate: tour.endDate,
     });
+    void syncTourVehiculePlanningToCapi(tour);
     return tour;
   },
 
@@ -59,6 +61,7 @@ export const TourService = {
       startDate: tour.startDate,
       endDate: tour.endDate,
     });
+    void syncTourVehiculePlanningToCapi(tour);
     return tour;
   },
 
@@ -72,6 +75,8 @@ export const TourService = {
     dateStart?: string | null;
     dateEnd?: string | null;
     tourId: string;
+    capiKind?: TourLocation['capiKind'];
+    capiRefId?: string | null;
   }): Promise<TourLocation> {
     const row = await TourRepository.createLocation(input);
     await enqueueTrackingUpsert('tour_locations', {
@@ -81,6 +86,8 @@ export const TourService = {
       date_start: row.dateStart,
       date_end: row.dateEnd,
       tour_id: row.tourId,
+      capi_kind: row.capiKind,
+      capi_ref_id: row.capiRefId,
       updated_at: row.updatedAt,
     });
     await DomainEventBus.publish('tour.location_added', {
@@ -89,6 +96,8 @@ export const TourService = {
       name: row.name,
       address: row.address,
     });
+    const tour = await TourRepository.getById(input.tourId);
+    if (tour) void syncTourVehiculePlanningToCapi(tour);
     return row;
   },
 };

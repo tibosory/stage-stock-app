@@ -17,10 +17,12 @@ import {
   clearAllApiEndpointOverrides,
   getApiBaseOverride,
   getApiKeyOverride,
+  getCapiBridgeBaseOverride,
   getHealthPathOverride,
   looksLikeHttpUrl,
   setApiBaseOverride,
   setApiKeyOverride,
+  setCapiBridgeBaseOverride,
   setHealthPathOverride,
   stripStageStockServerRootSuffix,
 } from '../lib/apiEndpointStorage';
@@ -63,6 +65,7 @@ export default function NetworkScreen() {
   const [segment, setSegment] = useState<Segment>('config');
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [capiBridgeUrl, setCapiBridgeUrl] = useState('');
   const [healthPath, setHealthPath] = useState('');
   const [bundled, setBundled] = useState('');
   const [resolved, setResolved] = useState('');
@@ -83,17 +86,19 @@ export default function NetworkScreen() {
   }, []);
 
   const refreshMeta = useCallback(async () => {
-    const [b, r, baseO, keyO, healthO] = await Promise.all([
+    const [b, r, baseO, keyO, capiO, healthO] = await Promise.all([
       Promise.resolve(getBundledDefaultApiBase()),
       getResolvedApiBase(),
       getApiBaseOverride(),
       getApiKeyOverride(),
+      getCapiBridgeBaseOverride(),
       getHealthPathOverride(),
     ]);
     setBundled(b);
     setResolved(r);
     setBaseUrl(baseO ?? '');
     setApiKey(keyO ?? '');
+    setCapiBridgeUrl(capiO ?? '');
     setHealthPath(healthO ?? '');
   }, []);
 
@@ -117,6 +122,12 @@ export default function NetworkScreen() {
     try {
       await setApiBaseOverride(trimmed || null);
       await setApiKeyOverride(apiKey.trim() || null);
+      const capiTrim = capiBridgeUrl.trim();
+      if (capiTrim && !looksLikeHttpUrl(capiTrim)) {
+        Alert.alert(t('network.invalidUrlTitle'), t('network.invalidCapiBridgeBody'));
+        return;
+      }
+      await setCapiBridgeBaseOverride(capiTrim || null);
       await setHealthPathOverride(healthPath.trim() || null);
       await refreshMeta();
       Alert.alert(t('network.saveDoneTitle'), t('network.saveDoneBody'));
@@ -455,6 +466,14 @@ export default function NetworkScreen() {
                         placeholder={t('network.field.apiKeyPlaceholderPc')}
                         autoCapitalize="none"
                         secureTextEntry
+                      />
+                      <Input
+                        label={t('network.field.capiBridgeOptional')}
+                        value={capiBridgeUrl}
+                        onChangeText={setCapiBridgeUrl}
+                        placeholder={t('network.field.capiBridgePlaceholder')}
+                        autoCapitalize="none"
+                        keyboardType="url"
                       />
                       <Input
                         label={t('network.field.healthPathOptional')}

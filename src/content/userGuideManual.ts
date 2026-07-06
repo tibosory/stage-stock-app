@@ -36,7 +36,7 @@ export const USER_GUIDE_META = {
 
   versionLabel:
 
-    '24 juin 2026 (QR flightcase stock, étiquette contenu)',
+    '24 juin 2026 — v1.0.41 (diagnostic sync, clés sécurisées, sync partielle)',
 
 };
 
@@ -314,7 +314,13 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'En mode Supabase : exportez le schéma SQL, renseignez URL + clé anon. Basculez Connexion → « Cloud Supabase » : le QR d’invitation apparaît en tête de l’onglet (carte verte 📲). Partagez-le par e-mail ou scan ; le scan bascule automatiquement en mode cloud sur le téléphone du collègue.',
       'Plusieurs téléphones en cloud : l’appareil qui modifie une quantité fait Envoyer ↑, les autres font Recevoir ↓. Tous doivent afficher « Synchronisation inventaire (Supabase) » (pas « avec le PC »).',
+      'Si Recevoir ↓ ne ramène rien après une désinstallation : sur le téléphone qui a encore les données, utilisez « ↑ Envoyer tout » (Connexion), puis Recevoir ↓ sur l’autre. L’Envoyer ↑ classique n’envoie que les modifications récentes.',
+      'Vérifiez que les deux téléphones pointent vers le même projet Supabase (même URL affichée dans Paramètres → Projet Supabase).',
+      'Les suppressions de fiches matériel ou consommable sont propagées au cloud à l’Envoyer ↑, puis retirées des autres téléphones au Recevoir ↓ (comme pour la Régie).',
+      'Ne désinstallez pas l’app sans avoir fait Envoyer ↑ : les données restent d’abord sur le téléphone. Pour récupérer après réinstallation, faites Recevoir ↓ une fois connecté au même projet Supabase.',
       'Le même Envoyer ↑ / Recevoir ↓ synchronise aussi le lieu (nom du théâtre, adresse, logo, coordonnées admin dans Profil) et les données Accueil Pro (lieux, événements…).',
+      'Onglet Diagnostic (Connexion) : indicateur orange « Modifications en attente » si des lignes locales ne sont pas encore synchronisées ; utilisez Envoyer ↑ ou attendez la sync automatique.',
+      'Si l’app signale une synchronisation incomplète (envoi OK mais réception échouée, ou l’inverse), relancez manuellement la direction manquante : Recevoir ↓ ou Envoyer ↑ / « Envoyer tout ».',
       'Photos consommable : conservées à la sync, téléversées au cloud à l’Envoyer ↑ (qualité réduite), retéléchargées au Recevoir ↓ si une URL existe. Réassociez une photo si elle manque encore après sync.',
 
       'En mode local : tuile Connexion → « Serveur local sur PC » (QR jumelage ou adresse PC). Un seul mode actif à la fois ; tous les téléphones doivent utiliser le même.',

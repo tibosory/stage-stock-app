@@ -53,10 +53,11 @@ export async function getMaterielsVgpSuivi(database?: InventoryOpsDbExecutor): P
   const { getCategories, categoryPathById } = await resolveCatalogFns();
   const cats = await getCategories();
   const rows = await db.getAllAsync<any>(`
-    SELECT m.*, c.nom as categorie_nom, l.nom as localisation_nom
+    SELECT m.*, c.nom as categorie_nom, l.nom as localisation_nom, li.nom as lieu_nom
     FROM materiels m
     LEFT JOIN categories c ON m.categorie_id = c.id
     LEFT JOIN localisations l ON m.localisation_id = l.id
+    LEFT JOIN lieux li ON m.lieu_id = li.id
     WHERE COALESCE(m.vgp_actif, 0) = 1
     ORDER BY m.nom ASC
   `);
@@ -96,10 +97,11 @@ export async function getMaterielsInStockFlightcase(
   const cats = await getCategories();
   const fcNorm = flightcase.trim().toLowerCase();
   let sql = `
-    SELECT m.*, c.nom as categorie_nom, l.nom as localisation_nom
+    SELECT m.*, c.nom as categorie_nom, l.nom as localisation_nom, li.nom as lieu_nom
     FROM materiels m
     LEFT JOIN categories c ON m.categorie_id = c.id
     LEFT JOIN localisations l ON m.localisation_id = l.id
+    LEFT JOIN lieux li ON m.lieu_id = li.id
     WHERE m.flightcase IS NOT NULL AND lower(trim(m.flightcase)) = ?
   `;
   const params: (string | number)[] = [fcNorm];
@@ -264,13 +266,15 @@ export async function insertMaterielsSerieBatch(
 }
 
 export async function deleteMateriel(id: string, database?: InventoryOpsDbExecutor): Promise<void> {
+  const db = await resolveInventoryDb(database);
+  const { logInventoryDeletion } = await import('./regieDeletionSyncDb');
+  await logInventoryDeletion('materiels', id, db);
   const { removeMaterielAttachmentsDir } = await import('../lib/materielAttachments');
   try {
     await removeMaterielAttachmentsDir(id);
   } catch {
     // ne pas bloquer la suppression en base
   }
-  const db = await resolveInventoryDb(database);
   await db.withTransactionAsync(async () => {
     await db.runAsync('DELETE FROM pret_materiels WHERE materiel_id = ?', [id]);
     await db.runAsync('DELETE FROM materiel_emprunt_historique WHERE materiel_id = ?', [id]);
@@ -343,6 +347,8 @@ export async function createConsommableStubWithScannedCode(opts: {
 
 export async function deleteConsommable(id: string, database?: InventoryOpsDbExecutor): Promise<void> {
   const db = await resolveInventoryDb(database);
+  const { logInventoryDeletion } = await import('./regieDeletionSyncDb');
+  await logInventoryDeletion('consommables', id, db);
   await db.runAsync('DELETE FROM consommables WHERE id = ?', [id]);
 }
 

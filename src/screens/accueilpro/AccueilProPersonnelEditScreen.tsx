@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Text, Alert, Switch, View } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { ContactPhotoPicker } from '../../components/accueilpro/ContactPhotoPicker';
 import {
   AccueilProFormCard,
@@ -20,7 +20,9 @@ import {
   saveApPersonnel,
 } from '../../db/accueilProDb';
 import { buildPersonnelDisplayName } from '../../lib/accueilProPersonnelHelpers';
-import { useAccueilProReferenceData } from './accueilProScreenCommon';
+import { useAccueilProReferenceData, useCapiAccueilProCatalog } from './accueilProScreenCommon';
+import { getApCapiContactRef, splitCapiContactName } from '../../lib/capiAccueilProHelpers';
+import { pushAccueilProContactToCapi } from '../../lib/capiAccueilProApi';
 import type { ApPersonnelKind } from '../../types/accueilPro';
 
 /** UI (`association`), persiste en `organisation` côté SQLite/API. */
@@ -38,8 +40,10 @@ export default function AccueilProPersonnelEditScreen() {
     : resolvedParam === 'externe' ? 'externe'
     : 'lieu';
   const { orgOptions, venueOptions, loading: refLoading } = useAccueilProReferenceData();
+  const { capiContactOptions, loading: capiLoading, reload: reloadCapi } = useCapiAccueilProCatalog();
   const [loading, setLoading] = useState(!!personnelId);
   const [saving, setSaving] = useState(false);
+  const [capiContactRefId, setCapiContactRefId] = useState('');
   const [kind, setKind] = useState<PersonnelKindUi>(defaultKind);
   const [venueId, setVenueId] = useState(route.params?.venueId ?? '');
   const [associationVenueId, setAssociationVenueId] = useState('');
@@ -99,14 +103,39 @@ export default function AccueilProPersonnelEditScreen() {
         setNotes(p.notes ?? '');
         setPhotoUri(p.photo_uri ?? null);
         setRolePermanent(!!p.role_permanent);
+        setCapiContactRefId(p.capi_contact_ref_id ?? '');
       }
       setLoading(false);
     });
   }, [personnelId]);
 
+  useFocusEffect(
+    useCallback(() => {
+      reloadCapi();
+    }, [reloadCapi]),
+  );
+
+  const onCapiContactChange = useCallback(async (refId: string) => {
+    setCapiContactRefId(refId);
+    if (!refId) return;
+    const ref = await getApCapiContactRef(refId);
+    if (!ref) return;
+    const { firstName, lastName } = splitCapiContactName(ref.nom);
+    setFirstName(firstName);
+    setLastName(lastName);
+    setRole(ref.role ?? '');
+    setPhone(ref.telephone ?? '');
+    setEmail(ref.email ?? '');
+  }, []);
+
   const displayName = useMemo(
     () => buildPersonnelDisplayName({ first_name: firstName, last_name: lastName }),
     [firstName, lastName]
+  );
+
+  const organizationName = useMemo(
+    () => orgOptions.find(o => o.value === organizationId)?.label?.trim() ?? null,
+    [orgOptions, organizationId],
   );
 
   const persistPersonnel = useCallback(async (): Promise<string | null> => {
@@ -125,6 +154,23 @@ export default function AccueilProPersonnelEditScreen() {
     }
     const persistedKind: ApPersonnelKind = kind === 'association' ? 'organisation' : kind;
     const id = personnelId ?? recordId;
+    let capiRefId = capiContactRefId;
+    let capiRef = capiRefId ? await getApCapiContactRef(capiRefId) : null;
+    if (!capiRefId && displayName.trim()) {
+      const pushed = await pushAccueilProContactToCapi({
+        nom: displayName.trim(),
+        prenom: firstName.trim() || null,
+        email: email.trim() || null,
+        telephone: phone.trim() || null,
+        role: role.trim() || null,
+        organisation: kind === 'association' ? organizationName : null,
+        kind: 'personnel',
+      });
+      if (pushed?.capi_contact_ref_id) {
+        capiRefId = pushed.capi_contact_ref_id;
+        capiRef = await getApCapiContactRef(capiRefId);
+      }
+    }
     await saveApPersonnel({
       id,
       kind: persistedKind,
@@ -141,6 +187,8 @@ export default function AccueilProPersonnelEditScreen() {
       email: email.trim() || null,
       notes: notes.trim() || null,
       photo_uri: photoUri,
+      capi_contact_ref_id: capiRefId || null,
+      capi_contact_kind: capiRef?.kind ?? null,
     });
     return id;
   }, [
@@ -150,6 +198,7 @@ export default function AccueilProPersonnelEditScreen() {
     venueId,
     associationVenueId,
     organizationId,
+    organizationName,
     displayName,
     firstName,
     lastName,
@@ -161,6 +210,7 @@ export default function AccueilProPersonnelEditScreen() {
     email,
     notes,
     photoUri,
+    capiContactRefId,
     t,
   ]);
 
@@ -209,7 +259,7 @@ export default function AccueilProPersonnelEditScreen() {
       onBack={() => navigation.goBack()}
       headerIcon={<Text style={{ fontSize: 22 }}>👷</Text>}
       headerTitle={personnelId ? t('accueilpro.personnel.edit') : t('accueilpro.personnel.new')}
-      loading={loading || refLoading}
+      loading={loading || refLoading || capiLoading}
       footer={
         <AccueilProPrimaryButton
           label={t('accueilpro.save')}
@@ -220,6 +270,15 @@ export default function AccueilProPersonnelEditScreen() {
     >
       <ContactPhotoPicker contactId={recordId} photoUri={photoUri} onChange={setPhotoUri} />
       <AccueilProFormCard>
+        <AccueilProFormSelectPicker
+          label={t('accueilpro.capi.fieldContact')}
+          value={capiContactRefId}
+          options={capiContactOptions}
+          onChange={v => void onCapiContactChange(v)}
+        />
+        {capiContactOptions.length <= 1 ?
+          <Text style={[apStyles.hint, { marginBottom: Spacing.sm }]}>{t('accueilpro.capi.syncHint')}</Text>
+        : null}
         <AccueilProFormSelectPicker
           label={t('accueilpro.personnel.kind')}
           value={kind}

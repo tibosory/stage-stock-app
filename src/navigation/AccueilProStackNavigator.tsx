@@ -30,6 +30,7 @@ import AccueilProInviteOrganizationScreen from '../screens/accueilpro/AccueilPro
 import AccueilProConflictsScreen from '../screens/accueilpro/AccueilProConflictsScreen';
 import AccueilProActivityLogScreen from '../screens/accueilpro/AccueilProActivityLogScreen';
 import AccueilProPortalEventDocumentsScreen from '../screens/accueilpro/AccueilProPortalEventDocumentsScreen';
+import AccueilProCapiDocumentsScreen from '../screens/accueilpro/AccueilProCapiDocumentsScreen';
 import AccueilProEventInspectionCompareScreen from '../screens/accueilpro/AccueilProEventInspectionCompareScreen';
 import AccueilAssociationScreen from '../screens/AccueilAssociationScreen';
 
@@ -78,6 +79,7 @@ export type AccueilProStackParamList = {
     organizationName?: string;
   };
   AccueilProEventInspectionCompare: { eventId: string };
+  AccueilProCapiDocuments: { spectacleRefId: string; eventName?: string };
 };
 
 const Stack = createStackNavigator<AccueilProStackParamList>();
@@ -116,6 +118,7 @@ export function AccueilProStackNavigator() {
       <Stack.Screen name="AccueilProActivityLog" component={AccueilProActivityLogScreen} />
       <Stack.Screen name="AccueilAssociation" component={AccueilAssociationScreen} />
       <Stack.Screen name="AccueilProPortalEventDocuments" component={AccueilProPortalEventDocumentsScreen} />
+      <Stack.Screen name="AccueilProCapiDocuments" component={AccueilProCapiDocumentsScreen} />
       <Stack.Screen name="AccueilProEventInspectionCompare" component={AccueilProEventInspectionCompareScreen} />
     </Stack.Navigator>
   );

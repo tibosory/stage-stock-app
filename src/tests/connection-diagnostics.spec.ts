@@ -39,9 +39,21 @@ async function testServerOk() {
   assert.equal(checks.find(c => c.id === 'local_sync')?.level, 'ok');
 }
 
+async function testSyncPending() {
+  const checks = await runConnectionDiagnostics(
+    mockDeps({
+      getInventorySyncHealth: async () => ({ hasPendingWork: true, detail: '2 mat., 1 cons.' }),
+    })
+  );
+  const pending = checks.find(c => c.id === 'sync_pending');
+  assert.equal(pending?.level, 'warn');
+  assert.equal(pending?.detail, '2 mat., 1 cons.');
+}
+
 void (async () => {
   await testOfflineDevice();
   await testNoUrlWarns();
   await testServerOk();
+  await testSyncPending();
   console.log('connection-diagnostics.spec: OK');
 })();

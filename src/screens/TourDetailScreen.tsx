@@ -106,6 +106,9 @@ export default function TourDetailScreen() {
     setLocName,
     locAddress,
     setLocAddress,
+    tourLieuRefId,
+    onTourLieuRefChange,
+    tourLieuRefOptions,
     materialId,
     setMaterialId,
     locationId,
@@ -843,6 +846,15 @@ export default function TourDetailScreen() {
         <Card>
           <Text style={s.step}>{t('tour.detail.stepLocations')}</Text>
           <Text style={s.hint}>{t('tour.detail.locationsHint')}</Text>
+          <SelectPicker
+            label={t('tour.detail.locationCapiPicker')}
+            value={tourLieuRefId}
+            options={tourLieuRefOptions}
+            onChange={onTourLieuRefChange}
+          />
+          {tourLieuRefOptions.length <= 1 ? (
+            <Text style={s.hint}>{t('tour.detail.locationCapiPickerHint')}</Text>
+          ) : null}
           <Input label={t('tour.detail.locationName')} value={locName} onChangeText={setLocName} placeholder={t('tour.detail.locationNamePlaceholder')} />
           <Input label={t('tour.detail.locationAddressOptional')} value={locAddress} onChangeText={setLocAddress} placeholder={t('tour.detail.locationAddressPlaceholder')} />
           <TouchableOpacity style={s.btnPrimary} onPress={() => void onAddLocation()} accessibilityRole="button">
@@ -853,7 +865,10 @@ export default function TourDetailScreen() {
           ) : (
             locations.map(l => (
               <View key={l.id} style={s.locRow}>
-                <Text style={s.locName}>{l.name}</Text>
+                <Text style={s.locName}>
+                  {l.capiKind === 'vehicule' ? '🚐 ' : l.capiKind === 'exterieur' ? '🌳 ' : l.capiKind === 'salle' ? '🏛 ' : ''}
+                  {l.name}
+                </Text>
                 {l.address ? <Text style={s.locAddr}>{l.address}</Text> : null}
               </View>
             ))

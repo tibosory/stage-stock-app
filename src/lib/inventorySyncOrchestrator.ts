@@ -26,9 +26,41 @@ export type InventorySyncResult = {
   error?: string;
   pushOk?: boolean;
   pullOk?: boolean;
+  /** Une phase a réussi et l’autre a échoué (sync bidirectionnelle). */
+  partialSuccess?: boolean;
+  /** Envoi incrémental sans ligne en attente alors que l’inventaire local n’est pas vide. */
+  pushNothingPushed?: boolean;
+  localInventory?: { materiels: number; consommables: number };
+  pushed?: { materiels: number; consommables: number; prets: number };
 };
 
 type DataBackendMode = 'local_server' | 'supabase';
+
+function bidirectionalResult(input: {
+  backend: DataBackendMode;
+  push: { ok: boolean; error?: string; nothingPushed?: boolean; localInventory?: { materiels: number; consommables: number }; pushed?: { materiels: number; consommables: number; prets: number } };
+  pull: { ok: boolean; error?: string };
+}): InventorySyncResult {
+  const { backend, push, pull } = input;
+  const partialSuccess = push.ok !== pull.ok;
+  let error = push.error ?? pull.error;
+  if (partialSuccess && push.ok && !pull.ok) {
+    error = pull.error ?? 'Envoi réussi mais réception échouée';
+  } else if (partialSuccess && pull.ok && !push.ok) {
+    error = push.error ?? 'Réception réussie mais envoi échoué';
+  }
+  return {
+    ok: push.ok && pull.ok,
+    backend,
+    pushOk: push.ok,
+    pullOk: pull.ok,
+    partialSuccess,
+    error,
+    pushNothingPushed: push.nothingPushed,
+    localInventory: push.localInventory,
+    pushed: push.pushed,
+  };
+}
 
 async function runLocalPush(scope: string): Promise<{ ok: boolean; error?: string }> {
   const guard = await canCallApiSync(`${scope}:push`);
@@ -62,13 +94,22 @@ async function runLocalPull(scope: string): Promise<{ ok: boolean; error?: strin
   return result;
 }
 
-async function runSupabasePush(scope: string): Promise<{ ok: boolean; error?: string }> {
+async function runSupabasePush(
+  scope: string,
+  pushMode: 'incremental' | 'full' = 'incremental'
+): Promise<{
+  ok: boolean;
+  error?: string;
+  nothingPushed?: boolean;
+  localInventory?: { materiels: number; consommables: number };
+  pushed?: { materiels: number; consommables: number; prets: number };
+}> {
   const guard = await canCallSupabaseSync(`${scope}:push`);
   if (!guard.ok) {
     await recordSyncTelemetry('supabase', 'push', 'skipped', guard.reason);
     return { ok: false, error: guard.reason };
   }
-  const inv = await syncToSupabase();
+  const inv = await syncToSupabase({ mode: pushMode });
   if (!inv.ok) {
     await recordSyncTelemetry('supabase', 'push', 'error', inv.error);
     return inv;
@@ -81,8 +122,14 @@ async function runSupabasePush(scope: string): Promise<{ ok: boolean; error?: st
     await recordSyncTelemetry('supabase', 'push', 'error', err);
     return { ok: false, error: err };
   }
-  await recordSyncTelemetry('supabase', 'push', 'ok', undefined);
-  return { ok: true };
+  const telMsg =
+    inv.nothingPushed && inv.localInventory
+      ? `rien à envoyer (local: ${inv.localInventory.materiels} mat., ${inv.localInventory.consommables} cons.)`
+      : inv.pushed
+        ? `${inv.pushed.materiels} mat., ${inv.pushed.consommables} cons., ${inv.pushed.prets} prêts`
+        : undefined;
+  await recordSyncTelemetry('supabase', 'push', 'ok', telMsg);
+  return inv;
 }
 
 async function runSupabasePull(scope: string): Promise<{ ok: boolean; error?: string }> {
@@ -111,9 +158,10 @@ async function runSupabasePull(scope: string): Promise<{ ok: boolean; error?: st
 export async function runInventorySync(options: {
   scope: string;
   direction: InventorySyncDirection;
+  pushMode?: 'incremental' | 'full';
 }): Promise<InventorySyncResult> {
   const mode = await getDataBackendMode();
-  const { scope, direction } = options;
+  const { scope, direction, pushMode = 'incremental' } = options;
 
   if (mode === 'local_server') {
     if (direction === 'push') {
@@ -126,13 +174,7 @@ export async function runInventorySync(options: {
     }
     const push = await runLocalPush(scope);
     const pull = push.ok ? await runLocalPull(scope) : { ok: false as const, error: push.error };
-    return {
-      ok: push.ok && pull.ok,
-      backend: 'local_server',
-      pushOk: push.ok,
-      pullOk: pull.ok,
-      error: push.error ?? pull.error,
-    };
+    return bidirectionalResult({ backend: 'local_server', push, pull });
   }
 
   if (mode === 'supabase') {
@@ -145,22 +187,24 @@ export async function runInventorySync(options: {
       return { ok: false, backend: 'supabase', error: reason };
     }
     if (direction === 'push') {
-      const push = await runSupabasePush(scope);
-      return { ok: push.ok, backend: 'supabase', pushOk: push.ok, error: push.error };
+      const push = await runSupabasePush(scope, pushMode);
+      return {
+        ok: push.ok,
+        backend: 'supabase',
+        pushOk: push.ok,
+        error: push.error,
+        pushNothingPushed: push.nothingPushed,
+        localInventory: push.localInventory,
+        pushed: push.pushed,
+      };
     }
     if (direction === 'pull') {
       const pull = await runSupabasePull(scope);
       return { ok: pull.ok, backend: 'supabase', pullOk: pull.ok, error: pull.error };
     }
-    const push = await runSupabasePush(scope);
+    const push = await runSupabasePush(scope, pushMode);
     const pull = push.ok ? await runSupabasePull(scope) : { ok: false as const, error: push.error };
-    return {
-      ok: push.ok && pull.ok,
-      backend: 'supabase',
-      pushOk: push.ok,
-      pullOk: pull.ok,
-      error: push.error ?? pull.error,
-    };
+    return bidirectionalResult({ backend: 'supabase', push, pull });
   }
 
   return { ok: false, backend: 'none', error: 'Aucun backend configuré' };

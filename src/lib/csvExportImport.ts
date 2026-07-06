@@ -656,7 +656,7 @@ export async function exportMaterielsCsv(): Promise<void> {
   ];
   const csv = toCsv(
     mats.map(m => ({
-      ...(m as Record<string, unknown>),
+      ...(m as unknown as Record<string, unknown>),
       categorie_nom: (m as { categorie_nom?: string }).categorie_nom ?? '',
       localisation_nom: (m as { localisation_nom?: string }).localisation_nom ?? '',
     })),

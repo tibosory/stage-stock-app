@@ -320,6 +320,14 @@ export async function ensureAccueilProSchema(database: SQLite.SQLiteDatabase): P
   await addCol('ap_events', 'feuille_note', 'TEXT');
   await addCol('ap_events', 'feuille_info_json', "TEXT DEFAULT '{}'");
 
+  await addCol('ap_venues', 'capi_lieu_ref_id', 'TEXT');
+  await addCol('ap_events', 'capi_spectacle_ref_id', 'TEXT');
+  await addCol('ap_events', 'capi_lieu_ref_id', 'TEXT');
+  await addCol('ap_team_members', 'capi_contact_ref_id', 'TEXT');
+  await addCol('ap_team_members', 'capi_contact_kind', 'TEXT');
+  await addCol('ap_organization_contacts', 'capi_contact_ref_id', 'TEXT');
+  await addCol('ap_organization_contacts', 'capi_contact_kind', 'TEXT');
+
   await addCol('ap_rental_requests', 'space_id', 'TEXT');
   await addCol('ap_rental_requests', 'event_name', 'TEXT');
   await addCol('ap_rental_requests', 'heure_debut', 'TEXT');
@@ -336,6 +344,7 @@ export async function ensureAccueilProSchema(database: SQLite.SQLiteDatabase): P
   await addCol('ap_conventions', 'document_filename', 'TEXT');
   await addCol('ap_conventions', 'venue_id', 'TEXT REFERENCES ap_venues(id) ON DELETE SET NULL');
   await addCol('ap_spaces', 'control_points_json', "TEXT DEFAULT '[]'");
+  await addCol('ap_spaces', 'capi_espace_ref_id', 'TEXT');
   await addCol('ap_organization_documents', 'event_id', 'TEXT');
 
   /** Bases créées avant l’ajout systématique de updated_at (sync Accueil Pro). */
@@ -405,6 +414,7 @@ function mapVenueRow(r: any): ApVenue {
     plan_local_uri: r.plan_local_uri ?? null,
     plan_filename: r.plan_filename ?? null,
     plan_storage_path: r.plan_storage_path ?? null,
+    capi_lieu_ref_id: r.capi_lieu_ref_id ?? null,
     created_at: r.created_at ?? null,
     updated_at: r.updated_at ?? null,
     synced: !!r.synced,
@@ -421,6 +431,7 @@ function mapSpaceRow(r: any): ApSpace {
     capacity: r.capacity != null ? Number(r.capacity) : null,
     description: r.description ?? null,
     control_points: control_points.length ? control_points : null,
+    capi_espace_ref_id: r.capi_espace_ref_id ?? null,
     updated_at: r.updated_at ?? null,
     synced: !!r.synced,
   };
@@ -456,6 +467,8 @@ function mapContactRow(r: any): ApOrganizationContact {
     phone: r.phone ?? null,
     email: r.email ?? null,
     is_primary: !!r.is_primary,
+    capi_contact_ref_id: r.capi_contact_ref_id ?? null,
+    capi_contact_kind: r.capi_contact_kind ?? null,
     updated_at: r.updated_at ?? null,
     synced: !!r.synced,
   };
@@ -524,6 +537,8 @@ function mapEventRow(r: any): ApEvent {
     readiness_manual: parseJson<ApEvent['readiness_manual']>(r.readiness_manual_json, {}),
     feuille_note: r.feuille_note ?? null,
     feuille_info: parseApEventFeuilleInfo(r.feuille_info_json),
+    capi_spectacle_ref_id: r.capi_spectacle_ref_id ?? null,
+    capi_lieu_ref_id: r.capi_lieu_ref_id ?? null,
     created_at: r.created_at ?? null,
     updated_at: r.updated_at ?? null,
     synced: !!r.synced,
@@ -587,6 +602,8 @@ function mapPersonnelRow(r: any): ApPersonnel {
     notes: r.notes ?? null,
     photo_uri: r.photo_uri ?? null,
     photo_storage_path: r.photo_storage_path ?? null,
+    capi_contact_ref_id: r.capi_contact_ref_id ?? null,
+    capi_contact_kind: r.capi_contact_kind ?? null,
     updated_at: r.updated_at ?? null,
     synced: !!r.synced,
   };
@@ -1049,9 +1066,9 @@ export async function saveVenue(row: ApVenue, database?: SQLite.SQLiteDatabase):
   await db.runAsync(
     `INSERT OR REPLACE INTO ap_venues (
       id,name,address,cp,city,phone,email,erp_type,erp_category,capacity,fire_notes,safety_rules,
-      plan_local_uri,plan_filename,plan_storage_path,
+      plan_local_uri,plan_filename,plan_storage_path,capi_lieu_ref_id,
       created_at,updated_at,synced)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
     [
       row.id,
       row.name,
@@ -1068,6 +1085,7 @@ export async function saveVenue(row: ApVenue, database?: SQLite.SQLiteDatabase):
       row.plan_local_uri ?? null,
       row.plan_filename ?? null,
       row.plan_storage_path ?? null,
+      row.capi_lieu_ref_id ?? null,
       created,
       updated,
     ]
@@ -1096,8 +1114,8 @@ export async function saveSpace(row: ApSpace, database?: SQLite.SQLiteDatabase):
   const n = nowIso();
   if (!row.venue_id) throw new Error('venue_id requis pour un espace');
   await db.runAsync(
-    `INSERT OR REPLACE INTO ap_spaces (id,venue_id,name,type,capacity,description,control_points_json,updated_at,synced)
-     VALUES (?,?,?,?,?,?,?,?,0)`,
+    `INSERT OR REPLACE INTO ap_spaces (id,venue_id,name,type,capacity,description,control_points_json,capi_espace_ref_id,updated_at,synced)
+     VALUES (?,?,?,?,?,?,?,?,?,0)`,
     [
       row.id,
       row.venue_id,
@@ -1106,6 +1124,7 @@ export async function saveSpace(row: ApSpace, database?: SQLite.SQLiteDatabase):
       row.capacity ?? 0,
       row.description ?? null,
       serializeControlPointsJson(row.control_points ?? []),
+      row.capi_espace_ref_id ?? null,
       row.updated_at ?? n,
     ]
   );
@@ -1137,8 +1156,8 @@ export async function savePersonnel(row: ApPersonnel, database?: SQLite.SQLiteDa
     `INSERT OR REPLACE INTO ap_team_members (
       id,venue_id,name,first_name,last_name,address,role,mission,phone,email,
       kind,organization_id,role_permanent,notes,photo_uri,photo_storage_path,
-      updated_at,synced)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+      capi_contact_ref_id,capi_contact_kind,updated_at,synced)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
     [
       row.id,
       row.venue_id,
@@ -1156,6 +1175,8 @@ export async function savePersonnel(row: ApPersonnel, database?: SQLite.SQLiteDa
       row.notes ?? null,
       row.photo_uri ?? null,
       row.photo_storage_path ?? null,
+      row.capi_contact_ref_id ?? null,
+      row.capi_contact_kind ?? null,
       row.updated_at ?? n,
     ]
   );
@@ -1225,8 +1246,8 @@ export async function saveContact(row: ApOrganizationContact, database?: SQLite.
   const db = await resolveDb(database);
   const n = nowIso();
   await db.runAsync(
-    `INSERT OR REPLACE INTO ap_organization_contacts (id,organization_id,name,role,phone,email,is_primary,updated_at,synced)
-     VALUES (?,?,?,?,?,?,?,?,0)`,
+    `INSERT OR REPLACE INTO ap_organization_contacts (id,organization_id,name,role,phone,email,is_primary,capi_contact_ref_id,capi_contact_kind,updated_at,synced)
+     VALUES (?,?,?,?,?,?,?,?,?,?,0)`,
     [
       row.id,
       row.organization_id,
@@ -1235,6 +1256,8 @@ export async function saveContact(row: ApOrganizationContact, database?: SQLite.
       row.phone ?? null,
       row.email ?? null,
       int01(row.is_primary),
+      row.capi_contact_ref_id ?? null,
+      row.capi_contact_kind ?? null,
       row.updated_at ?? n,
     ]
   );
@@ -1399,8 +1422,9 @@ export async function saveEvent(row: ApEvent, database?: SQLite.SQLiteDatabase):
   await db.runAsync(
     `INSERT OR REPLACE INTO ap_events (
       id,venue_id,organization_id,name,type,organisateur,date_debut,date_fin,heure_debut,heure_fin,
-      participants,description,status,spaces_mode,selected_space_ids_json,space_id,readiness_manual_json,feuille_note,feuille_info_json,created_at,updated_at,synced)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+      participants,description,status,spaces_mode,selected_space_ids_json,space_id,readiness_manual_json,feuille_note,feuille_info_json,
+      capi_spectacle_ref_id,capi_lieu_ref_id,created_at,updated_at,synced)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
     [
       row.id,
       row.venue_id ?? null,
@@ -1421,6 +1445,8 @@ export async function saveEvent(row: ApEvent, database?: SQLite.SQLiteDatabase):
       JSON.stringify(row.readiness_manual ?? {}),
       feuilleNote,
       feuilleInfoJson,
+      row.capi_spectacle_ref_id ?? null,
+      row.capi_lieu_ref_id ?? null,
       created,
       updated,
     ]
@@ -1970,6 +1996,18 @@ export async function getApOrganization(id: string, database?: SQLite.SQLiteData
 export async function getApEvent(id: string, database?: SQLite.SQLiteDatabase): Promise<ApEvent | null> {
   const db = await resolveDb(database);
   const row = await db.getFirstAsync<any>('SELECT * FROM ap_events WHERE id = ?', [id]);
+  return row ? mapEventRow(row) : null;
+}
+
+export async function getApEventByCapiSpectacleRef(
+  capiSpectacleRefId: string,
+  database?: SQLite.SQLiteDatabase,
+): Promise<ApEvent | null> {
+  const db = await resolveDb(database);
+  const row = await db.getFirstAsync<any>(
+    'SELECT * FROM ap_events WHERE capi_spectacle_ref_id = ? LIMIT 1',
+    [capiSpectacleRefId],
+  );
   return row ? mapEventRow(row) : null;
 }
 

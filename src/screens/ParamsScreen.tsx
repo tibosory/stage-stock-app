@@ -121,6 +121,7 @@ export default function ParamsScreen() {
     pushPrets: true,
     pushVgpControle: true,
     pushSeuilBas: true,
+    pushCapiRetro: true,
     mailSuggestionSeuil: true,
     mailSuggestionVgp: true,
     mailSuggestionPrets: true,

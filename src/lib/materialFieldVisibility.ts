@@ -1,3 +1,4 @@
+import { formatMaterielEmplacement } from './materielLocation';
 import type { Materiel } from '../types';
 
 export type MaterialStatus = 'ok' | 'maintenance' | 'broken';
@@ -78,7 +79,7 @@ function parseStatus(mat: Materiel): MaterialStatus {
 }
 
 function toMaterialEntity(mat: Materiel): MaterialEntity {
-  const matWithJoins = mat as Materiel & { localisation_nom?: string };
+  const matWithJoins = mat as Materiel & { localisation_nom?: string; lieu_nom?: string };
   const baseTechnical = parseTechnicalData((mat as Materiel & { technical_data?: unknown }).technical_data);
   const storageBoxRaw = baseTechnical['storage_box'];
   const rackPositionRaw = baseTechnical['rack_position'];
@@ -94,7 +95,7 @@ function toMaterialEntity(mat: Materiel): MaterialEntity {
     available_quantity: mat.statut === 'en stock' ? 1 : 0,
     broken_quantity: mat.etat === 'hors service' ? 1 : 0,
     status: parseStatus(mat),
-    location: matWithJoins.localisation_nom ?? mat.localisation_id ?? undefined,
+    location: formatMaterielEmplacement(matWithJoins) || mat.localisation_id || undefined,
     flightcase:
       mat.flightcase?.trim() ||
       (typeof storageBoxRaw === 'string' && storageBoxRaw.trim() ? storageBoxRaw.trim() : undefined),

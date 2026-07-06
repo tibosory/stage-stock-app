@@ -6,11 +6,17 @@ export type DiagnosticCheckId =
   | 'local_sync'
   | 'api_auth'
   | 'cloud_config'
-  | 'cloud_session';
+  | 'cloud_session'
+  | 'sync_pending';
 
 export type DiagnosticCheck = {
   id: DiagnosticCheckId;
   level: DiagnosticLevel;
+  detail?: string;
+};
+
+export type InventorySyncHealthProbe = {
+  hasPendingWork: boolean;
   detail?: string;
 };
 
@@ -23,6 +29,7 @@ export type ConnectionDiagnosticsDeps = {
   isSupabaseConfigured: () => boolean;
   getSupabaseSession: () => Promise<{ ok: boolean }>;
   hasLocalSyncApiKey: () => Promise<boolean>;
+  getInventorySyncHealth?: () => Promise<InventorySyncHealthProbe>;
 };
 
 export async function runConnectionDiagnostics(
@@ -88,6 +95,19 @@ export async function runConnectionDiagnostics(
       level: session.ok ? 'ok' : 'warn',
       detail: session.ok ? undefined : 'no_session',
     });
+  }
+
+  if (deps.getInventorySyncHealth) {
+    try {
+      const health = await deps.getInventorySyncHealth();
+      out.push({
+        id: 'sync_pending',
+        level: health.hasPendingWork ? 'warn' : 'ok',
+        detail: health.hasPendingWork ? health.detail ?? 'pending' : undefined,
+      });
+    } catch {
+      out.push({ id: 'sync_pending', level: 'warn', detail: 'unknown' });
+    }
   }
 
   return out;
