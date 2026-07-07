@@ -1,4 +1,4 @@
-import { setApiBaseOverride, setApiKeyOverride } from './apiEndpointStorage';
+import { setApiBaseOverride, setApiKeyOverride, setCapiBridgeBaseOverride } from './apiEndpointStorage';
 export {
   parsePairingDeepLink,
   parseHttpPairingTarget,
@@ -6,6 +6,7 @@ export {
   getPairingHostIssue,
   pairingScanHadApiKey,
 } from './pairingDeepLinkParse';
+export type { PairingParsed } from './pairingDeepLinkParse';
 
 export async function tryApplyPairingFromScan(raw: string): Promise<boolean> {
   const { parsePairingDeepLink, parseHttpPairingTarget } = await import('./pairingDeepLinkParse');
@@ -15,6 +16,9 @@ export async function tryApplyPairingFromScan(raw: string): Promise<boolean> {
   await setApiBaseOverride(parsed.baseUrl);
   if (parsed.apiKey?.trim()) {
     await setApiKeyOverride(parsed.apiKey.trim());
+  }
+  if (parsed.capiBaseUrl) {
+    await setCapiBridgeBaseOverride(parsed.capiBaseUrl);
   }
   const { setDataBackendMode } = await import('./backendMode');
   await setDataBackendMode('local_server');
@@ -28,6 +32,9 @@ export async function applyPairingDeepLink(url: string): Promise<boolean> {
   await setApiBaseOverride(parsed.baseUrl);
   if (parsed.apiKey?.trim()) {
     await setApiKeyOverride(parsed.apiKey.trim());
+  }
+  if (parsed.capiBaseUrl) {
+    await setCapiBridgeBaseOverride(parsed.capiBaseUrl);
   }
   const { setDataBackendMode } = await import('./backendMode');
   await setDataBackendMode('local_server');

@@ -1,9 +1,25 @@
 import { looksLikeHttpUrl, stripStageStockServerRootSuffix } from './httpUrlUtils';
 
+export type PairingParsed = {
+  baseUrl: string;
+  apiKey: string | null;
+  capiBaseUrl: string | null;
+};
+
+function trimSlash(u: string): string {
+  return u.replace(/\/+$/, '');
+}
+
+function parseCapiParam(raw: string | null | undefined): string | null {
+  const capi = raw?.trim() ?? '';
+  if (!capi || !looksLikeHttpUrl(capi)) return null;
+  return trimSlash(capi);
+}
+
 /**
- * Liens profonds : stagestock://pair?base=...&key=... (émis par GET /pair sur le PC).
+ * Liens profonds : stagestock://pair?base=...&key=...&capi=... (émis par CAPI ou GET /pair sur le PC).
  */
-export function parsePairingDeepLink(url: string): { baseUrl: string; apiKey: string | null } | null {
+export function parsePairingDeepLink(url: string): PairingParsed | null {
   const t = url.trim();
   if (!/^stagestock:\/\/pair(\?|$)/i.test(t)) return null;
   const q = t.indexOf('?');
@@ -12,7 +28,11 @@ export function parsePairingDeepLink(url: string): { baseUrl: string; apiKey: st
   const base = params.get('base')?.trim() ?? '';
   if (!base || !looksLikeHttpUrl(base)) return null;
   const key = params.get('key')?.trim();
-  return { baseUrl: stripStageStockServerRootSuffix(base.replace(/\/+$/, '')), apiKey: key || null };
+  return {
+    baseUrl: stripStageStockServerRootSuffix(trimSlash(base)),
+    apiKey: key || null,
+    capiBaseUrl: parseCapiParam(params.get('capi')),
+  };
 }
 
 function isHttpPairingCandidate(u: URL): boolean {
@@ -23,8 +43,8 @@ function isHttpPairingCandidate(u: URL): boolean {
   return Boolean(baseParam && looksLikeHttpUrl(baseParam));
 }
 
-/** QR ou URL http(s) affichée sur la page /pair du PC (ex. http://192.168.0.5:8091/pair?key=…). */
-export function parseHttpPairingTarget(raw: string): { baseUrl: string; apiKey: string | null } | null {
+/** QR ou URL http(s) affichée sur la page /pair du PC ou générée par CAPI (ex. http://192.168.0.5:8091/pair?key=…&capi=…). */
+export function parseHttpPairingTarget(raw: string): PairingParsed | null {
   const t = raw.trim();
   if (!/^https?:\/\//i.test(t)) return null;
   try {
@@ -33,13 +53,17 @@ export function parseHttpPairingTarget(raw: string): { baseUrl: string; apiKey: 
     const baseParam = u.searchParams.get('base')?.trim() ?? '';
     const baseFromQuery =
       baseParam && looksLikeHttpUrl(baseParam)
-        ? stripStageStockServerRootSuffix(baseParam.replace(/\/+$/, ''))
+        ? stripStageStockServerRootSuffix(trimSlash(baseParam))
         : null;
     const base =
       baseFromQuery ?? stripStageStockServerRootSuffix(`${u.protocol}//${u.host}`);
     if (!looksLikeHttpUrl(base)) return null;
     const key = u.searchParams.get('key')?.trim();
-    return { baseUrl: base, apiKey: key || null };
+    return {
+      baseUrl: base,
+      apiKey: key || null,
+      capiBaseUrl: parseCapiParam(u.searchParams.get('capi')),
+    };
   } catch {
     return null;
   }

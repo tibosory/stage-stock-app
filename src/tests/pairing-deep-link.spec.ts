@@ -13,6 +13,15 @@ function testDeepLink() {
   assert.ok(p);
   assert.equal(p!.baseUrl, 'http://192.168.0.5:8091');
   assert.equal(p!.apiKey, 'abc');
+  assert.equal(p!.capiBaseUrl, null);
+}
+
+function testDeepLinkWithCapi() {
+  const p = parsePairingDeepLink(
+    'stagestock://pair?base=http%3A%2F%2F192.168.0.5%3A8091&key=abc&capi=http%3A%2F%2F192.168.0.5%3A8080'
+  );
+  assert.ok(p);
+  assert.equal(p!.capiBaseUrl, 'http://192.168.0.5:8080');
 }
 
 function testHttpPairPage() {
@@ -20,6 +29,17 @@ function testHttpPairPage() {
   assert.ok(p);
   assert.equal(p!.baseUrl, 'http://192.168.0.5:8091');
   assert.equal(p!.apiKey, 'secret');
+  assert.equal(p!.capiBaseUrl, null);
+}
+
+function testHttpPairPageWithCapi() {
+  const p = parseHttpPairingTarget(
+    'http://192.168.0.5:8091/pair?key=secret&capi=http%3A%2F%2F192.168.0.5%3A8080'
+  );
+  assert.ok(p);
+  assert.equal(p!.baseUrl, 'http://192.168.0.5:8091');
+  assert.equal(p!.apiKey, 'secret');
+  assert.equal(p!.capiBaseUrl, 'http://192.168.0.5:8080');
 }
 
 function testHttpPairPageNoKey() {
@@ -42,7 +62,9 @@ function testLoopbackHost() {
 }
 
 testDeepLink();
+testDeepLinkWithCapi();
 testHttpPairPage();
+testHttpPairPageWithCapi();
 testHttpPairPageNoKey();
 testNonPairingHttpRejected();
 testLoopbackHost();
