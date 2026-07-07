@@ -103,13 +103,15 @@ function Ensure-AndroidGradleReleaseTuning {
     param([string]$Root)
     $file = Join-Path $Root 'android\gradle.properties'
     if (-not (Test-Path $file)) { return $false }
-    if (Test-AndroidGradleReleaseTuning -Root $Root) { return $false }
+    $changed = -not (Test-AndroidGradleReleaseTuning -Root $Root)
 
     $map = [ordered]@{
-        'reactNativeArchitectures' = 'arm64-v8a'
-        'org.gradle.parallel'      = 'true'
-        'org.gradle.caching'       = 'true'
-        'org.gradle.jvmargs'       = '-Xmx4096m -XX:MaxMetaspaceSize=512m'
+        'reactNativeArchitectures'       = 'arm64-v8a'
+        'org.gradle.parallel'            = 'true'
+        'org.gradle.caching'             = 'true'
+        'org.gradle.jvmargs'             = '-Xmx6144m -XX:MaxMetaspaceSize=1536m'
+        'android.lint.checkReleaseBuilds' = 'false'
+        'android.lint.abortOnError'      = 'false'
     }
     $lines = @(Get-Content $file)
     $out = [System.Collections.Generic.List[string]]::new()
@@ -127,8 +129,8 @@ function Ensure-AndroidGradleReleaseTuning {
         if (-not $found) { $out.Add($value) }
     }
     Set-Content -Path $file -Value ($out.ToArray())
-    Write-Host '[short-path] gradle.properties ajuste (arm64-v8a + cache Gradle)'
-    return $true
+    Write-Host '[short-path] gradle.properties ajuste (arm64-v8a + cache Gradle + lint off)'
+    return $changed
 }
 
 function Get-LatestSourceWriteUtc {

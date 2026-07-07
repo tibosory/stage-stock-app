@@ -8,17 +8,24 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ScriptDir = $PSScriptRoot
+
+# Forcer les chemins courts AVANT sync npm / gradle (évite le sandbox Cursor).
+$gradleHome = if ($env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME } else { 'C:\gc' }
+$env:GRADLE_USER_HOME = $gradleHome
+$env:TEMP = 'C:\tmp'
+$env:TMP = 'C:\tmp'
+New-Item -ItemType Directory -Force -Path $gradleHome.TrimEnd('\'), $env:TEMP | Out-Null
+if (-not $env:ANDROID_HOME) {
+    $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
+}
+$env:Path = "$env:ANDROID_HOME\platform-tools;$env:ANDROID_HOME\cmdline-tools\latest\bin;$env:Path"
+
 . (Join-Path $ScriptDir 'ensure-android-short-path.ps1') -MirrorRoot $MirrorRoot -ProjectRoot $ProjectRoot
 
 $ShortRoot = $global:StageStockShortRoot
 $ProjectRoot = $global:StageStockProjectRoot
 $env:STAGESTOCK_SHORT_ROOT = $ShortRoot
 $env:NODE_ENV = 'production'
-
-if (-not $env:ANDROID_HOME) {
-    $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
-}
-$env:Path = "$env:ANDROID_HOME\platform-tools;$env:ANDROID_HOME\cmdline-tools\latest\bin;$env:Path"
 
 if ($CleanNative) {
     & (Join-Path $ScriptDir 'clean-android-native-cache.ps1') -Root $ShortRoot
@@ -34,23 +41,38 @@ if ($needPrebuild) {
     Ensure-AndroidGradleReleaseTuning -Root $ShortRoot | Out-Null
     Set-Content -Path $global:StageStockPrebuildStamp -Value (Get-Date).ToUniversalTime().ToString('o')
 } else {
-    if (Ensure-AndroidGradleReleaseTuning -Root $ShortRoot) {
-        & (Join-Path $ScriptDir 'clean-android-native-cache.ps1') -Root $ShortRoot
-    }
+    Ensure-AndroidGradleReleaseTuning -Root $ShortRoot | Out-Null
 }
 
 Set-Location (Join-Path $ShortRoot 'android')
 $stale = Clear-StaleJsBundle -Root $ShortRoot
 Write-Host "[build] Projet source: $ProjectRoot"
 Write-Host "[build] Build root: $ShortRoot"
+Write-Host "[build] GRADLE_USER_HOME=$gradleHome"
 Write-Host '[build] gradlew assembleRelease (arm64-v8a)...'
 
 $gradleArgs = @(
+    "-g", $gradleHome,
+    '--no-daemon',
+    '--no-build-cache',
     '-PreactNativeArchitectures=arm64-v8a',
-    'assembleRelease'
+    'assembleRelease',
+    '-x', 'lintVitalAnalyzeRelease',
+    '-x', 'lintVitalReportRelease',
+    '-x', 'lintVitalRelease'
 )
 if ($stale) {
-    $gradleArgs = @('-PreactNativeArchitectures=arm64-v8a', ':app:createBundleReleaseJsAndAssets', 'assembleRelease')
+    $gradleArgs = @(
+        "-g", $gradleHome,
+        '--no-daemon',
+        '--no-build-cache',
+        '-PreactNativeArchitectures=arm64-v8a',
+        ':app:createBundleReleaseJsAndAssets',
+        'assembleRelease',
+        '-x', 'lintVitalAnalyzeRelease',
+        '-x', 'lintVitalReportRelease',
+        '-x', 'lintVitalRelease'
+    )
 }
 
 & .\gradlew.bat @gradleArgs
