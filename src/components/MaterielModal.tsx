@@ -21,6 +21,7 @@ import { useNfc } from '../hooks/useNfc';
 import { DynamicProfileForm } from './DynamicProfileForm';
 import { ProfileSchemaSystem } from '../application/services';
 import { loadMaterialProfileSchema, saveMaterialUseCase } from '../application/usecases';
+import { formatLieuPickerLabel } from '../lib/capiLieuxCatalog';
 import { useLanguage } from '../context/LanguageContext';
 import { isMaterielGestionLot, materielLotUnite, materielStockActuel } from '../lib/materielLot';
 import { stockFlightcaseKeyFromMateriel, assertMaterielQrNotFlightcase } from '../lib/stockFlightcase';
@@ -490,7 +491,7 @@ export default function MaterielModal({
     () => [
       { label: '— Choisir un lieu —', value: '' },
       ...lieux.map(l => ({
-        label: l.source === 'capi' ? `${l.nom} (CAPI)` : l.nom,
+        label: formatLieuPickerLabel(l),
         value: l.id,
       })),
     ],
@@ -578,7 +579,7 @@ export default function MaterielModal({
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
-          <SelectPicker label="Lieu (salle CAPI)" value={lieuId} options={lieuOptions} onChange={onLieuChange} />
+          <SelectPicker label="Lieu CAPI" value={lieuId} options={lieuOptions} onChange={onLieuChange} />
         </View>
         <View style={{ flex: 1 }}>
           <SelectPicker

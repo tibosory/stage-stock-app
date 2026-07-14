@@ -20,6 +20,7 @@ type CapiCatalogSnapshot = {
   ap_capi_espace_refs?: Record<string, unknown>[];
   ap_capi_planning_refs?: Record<string, unknown>[];
   ap_capi_document_refs?: Record<string, unknown>[];
+  ap_capi_dossier_refs?: Record<string, unknown>[];
 };
 
 export async function pullCapiAccueilProCatalogFromServer(
@@ -47,6 +48,7 @@ export async function pullCapiAccueilProCatalogFromServer(
     ap_capi_espace_refs: full.ap_capi_espace_refs,
     ap_capi_planning_refs: full.ap_capi_planning_refs,
     ap_capi_document_refs: full.ap_capi_document_refs,
+    ap_capi_dossier_refs: full.ap_capi_dossier_refs,
   });
 
   const materialized = await materializeCapiAccueilProCatalog();

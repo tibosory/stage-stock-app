@@ -402,3 +402,112 @@ export interface ApCapiDocumentRef {
   familleId: string;
   capiRef: string;
 }
+
+export type ApCapiDossierReferent = {
+  id?: string;
+  nom: string;
+  fonction?: string | null;
+  organisation?: string | null;
+  telephone?: string | null;
+  email?: string | null;
+};
+
+export type ApCapiDossierRepresentation = {
+  dateHeure: string;
+  libelle?: string | null;
+};
+
+export type ApCapiDossierContactLocal = {
+  role?: string;
+  nom?: string;
+  tel?: string;
+  notes?: string;
+};
+
+export type ApCapiDossierZone = { zone: string; notes?: string };
+
+export type ApCapiDossierHebergement = {
+  label: string;
+  adresse?: string;
+  contact?: string;
+  tel?: string;
+  notes?: string;
+};
+
+export type ApCapiDossierRepas = {
+  creneau?: string;
+  lieu?: string;
+  nbPersonnes?: string;
+  notes?: string;
+};
+
+export type ApCapiDossierLoge = { nom: string; attribution?: string; notes?: string };
+
+export type ApCapiDossierTransport = {
+  trajet?: string;
+  datePrevue?: string;
+  entreprise?: string;
+  livraisonPar?: string;
+  enlèvementPar?: string;
+  notes?: string;
+};
+
+export type ApCapiDossierEquipeMember = {
+  id: string;
+  nom: string;
+  role?: string | null;
+  telephone?: string | null;
+  email?: string | null;
+  origin?: 'compagnie' | 'planning';
+};
+
+export type ApCapiDossierPlanningPerson = {
+  nom: string;
+  personnelId?: string | null;
+  creneaux: Array<{
+    dateKey: string;
+    debut?: string | null;
+    fin?: string | null;
+    titre: string;
+    poste?: string | null;
+    typeHeure?: string;
+  }>;
+};
+
+export type ApCapiDossierBesoinTechnique = {
+  pole: string;
+  label: string;
+  value: string;
+};
+
+export interface ApCapiDossierRef {
+  id: string;
+  capiSpectacleRefId: string;
+  capiRef: string;
+  compagnie: string;
+  dateRepresentationDebut?: string | null;
+  dateRepresentationFin?: string | null;
+  dateOccupationDebut?: string | null;
+  dateOccupationFin?: string | null;
+  datePremontageDebut?: string | null;
+  datePremontageFin?: string | null;
+  dateDemontage?: string | null;
+  premontageRequis: boolean;
+  representations: ApCapiDossierRepresentation[];
+  contactCompagnieNom?: string | null;
+  contactCompagnieEmail?: string | null;
+  contactCompagnieTel?: string | null;
+  referentsCompagnie: ApCapiDossierReferent[];
+  hebergements: ApCapiDossierHebergement[];
+  repas: ApCapiDossierRepas[];
+  loges: ApCapiDossierLoge[];
+  contactsLocalCrew: ApCapiDossierContactLocal[];
+  zonesAccueil: ApCapiDossierZone[];
+  transportsAccueil: ApCapiDossierTransport[];
+  personnelAccueil?: string | null;
+  notesAccueil?: string | null;
+  equipe: ApCapiDossierEquipeMember[];
+  planningPersonnel: ApCapiDossierPlanningPerson[];
+  besoinsTechnique: ApCapiDossierBesoinTechnique[];
+  updatedAt?: string | null;
+}

@@ -7,6 +7,7 @@ import { insertCategorie, insertLocalisation, categoryPathById } from '../db/cat
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 import { Categorie, Localisation, Lieu, EtatMateriel, StatutMateriel } from '../types';
 import { Input, SelectPicker, BottomModal, FormButtons, DateField } from './UI';
+import { formatLieuPickerLabel } from '../lib/capiLieuxCatalog';
 import { useLanguage } from '../context/LanguageContext';
 
 interface Props {
@@ -185,7 +186,7 @@ export default function MaterielSerieModal({
     () => [
       { label: '— Choisir un lieu —', value: '' },
       ...lieux.map(l => ({
-        label: l.source === 'capi' ? `${l.nom} (CAPI)` : l.nom,
+        label: formatLieuPickerLabel(l),
         value: l.id,
       })),
     ],
@@ -298,7 +299,7 @@ export default function MaterielSerieModal({
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
-          <SelectPicker label="Lieu (salle CAPI)" value={lieuId} options={lieuOptions} onChange={setLieuId} />
+          <SelectPicker label="Lieu CAPI" value={lieuId} options={lieuOptions} onChange={setLieuId} />
         </View>
         <View style={{ flex: 1 }}>
           <SelectPicker label="Localisation (local)" value={localisationId} options={locOptions} onChange={setLocalisationId} />

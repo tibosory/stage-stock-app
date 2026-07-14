@@ -109,7 +109,7 @@ function Ensure-AndroidGradleReleaseTuning {
         'reactNativeArchitectures'       = 'arm64-v8a'
         'org.gradle.parallel'            = 'true'
         'org.gradle.caching'             = 'true'
-        'org.gradle.jvmargs'             = '-Xmx6144m -XX:MaxMetaspaceSize=1536m'
+        'org.gradle.jvmargs'             = '-Xmx6144m -XX:MaxMetaspaceSize=1536m -Djava.io.tmpdir=C:/tmp'
         'android.lint.checkReleaseBuilds' = 'false'
         'android.lint.abortOnError'      = 'false'
     }
@@ -131,6 +131,19 @@ function Ensure-AndroidGradleReleaseTuning {
     Set-Content -Path $file -Value ($out.ToArray())
     Write-Host '[short-path] gradle.properties ajuste (arm64-v8a + cache Gradle + lint off)'
     return $changed
+}
+
+function Ensure-AndroidLocalProperties {
+    param([string]$Root, [string]$SdkRoot)
+    if (-not (Test-Path $SdkRoot)) {
+        throw "SDK Android introuvable: $SdkRoot. Installez Android Studio ou definissez ANDROID_HOME."
+    }
+    $androidDir = Join-Path $Root 'android'
+    if (-not (Test-Path $androidDir)) { return }
+    $file = Join-Path $androidDir 'local.properties'
+    $sdkPath = $SdkRoot -replace '\\', '/'
+    Set-Content -Path $file -Value "sdk.dir=$sdkPath" -Encoding ascii
+    Write-Host "[short-path] local.properties -> $SdkRoot"
 }
 
 function Get-LatestSourceWriteUtc {

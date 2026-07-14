@@ -26,7 +26,18 @@ export default function AccueilProCapiDocumentsScreen() {
     useCallback(() => {
       setLoading(true);
       void listApCapiDocumentRefs(spectacleRefId)
-        .then(setDocs)
+        .then((rows) => {
+          const score = (d: ApCapiDocumentRef) => {
+            const n = `${d.nom} ${d.cheminDossier ?? ''} ${d.pole ?? ''}`.toLowerCase();
+            let s = 0;
+            if (d.pole === 'PLAN') s += 40;
+            if (d.pole === 'GENERAL') s += 20;
+            if (/accueil|feuille.?route|plan\b|technique/.test(n)) s += 30;
+            if (n.endsWith('.pdf') || (d.mimeType ?? '').includes('pdf')) s += 5;
+            return s;
+          };
+          setDocs([...rows].sort((a, b) => score(b) - score(a) || a.nom.localeCompare(b.nom, 'fr')));
+        })
         .finally(() => setLoading(false));
     }, [spectacleRefId]),
   );

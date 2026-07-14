@@ -14,9 +14,13 @@ $gradleHome = if ($env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME } else { 'C:\gc
 $env:GRADLE_USER_HOME = $gradleHome
 $env:TEMP = 'C:\tmp'
 $env:TMP = 'C:\tmp'
+$env:GRADLE_OPTS = '-Djava.io.tmpdir=C:\tmp'
 New-Item -ItemType Directory -Force -Path $gradleHome.TrimEnd('\'), $env:TEMP | Out-Null
 if (-not $env:ANDROID_HOME) {
     $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
+}
+if (-not (Test-Path $env:ANDROID_HOME)) {
+    throw "SDK Android introuvable ($($env:ANDROID_HOME)). Installez Android Studio ou definissez ANDROID_HOME."
 }
 $env:Path = "$env:ANDROID_HOME\platform-tools;$env:ANDROID_HOME\cmdline-tools\latest\bin;$env:Path"
 
@@ -43,6 +47,8 @@ if ($needPrebuild) {
 } else {
     Ensure-AndroidGradleReleaseTuning -Root $ShortRoot | Out-Null
 }
+
+Ensure-AndroidLocalProperties -Root $ShortRoot -SdkRoot $env:ANDROID_HOME
 
 Set-Location (Join-Path $ShortRoot 'android')
 $stale = Clear-StaleJsBundle -Root $ShortRoot
@@ -75,8 +81,30 @@ if ($stale) {
     )
 }
 
-& .\gradlew.bat @gradleArgs
-if ($LASTEXITCODE -ne 0) { throw 'assembleRelease a echoue.' }
+$logFile = Join-Path $env:TEMP 'gradle-assemble-release.log'
+& .\gradlew.bat @gradleArgs 2>&1 | Tee-Object -FilePath $logFile
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ''
+    Write-Host '=== assembleRelease a echoue ===' -ForegroundColor Red
+    Write-Host 'Le message "Deprecated Gradle features" n''est PAS la cause.'
+    Write-Host 'Cherchez la ligne "* What went wrong:" dans la sortie ci-dessus.'
+    Write-Host ''
+    Write-Host 'Causes frequentes :'
+    Write-Host '  - Chemins Windows > 260 car. : ne pas lancer gradlew depuis StageStock\android'
+    Write-Host '    -> utiliser npm run android:assemble-release (miroir C:\SSBuild)'
+    Write-Host '  - SDK Android : ANDROID_HOME ou local.properties'
+    Write-Host '  - Cache Gradle corrompu : npm run android:assemble-release:clean'
+    if (Test-Path $logFile) {
+        $what = Select-String -Path $logFile -Pattern 'What went wrong:|Filename longer than|SDK location not found' |
+            Select-Object -Last 3
+        if ($what) {
+            Write-Host ''
+            Write-Host 'Extrait du journal :'
+            $what | ForEach-Object { Write-Host $_.Line }
+        }
+    }
+    throw 'assembleRelease a echoue.'
+}
 
 $apk = Get-ChildItem -Path 'app\build\outputs\apk\release\*.apk' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $apk) { throw 'APK introuvable apres assembleRelease.' }

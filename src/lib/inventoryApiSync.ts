@@ -157,6 +157,7 @@ type Snapshot = {
   ap_capi_espace_refs?: Record<string, unknown>[];
   ap_capi_planning_refs?: Record<string, unknown>[];
   ap_capi_document_refs?: Record<string, unknown>[];
+  ap_capi_dossier_refs?: Record<string, unknown>[];
   capi_retro_notifications?: Record<string, unknown>[];
 };
 
@@ -687,9 +688,72 @@ export async function applyInventorySnapshotRows(database: SqliteDb, snap: Parti
     }
   }
 
-  if (apLieux.length || apSpectacles.length || apContacts.length || apEspaces.length || apPlanning.length || apDocs.length) {
+  const apDossiers = (snap.ap_capi_dossier_refs ?? []).filter(
+    (d): d is Record<string, unknown> => Boolean(d?.id && d?.capi_ref && d?.capi_spectacle_ref_id),
+  );
+  if (apDossiers.length) {
+    await database.runAsync('DELETE FROM ap_capi_dossier_refs');
+    const per = 30;
+    const chunkSize = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / per));
+    for (let i = 0; i < apDossiers.length; i += chunkSize) {
+      const chunk = apDossiers.slice(i, i + chunkSize);
+      const tuples = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const nowIso = new Date().toISOString();
+      const flat = chunk.flatMap((d) => [
+        String(d.id),
+        String(d.capi_spectacle_ref_id),
+        String(d.capi_ref),
+        d.compagnie != null ? String(d.compagnie) : null,
+        d.date_representation_debut != null ? String(d.date_representation_debut) : null,
+        d.date_representation_fin != null ? String(d.date_representation_fin) : null,
+        d.date_occupation_debut != null ? String(d.date_occupation_debut) : null,
+        d.date_occupation_fin != null ? String(d.date_occupation_fin) : null,
+        d.date_premontage_debut != null ? String(d.date_premontage_debut) : null,
+        d.date_premontage_fin != null ? String(d.date_premontage_fin) : null,
+        d.date_demontage != null ? String(d.date_demontage) : null,
+        d.premontage_requis != null ? num01(d.premontage_requis) : 0,
+        d.representations_json != null ? String(d.representations_json) : '[]',
+        d.contact_compagnie_nom != null ? String(d.contact_compagnie_nom) : null,
+        d.contact_compagnie_email != null ? String(d.contact_compagnie_email) : null,
+        d.contact_compagnie_tel != null ? String(d.contact_compagnie_tel) : null,
+        d.referents_compagnie_json != null ? String(d.referents_compagnie_json) : '[]',
+        d.hebergements_json != null ? String(d.hebergements_json) : '[]',
+        d.repas_json != null ? String(d.repas_json) : '[]',
+        d.loges_json != null ? String(d.loges_json) : '[]',
+        d.contacts_local_crew_json != null ? String(d.contacts_local_crew_json) : '[]',
+        d.zones_accueil_json != null ? String(d.zones_accueil_json) : '[]',
+        d.transports_accueil_json != null ? String(d.transports_accueil_json) : '[]',
+        d.personnel_accueil != null ? String(d.personnel_accueil) : null,
+        d.notes_accueil != null ? String(d.notes_accueil) : null,
+        d.equipe_json != null ? String(d.equipe_json) : '[]',
+        d.planning_personnel_json != null ? String(d.planning_personnel_json) : '[]',
+        d.besoins_technique_json != null ? String(d.besoins_technique_json) : '[]',
+        d.created_at != null ? String(d.created_at) : nowIso,
+        d.updated_at != null ? String(d.updated_at) : nowIso,
+      ]);
+      await database.runAsync(
+        `INSERT OR REPLACE INTO ap_capi_dossier_refs (
+          id, capi_spectacle_ref_id, capi_ref, compagnie,
+          date_representation_debut, date_representation_fin, date_occupation_debut, date_occupation_fin,
+          date_premontage_debut, date_premontage_fin, date_demontage, premontage_requis, representations_json,
+          contact_compagnie_nom, contact_compagnie_email, contact_compagnie_tel, referents_compagnie_json,
+          hebergements_json, repas_json, loges_json, contacts_local_crew_json, zones_accueil_json,
+          transports_accueil_json, personnel_accueil, notes_accueil,
+          equipe_json, planning_personnel_json, besoins_technique_json, created_at, updated_at
+        ) VALUES ${tuples}`,
+        flat,
+      );
+    }
+  }
+
+  if (apLieux.length || apSpectacles.length || apContacts.length || apEspaces.length || apPlanning.length || apDocs.length || apDossiers.length) {
     const { materializeCapiAccueilProCatalog } = await import('./capiAccueilProMaterialize');
     await materializeCapiAccueilProCatalog();
+  }
+
+  if (lieuxRows.length || apLieux.length || tourLieux.length) {
+    const { materializeCapiLieuxIntoInventoryCatalog } = await import('./capiLieuxCatalog');
+    await materializeCapiLieuxIntoInventoryCatalog(database);
   }
 
   if (Array.isArray(snap.capi_retro_notifications)) {

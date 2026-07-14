@@ -111,18 +111,18 @@ export default function AccueilProHomeScreen() {
       if (connStatus === 'needs_pairing') {
         Alert.alert(t('accueilpro.sync.needPairingTitle'), t('network.serverDetectedNeedPairing'));
       } else if (connStatus === 'ok') {
-        const { pull } = await syncAccueilProBidirectional(null);
         try {
           const { materialized } = await pullCapiAccueilProCatalogFromServer();
-          if (materialized.eventsCreated > 0 || materialized.spacesCreated > 0) {
+          if (materialized.eventsCreated > 0 || materialized.spacesCreated > 0 || materialized.planningItems > 0) {
             Alert.alert(
               'Catalogues CAPI',
-              `${materialized.eventsCreated} événement(s), ${materialized.spacesCreated} espace(s), ${materialized.planningItems} ligne(s) d'agenda synchronisés depuis CAPI.`,
+              `${materialized.eventsCreated} événement(s), ${materialized.spacesCreated} espace(s), ${materialized.planningItems} ligne(s) d'agenda importés depuis CAPI.`,
             );
           }
         } catch {
-          /* catalogues CAPI optionnels si pas encore sync côté serveur */
+          /* catalogues CAPI optionnels si pas encore sync côté serveur CAPI */
         }
+        const { pull } = await syncAccueilProBidirectional(null);
         setConflictCount(await countAccueilProConflicts());
         if (pull.conflicts > 0) {
           Alert.alert(

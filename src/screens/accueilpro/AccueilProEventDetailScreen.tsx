@@ -27,7 +27,10 @@ import {
   seedApDayPlanFromSingleEvent,
 } from '../../db/accueilProDb';
 import { contactFieldLabelsFromT, eventPersonnelContactLines } from '../../lib/accueilProContactDisplay';
+import { getApCapiDossierRefBySpectacleRefId } from '../../db/capiAccueilProRefDb';
+import { AccueilProCapiDossierPanel, AccueilProCapiTechniquePanel } from '../../components/accueilpro/AccueilProCapiDossierPanel';
 import type {
+  ApCapiDossierRef,
   ApConvention,
   ApDayPlanItem,
   ApEvent,
@@ -38,7 +41,7 @@ import type {
 } from '../../types/accueilPro';
 import { parsePhotosJson } from '../../modules/accueilpro/constants/inspectionChecklist';
 
-type EventTabId = 'overview' | 'team' | 'agenda';
+type EventTabId = 'overview' | 'accueil' | 'technique' | 'team' | 'agenda';
 
 export default function AccueilProEventDetailScreen() {
   const navigation = useNavigation<any>();
@@ -51,6 +54,7 @@ export default function AccueilProEventDetailScreen() {
   const [conventions, setConventions] = useState<ApConvention[]>([]);
   const [team, setTeam] = useState<ApEventPersonnel[]>([]);
   const [agendaItems, setAgendaItems] = useState<ApDayPlanItem[]>([]);
+  const [capiDossier, setCapiDossier] = useState<ApCapiDossierRef | null>(null);
   const [venueNames, setVenueNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -83,17 +87,21 @@ export default function AccueilProEventDetailScreen() {
       const ev = await getApEvent(eventId);
       setEvent(ev);
       if (ev) {
-        const [sp, conv, tp, venues, plan] = await Promise.all([
+        const [sp, conv, tp, venues, plan, dossier] = await Promise.all([
           resolveSpacesForEvent(ev),
           listApConventionsByEvent(eventId),
           listApEventPersonnel(eventId),
           listApVenues(),
           listApDayPlanItemsForEvent(eventId, ev.date_debut.slice(0, 10)),
+          ev.capi_spectacle_ref_id
+            ? getApCapiDossierRefBySpectacleRefId(ev.capi_spectacle_ref_id)
+            : Promise.resolve(null),
         ]);
         setSpaces(sp);
         setConventions(conv);
         setTeam(tp);
         setAgendaItems(plan);
+        setCapiDossier(dossier);
         setVenueNames(Object.fromEntries(venues.map(v => [v.id, v.name])));
       }
     } finally {
@@ -121,6 +129,12 @@ export default function AccueilProEventDetailScreen() {
 
   const tabs: { id: EventTabId; label: string }[] = [
     { id: 'overview', label: t('accueilpro.eventTab.overview') },
+    ...(event?.capi_spectacle_ref_id
+      ? [
+          { id: 'accueil' as const, label: 'Accueil CAPI' },
+          { id: 'technique' as const, label: 'Technique' },
+        ]
+      : []),
     { id: 'team', label: t('accueilpro.eventTab.team') },
     { id: 'agenda', label: t('accueilpro.eventTab.agenda') },
   ];
@@ -174,6 +188,19 @@ export default function AccueilProEventDetailScreen() {
               />
             ))}
           </View>
+
+          {event.capi_spectacle_ref_id ? (
+            <AccueilProFormCard style={{ marginBottom: Spacing.sm, backgroundColor: capiDossier ? '#E8F5E9' : '#FFF3E0' }}>
+              <Text style={[apStyles.rowTitle, { fontSize: 15 }]}>
+                {capiDossier ? 'Données CAPI synchronisées' : 'Dossier CAPI absent sur l’appareil'}
+              </Text>
+              <Text style={[apStyles.rowMeta, { marginTop: 4 }]}>
+                {capiDossier?.updatedAt
+                  ? `Dernière sync : ${capiDossier.updatedAt.slice(0, 10).split('-').reverse().join('/')}. Tirez pour actualiser (Pull Accueil Pro).`
+                  : 'Lancez une synchronisation Accueil Pro depuis l’accueil du module pour récupérer le dossier.'}
+              </Text>
+            </AccueilProFormCard>
+          ) : null}
 
           {tab === 'overview' ?
             <>
@@ -272,6 +299,14 @@ export default function AccueilProEventDetailScreen() {
             </>
           : null}
 
+          {tab === 'accueil' ?
+            <AccueilProCapiDossierPanel dossier={capiDossier} />
+          : null}
+
+          {tab === 'technique' ?
+            <AccueilProCapiTechniquePanel dossier={capiDossier} />
+          : null}
+
           {tab === 'team' ?
             <>
               <View style={apStyles.sectionHeader}>
@@ -312,6 +347,7 @@ export default function AccueilProEventDetailScreen() {
                   <AccueilProContactCard
                     key={m.id}
                     displayName={m.name.trim()}
+                    badge={m.id.startsWith('capi-eq:') ? 'CAPI' : null}
                     lines={eventPersonnelContactLines(m, contactFieldLabels)}
                     phone={m.phone}
                     email={m.email}

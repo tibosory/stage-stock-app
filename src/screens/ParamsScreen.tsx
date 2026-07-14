@@ -17,12 +17,13 @@ import {
 } from '../db/metadataDb';
 import {
   getCategories, insertCategorie, deleteCategorie, categoryPathById,
-  getLocalisations, insertLocalisation, deleteLocalisation,
+  getLocalisations, insertLocalisation, deleteLocalisation, getLieux,
 } from '../db/catalogDb';
 import { getMateriel, getConsommablesAlerte } from '../db/inventoryDb';
 import { getPrets } from '../db/loanDb';
 import { insertAppUser, listAppUsersAll } from '../db/userDb';
-import { Categorie, Localisation, AlerteEmail, AppUser, AppUserRole, Beneficiaire } from '../types';
+import { Categorie, Localisation, Lieu, AlerteEmail, AppUser, AppUserRole, Beneficiaire } from '../types';
+import { formatLieuPickerLabel } from '../lib/capiLieuxCatalog';
 import { Card, Input, ScreenHeader, SelectPicker, TabScreenSafeArea } from '../components/UI';
 import { SyncStatusBadge } from '../components/SyncStatusBadge';
 import { LegalLinksParamsCard } from '../components/LegalLinks';
@@ -102,11 +103,13 @@ export default function ParamsScreen() {
   const { can, refreshSession, user } = useAppAuth();
   const [categories, setCategories] = useState<Categorie[]>([]);
   const [localisations, setLocalisations] = useState<Localisation[]>([]);
+  const [lieux, setLieux] = useState<Lieu[]>([]);
   const [alertes, setAlertes] = useState<AlerteEmail[]>([]);
   const [stats, setStats] = useState({ totalMateriels: 0, enPret: 0, pretsEnCours: 0, alertesConsommables: 0 });
 
   const [newCat, setNewCat] = useState('');
   const [newLoc, setNewLoc] = useState('');
+  const [newLocLieuId, setNewLocLieuId] = useState('');
   const [alertNom, setAlertNom] = useState('');
   const [alertEmail, setAlertEmail] = useState('');
   const [alertRole, setAlertRole] = useState('');
@@ -175,9 +178,10 @@ export default function ParamsScreen() {
   }, []);
 
   const load = useCallback(async () => {
-    const [cats, locs, als, st, users, vgpAdv, bens, prefs, mids, comfort] = await Promise.all([
+    const [cats, locs, lieuRows, als, st, users, vgpAdv, bens, prefs, mids, comfort] = await Promise.all([
       getCategories(),
       getLocalisations(),
+      getLieux(),
       getAlertesEmail(),
       getStats(),
       listAppUsersAll(),
@@ -189,6 +193,7 @@ export default function ParamsScreen() {
     ]);
     setCategories(cats);
     setLocalisations(locs);
+    setLieux(lieuRows);
     setAlertes(als);
     setBeneficiaires(bens);
     setStats(st);
@@ -318,8 +323,12 @@ export default function ParamsScreen() {
   };
 
   const addLocalisation = async () => {
+    if (!newLocLieuId.trim()) {
+      Alert.alert('Lieu requis', 'Choisissez un lieu CAPI (salle, extérieur, adresse, véhicule…).');
+      return;
+    }
     if (!newLoc.trim()) return;
-    await insertLocalisation(newLoc.trim());
+    await insertLocalisation(newLoc.trim(), newLocLieuId.trim());
     setNewLoc('');
     load();
   };
@@ -938,10 +947,22 @@ export default function ParamsScreen() {
             <Text style={{ fontSize: 16, color: Colors.green }}>📍</Text>
             <Text style={s.sectionTitle}>Localisations</Text>
           </View>
-          <View style={s.addRow}>
+          <Text style={{ color: Colors.textMuted, fontSize: 11, marginBottom: 10 }}>
+            Rattachez chaque localisation fine (réserve, rack…) à un lieu CAPI synchronisé.
+          </Text>
+          <SelectPicker
+            label="Lieu CAPI parent"
+            value={newLocLieuId}
+            options={[
+              { label: '— Choisir un lieu —', value: '' },
+              ...lieux.map(l => ({ label: formatLieuPickerLabel(l), value: l.id })),
+            ]}
+            onChange={setNewLocLieuId}
+          />
+          <View style={[s.addRow, { marginTop: 8 }]}>
             <TextInput
               style={s.addInput}
-              placeholder="Nouveau..."
+              placeholder="Nouvelle localisation..."
               placeholderTextColor={Colors.textMuted}
               value={newLoc}
               onChangeText={setNewLoc}
@@ -952,9 +973,22 @@ export default function ParamsScreen() {
               <Text style={{ color: Colors.white, fontSize: 20, fontWeight: 'bold' }}>+</Text>
             </TouchableOpacity>
           </View>
-          {localisations.map(loc => (
+          {localisations.map(loc => {
+            const parent = lieux.find(l => l.id === loc.lieu_id);
+            return (
             <View key={loc.id} style={s.listItem}>
-              <Text style={{ color: Colors.white }}>{loc.nom}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: Colors.white }}>{loc.nom}</Text>
+                {parent ? (
+                  <Text style={{ color: Colors.textMuted, fontSize: 11, marginTop: 2 }}>
+                    {formatLieuPickerLabel(parent)}
+                  </Text>
+                ) : loc.lieu_id ? (
+                  <Text style={{ color: Colors.yellow, fontSize: 11, marginTop: 2 }}>Lieu parent inconnu</Text>
+                ) : (
+                  <Text style={{ color: Colors.yellow, fontSize: 11, marginTop: 2 }}>Sans lieu CAPI</Text>
+                )}
+              </View>
               <TouchableOpacity onPress={() => {
                 Alert.alert('Supprimer', `Supprimer "${loc.nom}" ?`, [
                   { text: 'Annuler', style: 'cancel' },
@@ -964,7 +998,8 @@ export default function ParamsScreen() {
                 <Text style={{ color: Colors.red, fontSize: 18 }}>🗑️</Text>
               </TouchableOpacity>
             </View>
-          ))}
+            );
+          })}
         </Card>
         )}
 

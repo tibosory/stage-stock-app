@@ -1,6 +1,6 @@
 /**
  * Matérialise les catalogues CAPI synchronisés en données Accueil Pro exploitables
- * (événements, espaces, planning journalier).
+ * (événements, espaces, planning journalier, équipe).
  */
 import {
   generateApId,
@@ -8,10 +8,12 @@ import {
   listApSpaces,
   saveApDayPlanItem,
   saveApEvent,
+  saveApEventPersonnel,
   saveSpace,
 } from '../db/accueilProDb';
 import { getDB } from '../db/database';
 import {
+  getApCapiDossierRefBySpectacleRefId,
   listApCapiEspaceRefs,
   listApCapiPlanningRefs,
   listApCapiSpectacleRefs,
@@ -23,11 +25,13 @@ export async function materializeCapiAccueilProCatalog(): Promise<{
   spacesCreated: number;
   eventsCreated: number;
   planningItems: number;
+  teamMembers: number;
 }> {
   let venuesLinked = 0;
   let spacesCreated = 0;
   let eventsCreated = 0;
   let planningItems = 0;
+  let teamMembers = 0;
 
   const espaces = await listApCapiEspaceRefs();
   for (const ref of espaces) {
@@ -65,6 +69,7 @@ export async function materializeCapiAccueilProCatalog(): Promise<{
     let event = await getApEventByCapiSpectacleRef(ref.id);
     if (!event) {
       const venue = ref.capiLieuRefId ? await ensureApVenueFromCapiLieuRef(ref.capiLieuRefId) : null;
+      if (!venue) continue;
       const id = generateApId();
       await saveApEvent({
         id,
@@ -74,7 +79,7 @@ export async function materializeCapiAccueilProCatalog(): Promise<{
         date_debut: ref.dateDebut.slice(0, 10),
         date_fin: ref.dateFin?.slice(0, 10) || null,
         status: 'confirmé',
-        venue_id: venue?.id ?? null,
+        venue_id: venue.id,
         capi_spectacle_ref_id: ref.id,
         capi_lieu_ref_id: ref.capiLieuRefId || null,
         spaces_mode: 'all',
@@ -107,7 +112,31 @@ export async function materializeCapiAccueilProCatalog(): Promise<{
       });
       planningItems += 1;
     }
+
+    const dossier = await getApCapiDossierRefBySpectacleRefId(ref.id);
+    if (dossier?.equipe?.length) {
+      const db = await getDB();
+      for (const member of dossier.equipe) {
+        const stableId = `capi-eq:${event.id}:${member.id}`;
+        const existing = await db.getFirstAsync<{ id: string }>(
+          'SELECT id FROM ap_event_personnel WHERE id = ? LIMIT 1',
+          [stableId],
+        );
+        await saveApEventPersonnel({
+          id: existing?.id ?? stableId,
+          event_id: event.id,
+          source: 'adhoc',
+          name: member.nom,
+          day_role: member.role ?? null,
+          day_mission: member.role ?? null,
+          phone: member.telephone ?? null,
+          email: member.email ?? null,
+          source_personnel_id: null,
+        });
+        teamMembers += 1;
+      }
+    }
   }
 
-  return { venuesLinked, spacesCreated, eventsCreated, planningItems };
+  return { venuesLinked, spacesCreated, eventsCreated, planningItems, teamMembers };
 }

@@ -1,4 +1,5 @@
 import type { Categorie, Lieu, Localisation } from '../types';
+import { materializeCapiLieuxIntoInventoryCatalog } from '../lib/capiLieuxCatalog';
 import { generateId, getDB } from './database';
 
 /** Chaine "parent › enfant › feuille" pour affichage / listes deroulantes. */
@@ -69,7 +70,8 @@ export async function deleteCategorie(id: string): Promise<void> {
 
 export async function getLieux(): Promise<Lieu[]> {
   const database = await getDB();
-  return database.getAllAsync<Lieu>('SELECT * FROM lieux ORDER BY nom ASC');
+  await materializeCapiLieuxIntoInventoryCatalog(database);
+  return database.getAllAsync<Lieu>('SELECT * FROM lieux ORDER BY nom COLLATE NOCASE ASC');
 }
 
 export async function getLocalisations(lieuId?: string | null): Promise<Localisation[]> {

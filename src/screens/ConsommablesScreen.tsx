@@ -18,6 +18,7 @@ import {
 } from '../db/catalogDb';
 import { Consommable, Categorie, Localisation, Lieu } from '../types';
 import { formatLieuLocalisation } from '../lib/materielLocation';
+import { formatLieuPickerLabel } from '../lib/capiLieuxCatalog';
 import {
   StockBadge, Card, ScreenHeader, BottomModal,
   Input, SelectPicker, FormButtons, TabScreenSafeArea,
@@ -913,7 +914,7 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
     () => [
       { label: '— Choisir un lieu —', value: '' },
       ...lieux.map(l => ({
-        label: l.source === 'capi' ? `${l.nom} (CAPI)` : l.nom,
+        label: formatLieuPickerLabel(l),
         value: l.id,
       })),
     ],
@@ -961,7 +962,7 @@ function ConsoModal({ visible, onClose, onSaved, onCategoriesRefresh, item, cate
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
-          <SelectPicker label="Lieu (salle CAPI)" value={lieuId} options={lieuOptions} onChange={onLieuChange} />
+          <SelectPicker label="Lieu CAPI" value={lieuId} options={lieuOptions} onChange={onLieuChange} />
         </View>
         <View style={{ flex: 1 }}>
           <SelectPicker

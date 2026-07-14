@@ -357,6 +357,38 @@ async function runSchemaMigrations(database: SQLite.SQLiteDatabase): Promise<voi
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS ap_capi_dossier_refs (
+      id TEXT PRIMARY KEY,
+      capi_spectacle_ref_id TEXT NOT NULL,
+      capi_ref TEXT NOT NULL UNIQUE,
+      compagnie TEXT,
+      date_representation_debut TEXT,
+      date_representation_fin TEXT,
+      date_occupation_debut TEXT,
+      date_occupation_fin TEXT,
+      date_premontage_debut TEXT,
+      date_premontage_fin TEXT,
+      date_demontage TEXT,
+      premontage_requis INTEGER DEFAULT 0,
+      representations_json TEXT,
+      contact_compagnie_nom TEXT,
+      contact_compagnie_email TEXT,
+      contact_compagnie_tel TEXT,
+      referents_compagnie_json TEXT,
+      hebergements_json TEXT,
+      repas_json TEXT,
+      loges_json TEXT,
+      contacts_local_crew_json TEXT,
+      zones_accueil_json TEXT,
+      transports_accueil_json TEXT,
+      personnel_accueil TEXT,
+      notes_accueil TEXT,
+      equipe_json TEXT,
+      planning_personnel_json TEXT,
+      besoins_technique_json TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
     CREATE TABLE IF NOT EXISTS capi_retro_notifications (
       id TEXT PRIMARY KEY,
       capi_action_id TEXT NOT NULL,
@@ -372,6 +404,10 @@ async function runSchemaMigrations(database: SQLite.SQLiteDatabase): Promise<voi
       updated_at TEXT DEFAULT (datetime('now'))
     );
   `);
+
+  await addCol('ap_capi_dossier_refs', 'equipe_json', 'TEXT');
+  await addCol('ap_capi_dossier_refs', 'planning_personnel_json', 'TEXT');
+  await addCol('ap_capi_dossier_refs', 'besoins_technique_json', 'TEXT');
 
   await database.execAsync(`
     CREATE TABLE IF NOT EXISTS sync_regie_deletions (

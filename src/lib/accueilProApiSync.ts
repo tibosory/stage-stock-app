@@ -136,10 +136,13 @@ export async function pushAccueilProToApi(
   }
 
   const applied = json.totalApplied ?? 0;
+  if (applied === 0 && sentCount > 0) {
+    // Ne pas bloquer le pull ni l'import CAPI : souvent des lignes orphelines (événement/lieu manquant).
+    console.warn(`AccueilPro push: ${sentCount} ligne(s) envoyée(s), aucune appliquée par le serveur.`);
+    return false;
+  }
   if (applied === 0) {
-    throw new Error(
-      'AccueilPro : le serveur n’a appliqué aucune ligne. Vérifiez les champs obligatoires (lieu, organisation, nom).'
-    );
+    return false;
   }
 
   if (json.appliedIds && Object.keys(json.appliedIds).length > 0) {
