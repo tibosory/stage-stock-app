@@ -82,8 +82,13 @@ if ($stale) {
 }
 
 $logFile = Join-Path $env:TEMP 'gradle-assemble-release.log'
+# stderr Gradle/javac ("Note:") ne doit pas abort PowerShell (ErrorAction Stop).
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 & .\gradlew.bat @gradleArgs 2>&1 | Tee-Object -FilePath $logFile
-if ($LASTEXITCODE -ne 0) {
+$gradleExit = $LASTEXITCODE
+$ErrorActionPreference = $prevEap
+if ($gradleExit -ne 0) {
     Write-Host ''
     Write-Host '=== assembleRelease a echoue ===' -ForegroundColor Red
     Write-Host 'Le message "Deprecated Gradle features" n''est PAS la cause.'

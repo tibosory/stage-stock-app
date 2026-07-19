@@ -3,7 +3,7 @@
     "name": "CATRACK Pro",
     "slug": "stage-stock",
     "scheme": "stagestock",
-    "version": "1.0.41",
+    "version": "1.0.42",
     "jsEngine": "hermes",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -98,7 +98,7 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE"
       ],
-      "versionCode": 41
+      "versionCode": 42
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -148,7 +148,7 @@
       "privacyPolicyUrl": "",
       "termsOfServiceUrl": ""
     },
-    "runtimeVersion": "1.0.41",
+    "runtimeVersion": "1.0.42",
     "updates": {
       "enabled": false
     },

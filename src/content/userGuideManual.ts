@@ -35,9 +35,7 @@ export const USER_GUIDE_META = {
   subtitle: 'Guide pas à pas avec exemples concrets',
 
   versionLabel:
-
-    '24 juin 2026 — v1.0.41 (diagnostic sync, clés sécurisées, sync partielle)',
-
+    '20 juil. 2026 — v1.0.42 (affectation spectacle vs prêts, sync emprunteurs CAPI)',
 };
 
 

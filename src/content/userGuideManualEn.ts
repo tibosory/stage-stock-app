@@ -8,7 +8,7 @@ export const USER_GUIDE_META_EN = {
   title: 'CATRACK Pro — User guide',
   subtitle: 'Step-by-step guide with practical examples',
   versionLabel:
-    'June 24, 2026 — v1.0.41 (sync diagnostic, secure keys, partial sync)',
+    'July 20, 2026 — v1.0.42 (show assignment vs loans, CAPI borrower sync)',
 };
 
 export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [

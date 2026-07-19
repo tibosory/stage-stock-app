@@ -1,6 +1,6 @@
 {
   "name": "stage-stock",
-  "version": "1.0.35",
+  "version": "1.0.42",
   "main": "expo/AppEntry.js",
   "expo": {
     "doctor": {
