@@ -264,33 +264,34 @@ export class SyncProfileRouter {
 
 // ─── S2.0bis — File Storage Profile (orthogonal à la sync data) ──────────────
 //
-// Les photos matériel et PDF notices sont uploadés vers Supabase Storage. Cette
-// couche EST INDÉPENDANTE du SyncProfile data ci-dessus. Conséquence pratique :
-//   - En mode `docker-local`, la data va vers Express PG MAIS les fichiers
-//     binaires continuent de transiter par Supabase Storage (URL conservée
-//     dans la colonne `photo_url` / `notice_pdf_url` des entités).
-//   - Couper Supabase casse uniquement la couche fichiers, pas la data.
-//
-// Cette séparation est intentionnelle : Supabase Storage offre un CDN public
-// qu’aucune install Docker locale ne fournit out-of-the-box. Si Supabase n’est
-// pas configuré, l’upload retourne `null` et seuls les chemins locaux du device
-// sont conservés (`photo_local`).
+// Photos matériel / consommables et notices :
+//   - Mode `supabase` : upload vers Supabase Storage (URL absolue dans photo_url).
+//   - Mode `local_server` (intranet / Docker) : upload multipart vers l’API
+//     CATRACK (`/api/inventory/…-files/…`), stocké sur volume serveur.
+//   - Si aucun backend fichier n’est dispo, seuls les chemins device
+//     (`photo_local`) restent — CAPI ne peut alors pas afficher la photo.
 
 export type FileStorageProfile =
   | { kind: 'supabase'; supabaseUrl: string }
+  | { kind: 'local-server' }
   | { kind: 'local-only'; reason: 'supabase-not-configured' };
 
 export interface FileStorageProfileDeps {
   /** Réutilise `isSupabaseConfigured()` + URL effective côté lib/supabase.ts. */
   readonly getSupabaseStatus: () => { configured: boolean; url: string };
+  /** Mode data courant (`local_server` → fichiers sur l’API CATRACK). */
+  readonly getDataBackendMode?: () => 'local_server' | 'supabase' | null;
 }
 
 /**
- * Lit l’état runtime de Supabase Storage. Stateless et synchrone, on lit
- * directement le client courant : il est garanti initialisé au boot par
- * `initSupabaseFromStorage()` dans `App.tsx`.
+ * Lit l’état runtime du stockage fichiers.
+ * En mode serveur local, les binaires partent vers `/api/inventory/…` (volume Docker).
  */
 export function getFileStorageProfile(deps: FileStorageProfileDeps): FileStorageProfile {
+  const mode = deps.getDataBackendMode?.() ?? null;
+  if (mode === 'local_server') {
+    return { kind: 'local-server' };
+  }
   const { configured, url } = deps.getSupabaseStatus();
   if (configured && url) {
     return { kind: 'supabase', supabaseUrl: url };

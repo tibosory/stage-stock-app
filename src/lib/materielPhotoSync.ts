@@ -21,6 +21,8 @@ import {
   pushMaterielNoticesToSupabaseAfterSave,
   uploadPhoto,
 } from './supabase';
+import { getDataBackendMode } from './backendMode';
+import { uploadInventoryMediaToLocalServer } from './inventoryLocalMediaUpload';
 
 function joinApiUrl(base: string, path: string): string {
   const b = stripStageStockServerRootSuffix(base.replace(/\/+$/, ''));
@@ -62,9 +64,12 @@ async function downloadRemoteFileToPath(args: {
   return args.destPath;
 }
 
-/** Téléverse photo principale et notices sans URL distante. */
+/** Téléverse photo principale et notices sans URL distante (Supabase ou serveur local). */
 export async function uploadPendingMaterielMedia(database: SqliteDb): Promise<void> {
-  if (!isSupabaseConfigured()) return;
+  const mode = await getDataBackendMode();
+  const useSupabase = mode === 'supabase' && isSupabaseConfigured();
+  const useLocal = mode === 'local_server' || (!useSupabase && !isSupabaseConfigured());
+  if (!useSupabase && !useLocal) return;
 
   const rows = await database.getAllAsync<{
     id: string;
@@ -83,7 +88,13 @@ export async function uploadPendingMaterielMedia(database: SqliteDb): Promise<vo
     const photoLocal = row.photo_local?.trim();
     if (photoLocal && !row.photo_url?.trim() && (await mediaFileExists(photoLocal))) {
       try {
-        const url = await uploadPhoto(photoLocal, id);
+        const url = useSupabase
+          ? await uploadPhoto(photoLocal, id)
+          : await uploadInventoryMediaToLocalServer({
+              kind: 'materiel-photo',
+              entityId: id,
+              localUri: photoLocal,
+            });
         if (url) {
           await database.runAsync('UPDATE materiels SET photo_url = ?, updated_at = ? WHERE id = ?', [
             url,
@@ -94,6 +105,42 @@ export async function uploadPendingMaterielMedia(database: SqliteDb): Promise<vo
       } catch {
         /* retenter */
       }
+    }
+
+    if (useLocal) {
+      const noticePhotoLocal = row.notice_photo_local?.trim();
+      if (noticePhotoLocal && !row.notice_photo_url?.trim() && (await mediaFileExists(noticePhotoLocal))) {
+        try {
+          const url = await uploadInventoryMediaToLocalServer({
+            kind: 'materiel-notice-photo',
+            entityId: id,
+            localUri: noticePhotoLocal,
+          });
+          await database.runAsync(
+            'UPDATE materiels SET notice_photo_url = ?, updated_at = ? WHERE id = ?',
+            [url, new Date().toISOString(), id],
+          );
+        } catch {
+          /* retenter */
+        }
+      }
+      const noticePdfLocal = row.notice_pdf_local?.trim();
+      if (noticePdfLocal && !row.notice_pdf_url?.trim() && (await mediaFileExists(noticePdfLocal))) {
+        try {
+          const url = await uploadInventoryMediaToLocalServer({
+            kind: 'materiel-notice-pdf',
+            entityId: id,
+            localUri: noticePdfLocal,
+          });
+          await database.runAsync(
+            'UPDATE materiels SET notice_pdf_url = ?, updated_at = ? WHERE id = ?',
+            [url, new Date().toISOString(), id],
+          );
+        } catch {
+          /* retenter */
+        }
+      }
+      continue;
     }
 
     const noticePatch: {

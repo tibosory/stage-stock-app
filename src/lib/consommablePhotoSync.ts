@@ -12,6 +12,8 @@ import {
   consommablePhotoFileExists,
   persistConsommablePhotoCopy,
 } from './consommablePhotoStorage';
+import { getDataBackendMode } from './backendMode';
+import { uploadInventoryMediaToLocalServer } from './inventoryLocalMediaUpload';
 
 function joinApiUrl(base: string, path: string): string {
   const b = stripStageStockServerRootSuffix(base.replace(/\/+$/, ''));
@@ -52,7 +54,10 @@ async function downloadConsommablePhotoFromUrl(args: {
 
 /** Téléverse les photos locales sans URL distante (avant push inventaire). */
 export async function uploadPendingConsommablePhotos(database: SqliteDb): Promise<void> {
-  if (!isSupabaseConfigured()) return;
+  const mode = await getDataBackendMode();
+  const useSupabase = mode === 'supabase' && isSupabaseConfigured();
+  const useLocal = mode === 'local_server' || (!useSupabase && !isSupabaseConfigured());
+  if (!useSupabase && !useLocal) return;
 
   const rows = await database.getAllAsync<{
     id: string;
@@ -69,7 +74,13 @@ export async function uploadPendingConsommablePhotos(database: SqliteDb): Promis
     if (!local) continue;
     if (!(await consommablePhotoFileExists(local))) continue;
     try {
-      const photoUrl = await uploadConsommablePhoto(local, String(row.id));
+      const photoUrl = useSupabase
+        ? await uploadConsommablePhoto(local, String(row.id))
+        : await uploadInventoryMediaToLocalServer({
+            kind: 'consommable-photo',
+            entityId: String(row.id),
+            localUri: local,
+          });
       if (!photoUrl) continue;
       await database.runAsync(
         'UPDATE consommables SET photo_url = ?, updated_at = ? WHERE id = ?',

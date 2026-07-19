@@ -346,14 +346,17 @@ function case_fileStorage_notConfigured_localOnly() {
 }
 
 function case_fileStorage_independentFromSyncData() {
-  /** Démontre la séparation orthogonale : on peut être en `docker-local` data
-   *  ET avoir un fileStorage `supabase` (mode mixte normal en LAN). */
+  /** Sans getDataBackendMode, le profil fichier suit uniquement Supabase. */
   const fs = getFileStorageProfile({
     getSupabaseStatus: () => ({ configured: true, url: 'https://x.supabase.co' }),
   });
-  /** Pas de relation entre les deux : fileStorage ne dépend QUE de getSupabaseStatus. */
   assert.equal(fs.kind, 'supabase');
-  console.log('  ✓ fileStorage orthogonal au syncProfile (mode mixte LAN+CDN OK)');
+  const local = getFileStorageProfile({
+    getSupabaseStatus: () => ({ configured: true, url: 'https://x.supabase.co' }),
+    getDataBackendMode: () => 'local_server',
+  });
+  assert.equal(local.kind, 'local-server');
+  console.log('  ✓ fileStorage local-server si mode data local_server (intranet)');
 }
 
 async function run() {
