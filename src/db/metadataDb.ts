@@ -14,9 +14,11 @@ export async function insertBeneficiaire(data: {
   organisation?: string | null;
   telephone?: string | null;
   email?: string | null;
+  /** Id stable (ex. `capi-ben-personnel:…`) — sinon UUID local. */
+  id?: string | null;
 }): Promise<string> {
   const database = await getDB();
-  const id = generateId();
+  const id = data.id?.trim() || generateId();
   const now = new Date().toISOString();
   await database.runAsync(
     `INSERT INTO beneficiaires (id, nom, organisation, telephone, email, created_at, updated_at)

@@ -30,6 +30,7 @@ const ETATS: { label: string; value: EtatMateriel }[] = [
 const STATUTS: { label: string; value: StatutMateriel }[] = [
   { label: 'En stock', value: 'en stock' },
   { label: 'En prêt', value: 'en prêt' },
+  { label: 'Sur spectacle', value: 'sur spectacle' },
   { label: 'On tour', value: 'en tournée' },
   { label: 'En réparation', value: 'en réparation' },
   { label: 'Perdu', value: 'perdu' },

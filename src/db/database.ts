@@ -219,6 +219,8 @@ async function runSchemaMigrations(database: SQLite.SQLiteDatabase): Promise<voi
   await addCol('materiels', 'tracking_state', 'TEXT');
   await addCol('materiels', 'current_tour_id', 'TEXT');
   await addCol('materiels', 'current_location_id', 'TEXT');
+  await addCol('materiels', 'capi_spectacle_id', 'TEXT');
+  await addCol('materiels', 'capi_spectacle_label', 'TEXT');
   await addCol('materiels', 'gestion_lot', 'INTEGER DEFAULT 0');
   await addCol('materiels', 'stock_actuel', 'INTEGER DEFAULT 1');
   await addCol('materiels', 'unite', "TEXT DEFAULT 'pièce'");
@@ -1247,6 +1249,7 @@ export const insertBeneficiaire = async (data: {
   organisation?: string | null;
   telephone?: string | null;
   email?: string | null;
+  id?: string | null;
 }): Promise<string> => {
   const mod = await import('./metadataDb');
   return mod.insertBeneficiaire(data);

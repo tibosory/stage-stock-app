@@ -10,6 +10,7 @@ import { fr } from 'date-fns/locale';
 import { Colors } from '../theme/colors';
 import { getMateriel } from '../db/inventoryDb';
 import { getBeneficiaires, insertBeneficiaire, updateBeneficiaire } from '../db/metadataDb';
+import { isCapiBeneficiaireId, pushAccueilProContactToCapi } from '../lib/capiAccueilProApi';
 import {
   getPrets,
   getPretMateriel,
@@ -416,10 +417,14 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
   const benOptions = useMemo(
     () => [
       { label: t('common.manualEntry'), value: '' },
-      ...beneficiaires.map(b => ({
-        label: b.organisation?.trim() ? `${b.nom} — ${b.organisation.trim()}` : b.nom,
-        value: b.id,
-      })),
+      ...beneficiaires.map(b => {
+        const base = b.organisation?.trim() ? `${b.nom} — ${b.organisation.trim()}` : b.nom;
+        const prefix = isCapiBeneficiaireId(b.id) ? t('loans.field.capiContactPrefix') : '';
+        return {
+          label: prefix ? `${prefix}${base}` : base,
+          value: b.id,
+        };
+      }),
     ],
     [beneficiaires, t]
   );
@@ -583,7 +588,20 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       return;
     }
     try {
+      let linkedId: string | null = null;
+      if (!isCapiBeneficiaireId(beneficiaireRepId)) {
+        const pushed = await pushAccueilProContactToCapi({
+          nom: emprunteur.trim(),
+          organisation: organisation.trim() || null,
+          telephone: telephone.trim() || null,
+          email: email.trim() || null,
+          role: 'Emprunteur',
+          kind: organisation.trim() ? 'prestataire' : 'personnel',
+        });
+        linkedId = pushed?.beneficiaire_id?.trim() || null;
+      }
       const id = await insertBeneficiaire({
+        id: linkedId,
         nom: emprunteur.trim(),
         organisation: organisation.trim() || null,
         telephone: telephone.trim() || null,
@@ -592,7 +610,10 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       const list = await getBeneficiaires();
       setBeneficiaires(list);
       setBeneficiaireRepId(id);
-      Alert.alert('✓', t('loans.recipient.created'));
+      Alert.alert(
+        '✓',
+        linkedId ? t('loans.recipient.createdAndSynced') : t('loans.recipient.created'),
+      );
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       Alert.alert(t('loans.error'), msg);

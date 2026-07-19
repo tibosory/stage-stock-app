@@ -55,6 +55,7 @@ const statutBg: Record<string, string> = {
   'en réparation': Colors.yellow,
   perdu: Colors.red,
   'en tournée': Colors.blue,
+  'sur spectacle': Colors.yellow,
 };
 
 export const StatutBadge = ({ statut }: { statut: StatutMateriel }) => (
@@ -66,11 +67,13 @@ export const StatutBadge = ({ statut }: { statut: StatutMateriel }) => (
           ? tRuntime('status.material.on_loan')
           : statut === 'en tournée'
             ? tRuntime('status.material.on_tour')
-            : statut === 'en réparation'
-              ? tRuntime('status.material.in_repair')
-              : statut === 'perdu'
-                ? tRuntime('status.material.lost')
-                : `${String(statut).charAt(0).toUpperCase()}${String(statut).slice(1)}`}
+            : statut === 'sur spectacle'
+              ? tRuntime('status.material.on_show')
+              : statut === 'en réparation'
+                ? tRuntime('status.material.in_repair')
+                : statut === 'perdu'
+                  ? tRuntime('status.material.lost')
+                  : `${String(statut).charAt(0).toUpperCase()}${String(statut).slice(1)}`}
     </Text>
   </View>
 );

@@ -414,6 +414,7 @@ export default function StockScreen({ navigation, route }: any) {
     { key: 'tous', label: t('stock.filter.all') },
     { key: 'en stock', label: t('stock.filter.in_stock') },
     { key: 'en prêt', label: t('stock.filter.on_loan') },
+    { key: 'sur spectacle', label: t('stock.filter.on_show') },
     { key: 'en tournée', label: t('stock.filter.on_tour') },
     { key: 'en réparation', label: t('stock.filter.in_repair') },
     { key: 'perdu', label: t('stock.filter.lost') },

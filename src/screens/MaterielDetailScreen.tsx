@@ -489,6 +489,11 @@ export default function MaterielDetailScreen() {
             {currentTourName || mat.current_tour_id || t('stock.on_tour_fallback')}
           </Text>
         )}
+        {mat.statut === 'sur spectacle' && (
+          <Text style={s.subtitle}>
+            Utilisation en cours — {mat.capi_spectacle_label?.trim() || mat.capi_spectacle_id || 'spectacle CAPI'}
+          </Text>
+        )}
 
         {sameNameEnStockCount != null && (
           <View style={s.sameNameInfo}>

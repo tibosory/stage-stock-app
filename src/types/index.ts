@@ -3,7 +3,7 @@
 export type AppUserRole = 'admin' | 'technicien' | 'emprunteur';
 
 export type EtatMateriel = 'bon' | 'moyen' | 'usé' | 'hors service';
-export type StatutMateriel = 'en stock' | 'en prêt' | 'en réparation' | 'perdu' | 'en tournée';
+export type StatutMateriel = 'en stock' | 'en prêt' | 'en réparation' | 'perdu' | 'en tournée' | 'sur spectacle';
 export type StatutPret = 'en demande' | 'en cours' | 'retourné' | 'en retard' | 'annulé';
 export type TourStatus = 'planned' | 'active' | 'completed';
 export type AssignmentStatus = 'assigned' | 'in_use' | 'returned' | 'lost' | 'damaged';
@@ -36,6 +36,9 @@ export interface Materiel {
   flightcase?: string | null;
   etat: EtatMateriel;
   statut: StatutMateriel;
+  /** Affectation CAPI (hors prêt) — utilisation en cours sur un spectacle. */
+  capi_spectacle_id?: string | null;
+  capi_spectacle_label?: string | null;
   date_achat?: string;
   date_validite?: string;
   /** Dernier horodatage d'opération de maintenance (yyyy-MM-dd). */

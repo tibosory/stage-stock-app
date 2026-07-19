@@ -57,6 +57,7 @@ const ETATS: { label: string; value: EtatMateriel }[] = [
 const STATUTS: { label: string; value: StatutMateriel }[] = [
   { label: 'En stock', value: 'en stock' },
   { label: 'En prêt', value: 'en prêt' },
+  { label: 'Sur spectacle', value: 'sur spectacle' },
   { label: 'On tour', value: 'en tournée' },
   { label: 'En réparation', value: 'en réparation' },
   { label: 'Perdu', value: 'perdu' },
@@ -407,6 +408,10 @@ export default function MaterielModal({
         flightcase: flightcase.trim() || undefined,
         etat,
         statut: statutLockedByTour ? 'en tournée' : statut,
+        capi_spectacle_id:
+          statutLockedByTour || statut === 'sur spectacle' ? item?.capi_spectacle_id ?? null : null,
+        capi_spectacle_label:
+          statutLockedByTour || statut === 'sur spectacle' ? item?.capi_spectacle_label ?? null : null,
         date_achat: dateAchat || undefined,
         date_validite: dateValidite || undefined,
         prochain_controle: prochainControle || undefined,
@@ -682,6 +687,12 @@ export default function MaterielModal({
       {statutLockedByTour ? (
         <Text style={s.lockInfo}>
           Statut verrouillé : ce matériel est en tournée ({currentTourName || item?.current_tour_id}). Modifiez-le depuis la tournée.
+        </Text>
+      ) : null}
+      {statut === 'sur spectacle' || item?.capi_spectacle_id ? (
+        <Text style={s.lockInfo}>
+          Affecté au spectacle CAPI : {item?.capi_spectacle_label?.trim() || item?.capi_spectacle_id || '—'}.
+          Remettez « En stock » pour libérer, ou libérez depuis CAPI.
         </Text>
       ) : null}
 

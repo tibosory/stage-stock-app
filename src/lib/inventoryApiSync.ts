@@ -244,6 +244,8 @@ function materielSnapshotParams(m: Record<string, unknown>): (string | number | 
     Number((m as { stock_actuel?: unknown }).stock_actuel ?? 1),
     sqlVal((m as { unite?: unknown }).unite ?? 'pièce'),
     Number((m as { seuil_minimum?: unknown }).seuil_minimum ?? 0),
+    sqlVal((m as { capi_spectacle_id?: unknown }).capi_spectacle_id ?? null),
+    sqlVal((m as { capi_spectacle_label?: unknown }).capi_spectacle_label ?? null),
     sqlVal(m.created_at ?? new Date().toISOString()),
     sqlVal(m.updated_at ?? new Date().toISOString()),
   ];
@@ -258,10 +260,11 @@ const MATERIEL_SNAPSHOT_INSERT_SQL = `INSERT OR REPLACE INTO materiels (
             vgp_actif, vgp_periodicite_jours, vgp_derniere_visite, vgp_libelle, vgp_epi,
             gel_brand, gel_code, gel_instead_of_photo,
             gestion_lot, stock_actuel, unite, seuil_minimum,
+            capi_spectacle_id, capi_spectacle_label,
             created_at, updated_at, synced
           ) VALUES `;
 
-const MATERIEL_SNAPSHOT_VALUES_TUPLE = `(${Array(41).fill('?').join(',')},1)`;
+const MATERIEL_SNAPSHOT_VALUES_TUPLE = `(${Array(43).fill('?').join(',')},1)`;
 
 function consoSnapshotParams(c: Record<string, unknown>): (string | number | null)[] {
   return [

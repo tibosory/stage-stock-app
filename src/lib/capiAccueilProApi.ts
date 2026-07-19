@@ -34,7 +34,13 @@ export async function pushAccueilProContactToCapi(body: {
   role?: string | null;
   organisation?: string | null;
   kind?: 'personnel' | 'prestataire';
-}): Promise<{ capi_ref: string; capi_contact_ref_id: string; kind: string; nom: string } | null> {
+}): Promise<{
+  capi_ref: string;
+  capi_contact_ref_id: string;
+  beneficiaire_id: string;
+  kind: string;
+  nom: string;
+} | null> {
   const apiBase = await resolveCapiBridgeApiBase();
   if (!apiBase) return null;
   const headers = await capiBridgeHeaders();
@@ -45,10 +51,22 @@ export async function pushAccueilProContactToCapi(body: {
       CAPI_BRIDGE_TIMEOUT_MS,
     );
     if (!res.ok) return null;
-    return (await res.json()) as { capi_ref: string; capi_contact_ref_id: string; kind: string; nom: string };
+    return (await res.json()) as {
+      capi_ref: string;
+      capi_contact_ref_id: string;
+      beneficiaire_id: string;
+      kind: string;
+      nom: string;
+    };
   } catch {
     return null;
   }
+}
+
+/** Préfixes des bénéficiaires synchronisés depuis l'annuaire CAPI. */
+export function isCapiBeneficiaireId(id: string | null | undefined): boolean {
+  const v = id?.trim() ?? '';
+  return v.startsWith('capi-ben-personnel:') || v.startsWith('capi-ben-prestataire:');
 }
 
 /** Télécharge un document CAPI (auth X-API-Key) vers le cache local pour prévisualisation. */
