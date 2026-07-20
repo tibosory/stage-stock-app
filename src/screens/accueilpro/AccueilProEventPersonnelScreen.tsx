@@ -75,7 +75,7 @@ export default function AccueilProEventPersonnelScreen() {
       setDirectory([
         { label: '—', value: '' },
         ...pers.map(p => ({
-          label: `${personnelDisplayName(p)} (${p.kind})`,
+          label: `${p.capi_contact_ref_id ? 'CAPI · ' : ''}${personnelDisplayName(p)}${p.role ? ` — ${p.role}` : ''} (${p.kind})`,
           value: p.id,
         })),
       ]);

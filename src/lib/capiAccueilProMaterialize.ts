@@ -5,20 +5,24 @@
 import {
   generateApId,
   getApEventByCapiSpectacleRef,
+  getApPersonnel,
   listApSpaces,
+  listApVenues,
   saveApDayPlanItem,
   saveApEvent,
   saveApEventPersonnel,
+  saveApPersonnel,
   saveSpace,
 } from '../db/accueilProDb';
 import { getDB } from '../db/database';
 import {
   getApCapiDossierRefBySpectacleRefId,
+  listApCapiContactRefs,
   listApCapiEspaceRefs,
   listApCapiPlanningRefs,
   listApCapiSpectacleRefs,
 } from '../db/capiAccueilProRefDb';
-import { ensureApVenueFromCapiLieuRef } from './capiAccueilProHelpers';
+import { ensureApVenueFromCapiLieuRef, splitCapiContactName } from './capiAccueilProHelpers';
 
 export async function materializeCapiAccueilProCatalog(): Promise<{
   venuesLinked: number;
@@ -26,12 +30,14 @@ export async function materializeCapiAccueilProCatalog(): Promise<{
   eventsCreated: number;
   planningItems: number;
   teamMembers: number;
+  directoryContacts: number;
 }> {
   let venuesLinked = 0;
   let spacesCreated = 0;
   let eventsCreated = 0;
   let planningItems = 0;
   let teamMembers = 0;
+  let directoryContacts = 0;
 
   const espaces = await listApCapiEspaceRefs();
   for (const ref of espaces) {
@@ -138,5 +144,38 @@ export async function materializeCapiAccueilProCatalog(): Promise<{
     }
   }
 
-  return { venuesLinked, spacesCreated, eventsCreated, planningItems, teamMembers };
+  /** Annuaire CAPI → fiches équipe Accueil Pro (sélectionnables dans l’onglet Équipe). */
+  const venues = await listApVenues();
+  const defaultVenueId = venues[0]?.id ?? null;
+  if (defaultVenueId) {
+    const contacts = await listApCapiContactRefs();
+    for (const ref of contacts) {
+      const stableId = `capi-tm:${ref.id}`;
+      const existing = await getApPersonnel(stableId);
+      const { firstName, lastName } = splitCapiContactName(ref.nom);
+      const venueId = existing?.venue_id || defaultVenueId;
+      await saveApPersonnel({
+        id: stableId,
+        kind: 'externe',
+        venue_id: venueId,
+        organization_id: null,
+        name: ref.nom.trim(),
+        first_name: firstName || null,
+        last_name: lastName || null,
+        address: null,
+        role: ref.role ?? null,
+        role_permanent: false,
+        mission: ref.organisation ?? null,
+        phone: ref.telephone ?? null,
+        email: ref.email ?? null,
+        notes: null,
+        photo_uri: existing?.photo_uri ?? null,
+        capi_contact_ref_id: ref.id,
+        capi_contact_kind: ref.kind,
+      });
+      directoryContacts += 1;
+    }
+  }
+
+  return { venuesLinked, spacesCreated, eventsCreated, planningItems, teamMembers, directoryContacts };
 }

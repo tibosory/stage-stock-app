@@ -113,10 +113,15 @@ export default function AccueilProHomeScreen() {
       } else if (connStatus === 'ok') {
         try {
           const { materialized } = await pullCapiAccueilProCatalogFromServer();
-          if (materialized.eventsCreated > 0 || materialized.spacesCreated > 0 || materialized.planningItems > 0) {
+          if (
+            materialized.eventsCreated > 0 ||
+            materialized.spacesCreated > 0 ||
+            materialized.planningItems > 0 ||
+            materialized.directoryContacts > 0
+          ) {
             Alert.alert(
               'Catalogues CAPI',
-              `${materialized.eventsCreated} événement(s), ${materialized.spacesCreated} espace(s), ${materialized.planningItems} ligne(s) d'agenda importés depuis CAPI.`,
+              `${materialized.eventsCreated} événement(s), ${materialized.spacesCreated} espace(s), ${materialized.planningItems} ligne(s) d'agenda, ${materialized.directoryContacts} contact(s) annuaire importés depuis CAPI.`,
             );
           }
         } catch {

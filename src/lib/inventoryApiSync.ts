@@ -572,11 +572,11 @@ export async function applyInventorySnapshotRows(database: SqliteDb, snap: Parti
   );
   if (apContacts.length) {
     await database.runAsync('DELETE FROM ap_capi_contact_refs');
-    const perApContact = 9;
+    const perApContact = 10;
     const apContactChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perApContact));
     for (let i = 0; i < apContacts.length; i += apContactChunk) {
       const chunk = apContacts.slice(i, i + apContactChunk);
-      const tuples = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const tuples = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       const nowIso = new Date().toISOString();
       const flat = chunk.flatMap(c => [
         String(c.id),
