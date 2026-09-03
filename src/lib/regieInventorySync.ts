@@ -52,6 +52,14 @@ async function loadUnsyncedIds(database: SqliteDb, table: RegieTable): Promise<S
   return new Set(rows.map(r => String(r.id)));
 }
 
+async function materielIdIfExists(database: SqliteDb, materielId: unknown): Promise<string | null> {
+  if (materielId == null) return null;
+  const id = String(materielId).trim();
+  if (!id) return null;
+  const row = await database.getFirstAsync<{ id: string }>('SELECT id FROM materiels WHERE id = ?', [id]);
+  return row ? id : null;
+}
+
 async function upsertChunk(
   database: SqliteDb,
   sqlPrefix: string,
@@ -178,17 +186,12 @@ export async function applyRegieSnapshotRows(database: SqliteDb, snap: RegieSnap
     (snap.positions ?? []).filter((p): p is Record<string, unknown> => Boolean(p?.id && p?.etape_id)),
     unsyncedPositions
   );
-  await upsertChunk(
-    database,
-    `INSERT OR REPLACE INTO positions (
-      id, etape_id, materiel_id, nom_objet, description_emplacement, zone, notes, ordre, created_at, updated_at, synced
-    ) VALUES `,
-    '(?,?,?,?,?,?,?,?,?,?,1)',
-    11,
-    positions.map(p => [
+  const positionRows: (string | number | null)[][] = [];
+  for (const p of positions) {
+    positionRows.push([
       String(p.id),
       String(p.etape_id),
-      p.materiel_id != null ? String(p.materiel_id) : null,
+      await materielIdIfExists(database, p.materiel_id),
       sqlVal(p.nom_objet ?? ''),
       sqlVal(p.description_emplacement ?? ''),
       sqlVal(p.zone ?? 'non_definie'),
@@ -196,7 +199,16 @@ export async function applyRegieSnapshotRows(database: SqliteDb, snap: RegieSnap
       p.ordre != null ? Number(p.ordre) : 0,
       sqlVal(p.created_at ?? null),
       sqlVal(p.updated_at ?? null),
-    ])
+    ]);
+  }
+  await upsertChunk(
+    database,
+    `INSERT OR REPLACE INTO positions (
+      id, etape_id, materiel_id, nom_objet, description_emplacement, zone, notes, ordre, created_at, updated_at, synced
+    ) VALUES `,
+    '(?,?,?,?,?,?,?,?,?,?,1)',
+    11,
+    positionRows
   );
 
   const photos = filterSnapshotRowsByUnsyncedIds(

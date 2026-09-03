@@ -69,6 +69,12 @@ async function testReconcileRemovesSyncedRowsMissingFromRemote() {
     'synced materiel absent from cloud should be deleted locally'
   );
   assert.ok(
+    db.calls.some(
+      c => c.sql.includes('DELETE FROM material_assignments WHERE material_id = ?') && c.params?.[0] === 'gone'
+    ),
+    'dependents must be cleared before deleting materiel'
+  );
+  assert.ok(
     !db.calls.some(c => c.sql.includes('DELETE FROM materiels WHERE id = ?') && c.params?.[0] === 'keep'),
     'materiel still on cloud should remain'
   );
@@ -82,7 +88,27 @@ async function testReconcileRemovesSyncedRowsMissingFromRemote() {
   );
 }
 
+async function testReconcileSkipsWipeWhenServerSnapshotEmpty() {
+  const db = new FakeDb();
+  db.setLocalMats([{ id: 'phone-only', synced: 1 }]);
+  db.setLocalConsos([{ id: 'c-phone', synced: 1 }]);
+  db.setUnsyncedMats([]);
+  db.setUnsyncedConsos([]);
+
+  await reconcileInventoryFromSnapshot(db as never, { materiels: [], consommables: [] });
+
+  assert.ok(
+    !db.calls.some(c => c.sql.includes('DELETE FROM materiels')),
+    'empty server snapshot must not wipe phone inventory'
+  );
+  assert.ok(
+    !db.calls.some(c => c.sql.includes('DELETE FROM consommables')),
+    'empty server snapshot must not wipe phone consommables'
+  );
+}
+
 void testReconcileRemovesSyncedRowsMissingFromRemote()
+  .then(() => testReconcileSkipsWipeWhenServerSnapshotEmpty())
   .then(() => {
     console.log('inventory-reconcile.spec: OK');
   })

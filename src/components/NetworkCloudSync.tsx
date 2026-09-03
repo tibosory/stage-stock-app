@@ -169,7 +169,7 @@ export function NetworkCloudSync() {
             </TouchableOpacity>
           </View>
         )}
-        {!syncing && !isLocal ? (
+        {!syncing ? (
           <TouchableOpacity
             style={[styles.secondaryBtn, { marginTop: 10 }]}
             onPress={() => void handleSync('push', 'full')}

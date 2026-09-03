@@ -549,6 +549,7 @@ export async function syncFromSupabase(): Promise<{ ok: boolean; error?: string 
       position_photos,
     };
 
+    await database.execAsync('PRAGMA foreign_keys = OFF;');
     await database.execAsync('BEGIN IMMEDIATE;');
     try {
       await applyInventorySnapshotRows(database, snap);
@@ -562,6 +563,12 @@ export async function syncFromSupabase(): Promise<{ ok: boolean; error?: string 
         /* ignore */
       }
       throw e;
+    } finally {
+      try {
+        await database.execAsync('PRAGMA foreign_keys = ON;');
+      } catch {
+        /* ignore */
+      }
     }
 
     try {

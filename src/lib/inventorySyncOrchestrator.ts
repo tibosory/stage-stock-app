@@ -5,7 +5,7 @@
 import { checkServerReachableQuick } from '../config/stageStockApi';
 import { getDataBackendMode } from './backendMode';
 import { canCallApiSync, canCallSupabaseSync } from './syncGuards';
-import { syncFromInventoryApi, syncToInventoryApi } from './inventoryApiSync';
+import { syncFromInventoryApi, syncToInventoryApi, pushFullInventoryToApi } from './inventoryApiSync';
 import { syncFromSupabase, syncToSupabase } from './supabase';
 import { getIsOnlineRuntime } from './networkRuntime';
 import { recordSyncTelemetry } from './syncTelemetry';
@@ -62,7 +62,16 @@ function bidirectionalResult(input: {
   };
 }
 
-async function runLocalPush(scope: string): Promise<{ ok: boolean; error?: string }> {
+async function runLocalPush(
+  scope: string,
+  pushMode: 'incremental' | 'full' = 'incremental'
+): Promise<{
+  ok: boolean;
+  error?: string;
+  nothingPushed?: boolean;
+  localInventory?: { materiels: number; consommables: number };
+  pushed?: { materiels: number; consommables: number; prets: number };
+}> {
   const guard = await canCallApiSync(`${scope}:push`);
   if (!guard.ok) {
     await recordSyncTelemetry('api', 'push', 'skipped', guard.reason);
@@ -73,8 +82,15 @@ async function runLocalPush(scope: string): Promise<{ ok: boolean; error?: strin
     await recordSyncTelemetry('api', 'push', 'skipped', reason);
     return { ok: false, error: reason };
   }
-  const result = await syncToInventoryApi();
-  await recordSyncTelemetry('api', 'push', result.ok ? 'ok' : 'error', result.error);
+  const result =
+    pushMode === 'full' ? await pushFullInventoryToApi() : await syncToInventoryApi();
+  const telMsg =
+    result.nothingPushed && result.localInventory
+      ? `rien à envoyer (local: ${result.localInventory.materiels} mat., ${result.localInventory.consommables} cons.)`
+      : result.pushed
+        ? `${result.pushed.materiels} mat., ${result.pushed.consommables} cons., ${result.pushed.prets} prêts`
+        : result.error;
+  await recordSyncTelemetry('api', 'push', result.ok ? 'ok' : 'error', telMsg);
   return result;
 }
 
@@ -165,14 +181,22 @@ export async function runInventorySync(options: {
 
   if (mode === 'local_server') {
     if (direction === 'push') {
-      const push = await runLocalPush(scope);
-      return { ok: push.ok, backend: 'local_server', pushOk: push.ok, error: push.error };
+      const push = await runLocalPush(scope, pushMode);
+      return {
+        ok: push.ok,
+        backend: 'local_server',
+        pushOk: push.ok,
+        error: push.error,
+        pushNothingPushed: push.nothingPushed,
+        localInventory: push.localInventory,
+        pushed: push.pushed,
+      };
     }
     if (direction === 'pull') {
       const pull = await runLocalPull(scope);
       return { ok: pull.ok, backend: 'local_server', pullOk: pull.ok, error: pull.error };
     }
-    const push = await runLocalPush(scope);
+    const push = await runLocalPush(scope, pushMode);
     const pull = push.ok ? await runLocalPull(scope) : { ok: false as const, error: push.error };
     return bidirectionalResult({ backend: 'local_server', push, pull });
   }

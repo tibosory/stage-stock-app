@@ -42,6 +42,7 @@ import {
   uploadPendingMaterielMedia,
   downloadMissingMaterielMedia,
 } from './materielPhotoSync';
+import { shouldEscalateToFullInventoryPush } from './inventoryEmptyServerEscalate';
 
 const MSG_NO_API =
   'Aucune URL d’API CATRACK Pro configurée (onglet Réseau ou EXPO_PUBLIC_API_URL au build).';
@@ -420,20 +421,7 @@ export async function applyInventorySnapshotRows(database: SqliteDb, snap: Parti
     await database.runAsync(`INSERT OR REPLACE INTO categories (id, nom, parent_id) VALUES ${tuples}`, flat);
   }
 
-  const locs = (snap.localisations ?? []).filter((l): l is Record<string, unknown> => Boolean(l?.id && l?.nom));
-  const perLoc = 3;
-  const locChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perLoc));
-  for (let i = 0; i < locs.length; i += locChunk) {
-    const chunk = locs.slice(i, i + locChunk);
-    const tuples = chunk.map(() => '(?, ?, ?)').join(', ');
-    const flat = chunk.flatMap(l => [
-      String(l.id),
-      String(l.nom),
-      l.lieu_id != null ? String(l.lieu_id) : null,
-    ]);
-    await database.runAsync(`INSERT OR REPLACE INTO localisations (id, nom, lieu_id) VALUES ${tuples}`, flat);
-  }
-
+  // Lieux AVANT localisations / matériel (FK lieu_id).
   const lieuxRows = (snap.lieux ?? []).filter((l): l is Record<string, unknown> => Boolean(l?.id && l?.nom));
   const perLieu = 6;
   const lieuChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perLieu));
@@ -453,6 +441,20 @@ export async function applyInventorySnapshotRows(database: SqliteDb, snap: Parti
       `INSERT OR REPLACE INTO lieux (id, nom, source, capi_ref, created_at, updated_at) VALUES ${tuples}`,
       flat
     );
+  }
+
+  const locs = (snap.localisations ?? []).filter((l): l is Record<string, unknown> => Boolean(l?.id && l?.nom));
+  const perLoc = 3;
+  const locChunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / perLoc));
+  for (let i = 0; i < locs.length; i += locChunk) {
+    const chunk = locs.slice(i, i + locChunk);
+    const tuples = chunk.map(() => '(?, ?, ?)').join(', ');
+    const flat = chunk.flatMap(l => [
+      String(l.id),
+      String(l.nom),
+      l.lieu_id != null ? String(l.lieu_id) : null,
+    ]);
+    await database.runAsync(`INSERT OR REPLACE INTO localisations (id, nom, lieu_id) VALUES ${tuples}`, flat);
   }
 
   const benefs = (snap.beneficiaires ?? []).filter(
@@ -892,6 +894,8 @@ export async function syncFromInventoryApi(
     }
 
     const database = await getDB();
+    // INSERT OR REPLACE + reconcile DELETE : FK OFF hors transaction (exigence SQLite).
+    await database.execAsync('PRAGMA foreign_keys = OFF;');
     await database.execAsync('BEGIN IMMEDIATE;');
     try {
       await applyInventorySnapshotRows(database, snap);
@@ -942,6 +946,12 @@ export async function syncFromInventoryApi(
         /* ignore */
       }
       throw e;
+    } finally {
+      try {
+        await database.execAsync('PRAGMA foreign_keys = ON;');
+      } catch {
+        /* ignore */
+      }
     }
     try {
       await downloadMissingRegiePhotos(database, ep);
@@ -979,22 +989,112 @@ export async function syncFromInventoryApi(
   }
 }
 
-function uniqueIds(rows: { categorie_id?: string | null; localisation_id?: string | null }[]): {
+function uniqueIds(rows: { categorie_id?: string | null; localisation_id?: string | null; lieu_id?: string | null }[]): {
   cat: string[];
   loc: string[];
+  lieu: string[];
 } {
   const cat = new Set<string>();
   const loc = new Set<string>();
+  const lieu = new Set<string>();
   for (const r of rows) {
     if (r.categorie_id) cat.add(String(r.categorie_id));
     if (r.localisation_id) loc.add(String(r.localisation_id));
+    if (r.lieu_id) lieu.add(String(r.lieu_id));
   }
-  return { cat: [...cat], loc: [...loc] };
+  return { cat: [...cat], loc: [...loc], lieu: [...lieu] };
+}
+
+async function loadLieuxPayload(
+  database: SqliteDb,
+  lieuIds: string[],
+  localisations: Record<string, unknown>[]
+): Promise<Record<string, unknown>[]> {
+  const ids = new Set(lieuIds);
+  for (const loc of localisations) {
+    if (loc.lieu_id) ids.add(String(loc.lieu_id));
+  }
+  if (ids.size === 0) return [];
+  const list = [...ids];
+  const out: Record<string, unknown>[] = [];
+  const chunk = Math.max(1, Math.floor(SQLITE_BIND_CHUNK_BUDGET / 1));
+  for (let i = 0; i < list.length; i += chunk) {
+    const slice = list.slice(i, i + chunk);
+    const ph = slice.map(() => '?').join(',');
+    out.push(
+      ...(await database.getAllAsync<Record<string, unknown>>(
+        `SELECT * FROM lieux WHERE id IN (${ph})`,
+        slice
+      ))
+    );
+  }
+  return out;
+}
+
+export type InventoryApiSyncPushResult = {
+  ok: boolean;
+  error?: string;
+  /** Envoi incrémental sans ligne en attente alors que l’inventaire local n’est pas vide. */
+  nothingPushed?: boolean;
+  localInventory?: { materiels: number; consommables: number };
+  pushed?: { materiels: number; consommables: number; prets: number };
+};
+
+async function countLocalInventory(database: SqliteDb): Promise<{
+  materiels: number;
+  consommables: number;
+}> {
+  const [m, c] = await Promise.all([
+    database.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM materiels'),
+    database.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM consommables'),
+  ]);
+  return { materiels: Number(m?.n ?? 0), consommables: Number(c?.n ?? 0) };
+}
+
+/** Compteurs inventaire distants (snapshot GET). */
+async function fetchRemoteInventoryCounts(
+  ep: InventorySyncEndpoint | null,
+): Promise<{ materiels: number; consommables: number } | null> {
+  if (!(await isEndpointConfigured(ep))) return null;
+  try {
+    const res = await inventoryApiFetch('/api/sync/snapshot', { method: 'GET' }, ep);
+    if (!res.ok) return null;
+    const snap = (await res.json()) as {
+      materiels?: unknown[];
+      consommables?: unknown[];
+    };
+    return {
+      materiels: Array.isArray(snap.materiels) ? snap.materiels.length : 0,
+      consommables: Array.isArray(snap.consommables) ? snap.consommables.length : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Après reset / synchro partielle : le PC a moins d’articles que le téléphone
+ * (ou un type entier manque) alors que les fiches locales sont déjà `synced = 1`.
+ * L’envoi incrémental n’envoie alors rien — on bascule sur un envoi complet.
+ */
+async function shouldFullPushBecauseInventoryMismatch(
+  ep: InventorySyncEndpoint | null,
+  localInventory: { materiels: number; consommables: number },
+): Promise<boolean> {
+  if (localInventory.materiels <= 0 && localInventory.consommables <= 0) return false;
+  const remote = await fetchRemoteInventoryCounts(ep);
+  if (!remote) return false;
+  return shouldEscalateToFullInventoryPush({
+    localMateriels: localInventory.materiels,
+    localConsommables: localInventory.consommables,
+    remoteMateriels: remote.materiels,
+    remoteConsommables: remote.consommables,
+  });
 }
 
 export async function syncToInventoryApi(
   endpoint?: InventorySyncEndpoint | null
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<InventoryApiSyncPushResult> {
   const ep = endpoint ?? null;
   const guard = await canCallApiSync('syncToInventoryApi');
   if (!guard.ok) {
@@ -1002,6 +1102,11 @@ export async function syncToInventoryApi(
   }
   try {
     const database = await getDB();
+    const localInventory = await countLocalInventory(database);
+    if (await shouldFullPushBecauseInventoryMismatch(ep, localInventory)) {
+      return pushFullInventoryToApi(ep);
+    }
+
     const materielsToSync = await database.getAllAsync<Record<string, unknown>>(
       'SELECT * FROM materiels WHERE synced = 0'
     );
@@ -1010,7 +1115,7 @@ export async function syncToInventoryApi(
     );
     const pretsToSync = await database.getAllAsync<Record<string, unknown>>('SELECT * FROM prets WHERE synced = 0');
 
-    const { cat: catIds, loc: locIds } = uniqueIds([
+    const { cat: catIds, loc: locIds, lieu: lieuIds } = uniqueIds([
       ...materielsToSync,
       ...consoToSync,
     ]);
@@ -1033,6 +1138,7 @@ export async function syncToInventoryApi(
       );
       localisationsPayload.push(...rows);
     }
+    const lieuxPayload = await loadLieuxPayload(database, lieuIds, localisationsPayload);
 
     const pretIds = pretsToSync.map(p => String(p.id));
     let pretMaterielsPayload: Record<string, unknown>[] = [];
@@ -1089,10 +1195,17 @@ export async function syncToInventoryApi(
       pretsPayload.length === 0 &&
       categoriesPayload.length === 0 &&
       localisationsPayload.length === 0 &&
+      lieuxPayload.length === 0 &&
       appUsersPayload.length === 0 &&
       inventoryDeletions.length === 0 &&
       regiePayloadIsEmpty(regiePayload)
     ) {
+      if (localInventory.materiels > 0 || localInventory.consommables > 0) {
+        if (await shouldFullPushBecauseInventoryMismatch(ep, localInventory)) {
+          return pushFullInventoryToApi(ep);
+        }
+        return { ok: true, nothingPushed: true, localInventory };
+      }
       return { ok: true };
     }
 
@@ -1102,6 +1215,7 @@ export async function syncToInventoryApi(
 
     const body = {
       categories: categoriesPayload,
+      lieux: lieuxPayload,
       localisations: localisationsPayload,
       materiels: materielsPayload,
       consommables: consommablesPayload,
@@ -1176,7 +1290,14 @@ export async function syncToInventoryApi(
       /* best effort */
     }
 
-    return { ok: true };
+    return {
+      ok: true,
+      pushed: {
+        materiels: materielsPayload.length,
+        consommables: consommablesPayload.length,
+        prets: pretsPayload.length,
+      },
+    };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg === 'API_SYNC_DISABLED') {
@@ -1202,7 +1323,7 @@ export async function syncToInventoryApi(
  */
 export async function pushFullInventoryToApi(
   endpoint?: InventorySyncEndpoint | null
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<InventoryApiSyncPushResult> {
   const ep = endpoint ?? null;
   const guard = await canCallApiSync('pushFullInventoryToApi');
   if (!guard.ok) {
@@ -1217,28 +1338,15 @@ export async function pushFullInventoryToApi(
     const consoToSync = await database.getAllAsync<Record<string, unknown>>('SELECT * FROM consommables');
     const pretsToSync = await database.getAllAsync<Record<string, unknown>>('SELECT * FROM prets');
 
-    const { cat: catIds, loc: locIds } = uniqueIds([...materielsToSync, ...consoToSync]);
+    const { lieu: lieuIds } = uniqueIds([...materielsToSync, ...consoToSync]);
 
-    const categoriesPayload: Record<string, unknown>[] = [];
-    if (catIds.length > 0) {
-      const ph = catIds.map(() => '?').join(',');
-      categoriesPayload.push(
-        ...(await database.getAllAsync<Record<string, unknown>>(
-          `SELECT * FROM categories WHERE id IN (${ph})`,
-          catIds
-        ))
-      );
-    }
-    const localisationsPayload: Record<string, unknown>[] = [];
-    if (locIds.length > 0) {
-      const ph = locIds.map(() => '?').join(',');
-      localisationsPayload.push(
-        ...(await database.getAllAsync<Record<string, unknown>>(
-          `SELECT * FROM localisations WHERE id IN (${ph})`,
-          locIds
-        ))
-      );
-    }
+    const categoriesPayload = await database.getAllAsync<Record<string, unknown>>('SELECT * FROM categories');
+    const localisationsPayload = await database.getAllAsync<Record<string, unknown>>('SELECT * FROM localisations');
+    const lieuxPayload = await loadLieuxPayload(
+      database,
+      [...new Set([...lieuIds, ...localisationsPayload.map(l => (l.lieu_id != null ? String(l.lieu_id) : '')).filter(Boolean)])],
+      localisationsPayload,
+    );
 
     const pretIds = pretsToSync.map(p => String(p.id));
     let pretMaterielsPayload: Record<string, unknown>[] = [];
@@ -1291,15 +1399,17 @@ export async function pushFullInventoryToApi(
       pretsPayload.length === 0 &&
       categoriesPayload.length === 0 &&
       localisationsPayload.length === 0 &&
+      lieuxPayload.length === 0 &&
       appUsersPayload.length === 0 &&
       inventoryDeletions.length === 0 &&
       regiePayloadIsEmpty(regiePayload)
     ) {
-      return { ok: true };
+      return { ok: true, pushed: { materiels: 0, consommables: 0, prets: 0 } };
     }
 
     const body = {
       categories: categoriesPayload,
+      lieux: lieuxPayload,
       localisations: localisationsPayload,
       materiels: materielsPayload,
       consommables: consommablesPayload,
@@ -1360,7 +1470,14 @@ export async function pushFullInventoryToApi(
       /* best effort */
     }
 
-    return { ok: true };
+    return {
+      ok: true,
+      pushed: {
+        materiels: materielsPayload.length,
+        consommables: consommablesPayload.length,
+        prets: pretsPayload.length,
+      },
+    };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg === 'API_SYNC_DISABLED') {
