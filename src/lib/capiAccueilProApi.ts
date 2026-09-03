@@ -63,6 +63,30 @@ export async function pushAccueilProContactToCapi(body: {
   }
 }
 
+/** P2 — Remonte les EDL Accueil Pro vers RegieTec (états des lieux uniquement). */
+export async function pushAccueilProEdlToCapi(payload: {
+  room_inspections: Record<string, unknown>[];
+  event_spectacle_refs?: Record<string, string>;
+  space_espace_refs?: Record<string, string>;
+}): Promise<{ upserted: number } | null> {
+  if (!payload.room_inspections?.length) return { upserted: 0 };
+  const apiBase = await resolveCapiBridgeApiBase();
+  if (!apiBase) return null;
+  const headers = await capiBridgeHeaders();
+  try {
+    const res = await fetchWithTimeout(
+      `${apiBase}/cattrack/accueil-pro/edl`,
+      { method: 'POST', headers, body: JSON.stringify(payload) },
+      CAPI_BRIDGE_TIMEOUT_MS,
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as { upserted?: number };
+    return { upserted: json.upserted ?? 0 };
+  } catch {
+    return null;
+  }
+}
+
 /** Préfixes des bénéficiaires synchronisés depuis l'annuaire CAPI. */
 export function isCapiBeneficiaireId(id: string | null | undefined): boolean {
   const v = id?.trim() ?? '';

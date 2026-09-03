@@ -1613,9 +1613,9 @@ function stripSynced<T extends Record<string, unknown>>(row: T): Record<string, 
 export async function listUnsyncedAccueilProRows(database?: SQLite.SQLiteDatabase): Promise<AccueilProBulkPayload> {
   const db = await resolveDb(database);
   const [
-    venueRows,
+    venueRowsRaw,
     spaceRows,
-    orgRows,
+    orgRowsRaw,
     contactRows,
     docRows,
     rentalRows,
@@ -1641,6 +1641,33 @@ export async function listUnsyncedAccueilProRows(database?: SQLite.SQLiteDatabas
     db.getAllAsync<any>('SELECT * FROM ap_day_plan_items WHERE synced = 0'),
     db.getAllAsync<any>('SELECT * FROM ap_day_notes WHERE synced = 0'),
   ]);
+
+  /** Parents déjà synchronisés mais requis par des lignes enfants non sync (évite FK venue_id côté serveur). */
+  const venueIdsNeeded = new Set<string>();
+  const orgIdsNeeded = new Set<string>();
+  for (const r of spaceRows) if (r.venue_id) venueIdsNeeded.add(String(r.venue_id));
+  for (const r of eventRows) if (r.venue_id) venueIdsNeeded.add(String(r.venue_id));
+  for (const r of memberRows) if (r.venue_id) venueIdsNeeded.add(String(r.venue_id));
+  for (const r of rentalRows) if (r.venue_id) venueIdsNeeded.add(String(r.venue_id));
+  for (const r of contactRows) if (r.organization_id) orgIdsNeeded.add(String(r.organization_id));
+  for (const r of docRows) if (r.organization_id) orgIdsNeeded.add(String(r.organization_id));
+  for (const r of rentalRows) if (r.organization_id) orgIdsNeeded.add(String(r.organization_id));
+
+  const venueRows = [...venueRowsRaw];
+  const missingVenueIds = [...venueIdsNeeded].filter(id => !venueRows.some(v => String(v.id) === id));
+  if (missingVenueIds.length) {
+    const ph = missingVenueIds.map(() => '?').join(', ');
+    const parents = await db.getAllAsync<any>(`SELECT * FROM ap_venues WHERE id IN (${ph})`, missingVenueIds);
+    venueRows.push(...parents);
+  }
+
+  const orgRows = [...orgRowsRaw];
+  const missingOrgIds = [...orgIdsNeeded].filter(id => !orgRows.some(o => String(o.id) === id));
+  if (missingOrgIds.length) {
+    const ph = missingOrgIds.map(() => '?').join(', ');
+    const parents = await db.getAllAsync<any>(`SELECT * FROM ap_organizations WHERE id IN (${ph})`, missingOrgIds);
+    orgRows.push(...parents);
+  }
 
   const out: AccueilProBulkPayload = {};
   if (venueRows.length) out.venues = venueRows.map(r => stripSynced(mapVenueRow(r) as unknown as Record<string, unknown>));

@@ -6,6 +6,7 @@ import {
   AccueilProFormCard,
   AccueilProFormDateField,
   AccueilProFormSelectPicker,
+  AccueilProFormTimeField,
   AccueilProInput,
   AccueilProPrimaryButton,
   AccueilProScreenLayout,
@@ -229,8 +230,8 @@ export default function AccueilProRentalRequestEditScreen() {
         <AccueilProInput label={t('accueilpro.requests.fieldEventName')} value={eventName} onChangeText={setEventName} />
         <AccueilProFormDateField label={t('accueilpro.requests.fieldDateStart')} value={dateDebut} onChange={setDateDebut} />
         <AccueilProFormDateField label={t('accueilpro.requests.fieldDateEnd')} value={dateFin} onChange={setDateFin} />
-        <AccueilProInput label={t('accueilpro.requests.fieldTimeStart')} value={heureDebut} onChangeText={setHeureDebut} />
-        <AccueilProInput label={t('accueilpro.requests.fieldTimeEnd')} value={heureFin} onChangeText={setHeureFin} />
+        <AccueilProFormTimeField label={t('accueilpro.requests.fieldTimeStart')} value={heureDebut} onChange={setHeureDebut} />
+        <AccueilProFormTimeField label={t('accueilpro.requests.fieldTimeEnd')} value={heureFin} onChange={setHeureFin} />
         <AccueilProInput label={t('accueilpro.requests.fieldMotif')} value={motif} onChangeText={setMotif} multiline />
         {isStaff ?
           <>

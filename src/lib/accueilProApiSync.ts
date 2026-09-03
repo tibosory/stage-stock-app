@@ -149,6 +149,62 @@ export async function pushAccueilProToApi(
     await markAccueilProRowsSyncedFromAppliedIds(json.appliedIds, db);
   }
 
+  // P2 — remonter les EDL vers RegieTec (en plus du forward serveur CATRACK).
+  const inspectionIds = json.appliedIds?.room_inspections ?? [];
+  if (inspectionIds.length) {
+    try {
+      const { pushAccueilProEdlToCapi } = await import('./capiAccueilProApi');
+      const placeholders = inspectionIds.map(() => '?').join(',');
+      const rows = await db.getAllAsync<Record<string, unknown>>(
+        `SELECT * FROM ap_room_inspections WHERE id IN (${placeholders})`,
+        inspectionIds,
+      );
+      const eventIds = [
+        ...new Set(
+          rows
+            .map(r => (typeof r.event_id === 'string' ? r.event_id : null))
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      const spaceIds = [
+        ...new Set(
+          rows
+            .map(r => (typeof r.space_id === 'string' ? r.space_id : null))
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      const eventSpectacleRefs: Record<string, string> = {};
+      if (eventIds.length) {
+        const evPh = eventIds.map(() => '?').join(',');
+        const events = await db.getAllAsync<{ id: string; capi_spectacle_ref_id: string | null }>(
+          `SELECT id, capi_spectacle_ref_id FROM ap_events WHERE id IN (${evPh})`,
+          eventIds,
+        );
+        for (const ev of events) {
+          if (ev.capi_spectacle_ref_id) eventSpectacleRefs[ev.id] = ev.capi_spectacle_ref_id;
+        }
+      }
+      const spaceEspaceRefs: Record<string, string> = {};
+      if (spaceIds.length) {
+        const spPh = spaceIds.map(() => '?').join(',');
+        const spaces = await db.getAllAsync<{ id: string; capi_espace_ref_id: string | null }>(
+          `SELECT id, capi_espace_ref_id FROM ap_spaces WHERE id IN (${spPh})`,
+          spaceIds,
+        );
+        for (const sp of spaces) {
+          if (sp.capi_espace_ref_id) spaceEspaceRefs[sp.id] = sp.capi_espace_ref_id;
+        }
+      }
+      await pushAccueilProEdlToCapi({
+        room_inspections: rows,
+        event_spectacle_refs: eventSpectacleRefs,
+        space_espace_refs: spaceEspaceRefs,
+      });
+    } catch {
+      /* pont RegieTec optionnel */
+    }
+  }
+
   return true;
 }
 
