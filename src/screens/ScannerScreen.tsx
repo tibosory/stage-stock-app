@@ -13,6 +13,7 @@ import {
   getConsommableByQr, ajusterStock, ajusterMaterielLotStock,
   createMaterielStubWithScannedCode,
   createConsommableStubWithScannedCode,
+  getMaterielsInStockFlightcase,
 } from '../db/inventoryOpsDb';
 import { getStats } from '../db/metadataDb';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
@@ -31,8 +32,10 @@ import { useLanguage } from '../context/LanguageContext';
 import { isMaterielGestionLot, materielLotUnite, materielStockActuel } from '../lib/materielLot';
 import { parseStockFlightcaseQr } from '../lib/stockFlightcase';
 import { resolveStockFlightcaseScan } from '../db/stockFlightcasesDb';
+import { isMaterielEligibleForPretScan, pretScanIneligibleReason } from '../lib/pretScanEligible';
+import { openNewPretFromScan } from '../navigation/openPretFromScan';
 
-type Mode = 'home' | 'camera' | 'nfc' | 'batch';
+type Mode = 'home' | 'camera' | 'nfc' | 'batch' | 'pret';
 type LastConsoMove = {
   id: string;
   nom: string;
@@ -51,7 +54,8 @@ export default function ScannerScreen() {
   const { t, language } = useLanguage();
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { can } = useAppAuth();
+  const { can, user } = useAppAuth();
+  const canPreparePret = !!user && user.role !== 'emprunteur';
   const { refresh: refreshConnection } = useConnection();
   const editInventory = can('edit_inventory');
   const [permission, requestPermission] = useCameraPermissions();
@@ -62,6 +66,7 @@ export default function ScannerScreen() {
   const [manualConsoResults, setManualConsoResults] = useState<Consommable[]>([]);
   const [manualSearchActive, setManualSearchActive] = useState(false);
   const [batchResults, setBatchResults] = useState<Materiel[]>([]);
+  const [pretDraftItems, setPretDraftItems] = useState<Materiel[]>([]);
   const [consoMoveItem, setConsoMoveItem] = useState<Consommable | null>(null);
   const [matLotMoveItem, setMatLotMoveItem] = useState<Materiel | null>(null);
   const [consoMoveQty, setConsoMoveQty] = useState('1');
@@ -110,6 +115,82 @@ export default function ScannerScreen() {
     const results = await searchMateriels('');
     setRecentMat(results);
   };
+
+  const addMatsToPretDraft = useCallback((mats: Materiel[]) => {
+    const eligible = mats.filter(isMaterielEligibleForPretScan);
+    const rejected = mats.filter(m => !isMaterielEligibleForPretScan(m));
+    if (eligible.length === 0) {
+      Alert.alert(
+        t('scanner.pretPrep.unavailableTitle'),
+        rejected[0] ? pretScanIneligibleReason(rejected[0]) : t('scanner.pretPrep.noneEligible')
+      );
+      setScanned(false);
+      return;
+    }
+    setPretDraftItems(prev => {
+      const next = [...prev];
+      let added = 0;
+      for (const mat of eligible) {
+        if (next.find(m => m.id === mat.id)) continue;
+        next.push(mat);
+        added += 1;
+      }
+      if (added > 0) void triggerScanMatchHaptic();
+      if (added > 0) {
+        Alert.alert(
+          t('scanner.pretPrep.addedTitle'),
+          t('scanner.pretPrep.addedBody', { count: added, total: next.length })
+        );
+      } else {
+        Alert.alert(t('scanner.pretPrep.addedTitle'), t('scanner.pretPrep.alreadyInList'));
+      }
+      if (rejected.length > 0) {
+        Alert.alert(
+          t('scanner.pretPrep.skippedTitle'),
+          rejected.map(pretScanIneligibleReason).join('\n')
+        );
+      }
+      setTimeout(() => setScanned(false), 500);
+      return next;
+    });
+  }, [t]);
+
+  const addMatToPretDraft = useCallback(
+    (mat: Materiel) => addMatsToPretDraft([mat]),
+    [addMatsToPretDraft]
+  );
+
+  const showPretDraftList = useCallback(() => {
+    if (pretDraftItems.length === 0) {
+      Alert.alert(t('scanner.pretPrep.emptyListTitle'), t('scanner.pretPrep.emptyListBody'));
+      return;
+    }
+    Alert.alert(
+      t('scanner.pretPrep.listTitle', { count: pretDraftItems.length }),
+      pretDraftItems.map(m => m.nom).join('\n'),
+      [
+        { text: t('common.ok'), style: 'cancel' },
+        {
+          text: t('scanner.pretPrep.clearList'),
+          style: 'destructive',
+          onPress: () => setPretDraftItems([]),
+        },
+      ]
+    );
+  }, [pretDraftItems, t]);
+
+  const finalizePretFromScan = useCallback(() => {
+    if (pretDraftItems.length === 0) {
+      Alert.alert(t('scanner.pretPrep.emptyListTitle'), t('scanner.pretPrep.finalizeNeedItems'));
+      return;
+    }
+    const ids = pretDraftItems.map(m => m.id);
+    setMode('home');
+    setPretDraftItems([]);
+    setScanned(false);
+    detectedBarcodesRef.current.clear();
+    openNewPretFromScan(navigation, ids);
+  }, [pretDraftItems, navigation, t]);
 
   const openConsoMove = useCallback((conso: Consommable) => {
     setConsoMoveItem(conso);
@@ -330,6 +411,41 @@ export default function ScannerScreen() {
       return;
     }
 
+    if (mode === 'pret') {
+      const fcParsedPret = parseStockFlightcaseQr(result.data);
+      if (fcParsedPret) {
+        const fcResolved = await resolveStockFlightcaseScan(fcParsedPret);
+        if (fcResolved) {
+          const mats = await getMaterielsInStockFlightcase(
+            fcResolved.localisationId,
+            fcResolved.flightcase
+          );
+          addMatsToPretDraft(mats);
+          return;
+        }
+      }
+      const matPret = await getMaterielByQr(result.data);
+      if (matPret) {
+        addMatToPretDraft(matPret);
+        return;
+      }
+      const consoPret = await getConsommableByQr(result.data);
+      if (consoPret) {
+        Alert.alert(
+          t('scanner.pretPrep.consoTitle'),
+          t('scanner.pretPrep.consoBody', { name: consoPret.nom }),
+          [{ text: t('common.ok'), onPress: () => setScanned(false) }]
+        );
+        return;
+      }
+      Alert.alert(
+        t('scanner.unknownCode'),
+        t('scanner.pretPrep.unknownBody', { code: result.data }),
+        [{ text: t('common.ok'), onPress: () => setScanned(false) }]
+      );
+      return;
+    }
+
     const fcParsed = parseStockFlightcaseQr(result.data);
     if (fcParsed) {
       const fcResolved = await resolveStockFlightcaseScan(fcParsed);
@@ -468,6 +584,9 @@ export default function ScannerScreen() {
     openConsoMove,
     refreshConnection,
     language,
+    mode,
+    addMatsToPretDraft,
+    addMatToPretDraft,
   ]);
 
   const onCameraTap = useCallback(
@@ -736,7 +855,7 @@ export default function ScannerScreen() {
   );
 
   // ── Écran caméra ──
-  if (mode === 'camera' || mode === 'batch') {
+  if (mode === 'camera' || mode === 'batch' || mode === 'pret') {
     if (!permission?.granted) {
       return (
         <TabScreenSafeArea style={s.container}>
@@ -779,9 +898,11 @@ export default function ScannerScreen() {
               <View style={[s.corner, { bottom: 0, right: 0, transform: [{ scale: -1 }] }]} />
             </View>
             <Text style={s.scanHint}>
-              {mode === 'batch'
-                ? t('scanner.cameraHintBatch', { count: batchResults.length })
-                : t('scanner.cameraHint')}
+              {mode === 'pret'
+                ? t('scanner.cameraHintPret', { count: pretDraftItems.length })
+                : mode === 'batch'
+                  ? t('scanner.cameraHintBatch', { count: batchResults.length })
+                  : t('scanner.cameraHint')}
             </Text>
           </View>
         </Pressable>
@@ -797,6 +918,30 @@ export default function ScannerScreen() {
               </Text>
               {consoBurstLast ? <Text style={s.burstBadgeSub}>{consoBurstLast}</Text> : null}
             </View>
+          )}
+          {mode === 'pret' && (
+            <>
+              <View style={[s.burstBadge, { borderColor: Colors.yellow }]}>
+                <Text style={s.burstBadgeTitle}>
+                  {t('scanner.pretPrep.badge', { count: pretDraftItems.length })}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[s.btnGreen, { marginBottom: 8 }, pretDraftItems.length === 0 && { opacity: 0.5 }]}
+                onPress={finalizePretFromScan}
+                disabled={pretDraftItems.length === 0}
+              >
+                <Text style={s.btnGreenText}>{t('scanner.pretPrep.finalize')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.btnOutline, { marginBottom: 8, borderColor: Colors.border }]}
+                onPress={showPretDraftList}
+              >
+                <Text style={{ color: Colors.white, fontWeight: '600' }}>
+                  {t('scanner.pretPrep.viewList', { count: pretDraftItems.length })}
+                </Text>
+              </TouchableOpacity>
+            </>
           )}
           {mode === 'batch' && (
             <TouchableOpacity
@@ -952,6 +1097,50 @@ export default function ScannerScreen() {
           </View>
           <Text style={s.secondaryChevron}>›</Text>
         </TouchableOpacity>
+
+        {canPreparePret && (
+          <>
+            <View style={s.ouRow}>
+              <View style={s.ouLine} />
+              <Text style={s.ouText}>OU</Text>
+              <View style={s.ouLine} />
+            </View>
+
+            <TouchableOpacity
+              style={[s.secondaryCard, pretDraftItems.length > 0 && s.pretPrepCardActive]}
+              activeOpacity={0.88}
+              onPress={async () => {
+                if (!permission?.granted) await requestPermission();
+                setScanned(false);
+                setMode('pret');
+              }}
+            >
+              <Text style={s.secondaryCardIcon}>📋</Text>
+              <View style={s.heroCardTextCol}>
+                <Text style={s.secondaryCardTitle}>{t('scanner.pretPrep.title')}</Text>
+                <Text style={s.secondaryCardSub}>
+                  {pretDraftItems.length > 0
+                    ? t('scanner.pretPrep.subtitleWithCount', { count: pretDraftItems.length })
+                    : t('scanner.pretPrep.subtitle')}
+                </Text>
+              </View>
+              <Text style={s.secondaryChevron}>›</Text>
+            </TouchableOpacity>
+
+            {pretDraftItems.length > 0 && (
+              <View style={s.pretPrepActions}>
+                <TouchableOpacity style={s.btnGreen} onPress={finalizePretFromScan}>
+                  <Text style={s.btnGreenText}>{t('scanner.pretPrep.finalize')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.btnOutline} onPress={showPretDraftList}>
+                  <Text style={{ color: Colors.white, fontWeight: '600' }}>
+                    {t('scanner.pretPrep.viewList', { count: pretDraftItems.length })}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
+        )}
 
         <View style={s.ouRow}>
           <View style={s.ouLine} />
@@ -1472,4 +1661,6 @@ const s = StyleSheet.create({
     backgroundColor: Colors.bgCardAlt,
   },
   undoBtnText: { color: Colors.white, fontWeight: '700', fontSize: 13 },
+  pretPrepCardActive: { borderColor: Colors.yellow, backgroundColor: 'rgba(234,179,8,0.08)' },
+  pretPrepActions: { gap: 10, marginBottom: 12 },
 });

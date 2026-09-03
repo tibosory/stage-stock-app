@@ -38,6 +38,12 @@ import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 import { exportPretsIcs } from '../lib/csvExportImport';
 import SignaturePad from '../components/SignaturePad';
 import { useLanguage } from '../context/LanguageContext';
+import {
+  buildPretMaterielNameGroups,
+  expandPretNameQtyToIds,
+  normPretMaterielName,
+  buildQtyByNameKeyFromMaterielIds,
+} from '../lib/pretMaterielGroups';
 
 const STATUTS_PRET_VALUES: StatutPret[] = ['en demande', 'en cours', 'retourné', 'en retard', 'annulé'];
 
@@ -59,52 +65,6 @@ const FILTRE_PRETS: { key: 'tous' | StatutPret; label: string }[] = [
 
 const ETATS_RET_VALUES: EtatMateriel[] = ['bon', 'moyen', 'usé', 'hors service'];
 
-/** Même intitulé (hors casse / espaces) : on regroupe, sans tenir compte du n° de série, QR ou catégorie. */
-function normPretMaterielName(n: string): string {
-  return n.trim().toLowerCase();
-}
-
-type PretMaterielNameGroup = {
-  key: string;
-  displayName: string;
-  ids: string[];
-};
-
-function buildPretMaterielNameGroups(materiels: Materiel[]): PretMaterielNameGroup[] {
-  const acc = new Map<string, { displayName: string; ids: string[] }>();
-  for (const mat of materiels) {
-    const key = normPretMaterielName(mat.nom);
-    if (!key) continue;
-    let e = acc.get(key);
-    if (!e) {
-      e = { displayName: (mat.nom || '').trim() || mat.nom, ids: [] };
-      acc.set(key, e);
-    }
-    e.ids.push(mat.id);
-  }
-  for (const e of acc.values()) {
-    e.ids.sort((a, b) => a.localeCompare(b));
-  }
-  return Array.from(acc.entries())
-    .map(([key, v]) => ({ key, displayName: v.displayName, ids: v.ids }))
-    .sort((a, b) => a.displayName.localeCompare(b.displayName, 'fr', { sensitivity: 'base' }));
-}
-
-function expandPretNameQtyToIds(
-  groups: PretMaterielNameGroup[],
-  qty: Record<string, number>
-): string[] {
-  const out: string[] = [];
-  for (const g of groups) {
-    const n = Math.min(
-      g.ids.length,
-      Math.max(0, Math.floor(qty[g.key] ?? 0))
-    );
-    out.push(...g.ids.slice(0, n));
-  }
-  return out;
-}
-
 export default function PretsScreen() {
   const { t } = useLanguage();
   const navigation = useNavigation<any>();
@@ -118,6 +78,7 @@ export default function PretsScreen() {
   const [exportingIcs, setExportingIcs] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState<Pret | null>(null);
+  const [scanInitialMaterielIds, setScanInitialMaterielIds] = useState<string[] | undefined>();
 
   const load = useCallback(async () => {
     const p = await getPrets();
@@ -156,6 +117,18 @@ export default function PretsScreen() {
         navigation.setParams({ openPretEditId: undefined } as never);
       })();
     }, [route.params?.openPretEditId, navigation])
+  );
+
+  /** Depuis le scanner : préparer un prêt avec matériels déjà scannés */
+  useFocusEffect(
+    useCallback(() => {
+      const ids = route.params?.openNewPretWithMaterielIds as string[] | undefined;
+      if (!ids?.length) return;
+      setEditItem(null);
+      setScanInitialMaterielIds(ids);
+      setShowModal(true);
+      navigation.setParams({ openNewPretWithMaterielIds: undefined } as never);
+    }, [route.params?.openNewPretWithMaterielIds, navigation])
   );
 
   const pretsFiltres = useMemo(() => {
@@ -324,24 +297,27 @@ export default function PretsScreen() {
 
       <PretModal
         visible={showModal}
-        onClose={() => { setShowModal(false); setEditItem(null); }}
+        onClose={() => { setShowModal(false); setEditItem(null); setScanInitialMaterielIds(undefined); }}
         onSaved={load}
         item={editItem}
         authUser={user}
         readOnly={isBorrower && !!editItem}
         borrowerNewDemand={isBorrower && !editItem}
+        initialMaterielIds={scanInitialMaterielIds}
       />
     </TabScreenSafeArea>
   );
 }
 
 // ── Modal Prêt ────────────────────────────────────────────────────────────────
-function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrowerNewDemand }: {
+function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrowerNewDemand, initialMaterielIds }: {
   visible: boolean; onClose: () => void; onSaved: () => void; item: Pret | null;
   authUser: AppUser | null;
   readOnly?: boolean;
   /** Emprunteur : création d’une demande (statut « en demande », sans sortir le stock). */
   borrowerNewDemand?: boolean;
+  /** Matériels pré-sélectionnés depuis le scanner (création de prêt). */
+  initialMaterielIds?: string[];
 }) {
   const { t } = useLanguage();
   const borrowerCreatingDemande = !!borrowerNewDemand && !item;
@@ -371,6 +347,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
   const [beneficiaireRepId, setBeneficiaireRepId] = useState('');
   const [horairePrecision, setHorairePrecision] = useState('');
   const [notifyLoading, setNotifyLoading] = useState(false);
+  const [pendingScanMaterielIds, setPendingScanMaterielIds] = useState<string[] | null>(null);
 
   const nameGroups = useMemo(
     () => buildPretMaterielNameGroups(allMateriels),
@@ -432,8 +409,21 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
   useEffect(() => {
     if (!visible) {
       setQtyByNameKey({});
+      setPendingScanMaterielIds(null);
     }
   }, [visible]);
+
+  useEffect(() => {
+    if (visible && initialMaterielIds?.length && !item) {
+      setPendingScanMaterielIds(initialMaterielIds);
+    }
+  }, [visible, initialMaterielIds, item]);
+
+  useEffect(() => {
+    if (!pendingScanMaterielIds?.length || allMateriels.length === 0) return;
+    setQtyByNameKey(buildQtyByNameKeyFromMaterielIds(allMateriels, pendingScanMaterielIds));
+    setPendingScanMaterielIds(null);
+  }, [pendingScanMaterielIds, allMateriels]);
 
   useEffect(() => {
     if (!visible) return;
@@ -484,7 +474,8 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       setOrganisation(''); setTelephone(''); setEmail('');
       setDateDepart(format(new Date(), 'yyyy-MM-dd'));
       setRetourPrevu(''); setRetourReel(''); setValeurEstimee('');
-      setCommentaire(''); setQtyByNameKey({});
+      setCommentaire('');
+      if (!initialMaterielIds?.length) setQtyByNameKey({});
       setSignatureB64(null);
       setEmprunteurUserId('');
       setRappelJoursAvant('');

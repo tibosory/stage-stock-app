@@ -479,8 +479,19 @@ const df = StyleSheet.create({
 });
 
 // ── Select ──────────────────────────────────────────────────────────
+const SELECT_SEARCH_MIN_OPTIONS = 8;
+
+/** Filtre sensible à la casse (pas de toLowerCase). */
+function filterSelectOptionsCaseSensitive(
+  options: { label: string; value: string }[],
+  query: string,
+): { label: string; value: string }[] {
+  if (!query) return options;
+  return options.filter(o => o.label.includes(query));
+}
+
 export const SelectPicker = ({
-  label, value, options, onChange, required, disabled, labelStyle
+  label, value, options, onChange, required, disabled, labelStyle, searchPlaceholder,
 }: {
   label?: string;
   value: string;
@@ -489,10 +500,23 @@ export const SelectPicker = ({
   required?: boolean;
   disabled?: boolean;
   labelStyle?: TextStyle;
+  /** Placeholder du champ recherche (listes longues). */
+  searchPlaceholder?: string;
 }) => {
   const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState('');
   const selected = options.find(o => o.value === value);
   const modalBottomInset = useModalBottomInset();
+  const searchable = options.length >= SELECT_SEARCH_MIN_OPTIONS;
+  const searchPh = searchPlaceholder ?? tRuntime('select.searchPlaceholder');
+  const filtered = React.useMemo(
+    () => (searchable ? filterSelectOptionsCaseSensitive(options, query) : options),
+    [options, query, searchable],
+  );
+
+  React.useEffect(() => {
+    if (!open) setQuery('');
+  }, [open]);
 
   return (
     <View style={{ marginBottom: 12 }}>
@@ -521,8 +545,20 @@ export const SelectPicker = ({
           <TouchableOpacity style={sel.overlayDim} activeOpacity={1} onPress={() => setOpen(false)} accessibilityRole="button" accessibilityLabel={tRuntime('common.closeList')} />
           <View style={[sel.sheet, { paddingBottom: 20 + modalBottomInset }]}>
           <Text style={sel.title}>{label ?? tRuntime('common.choose')}</Text>
+            {searchable && (
+              <TextInput
+                style={sel.search}
+                value={query}
+                onChangeText={setQuery}
+                placeholder={searchPh}
+                placeholderTextColor={Colors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                accessibilityLabel={searchPh}
+              />
+            )}
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={sel.scrollContent}>
-              {options.map(opt => (
+              {filtered.map(opt => (
                 <TouchableOpacity
                   key={opt.value}
                   style={[sel.option, opt.value === value && sel.optionActive]}
@@ -535,6 +571,9 @@ export const SelectPicker = ({
                   </Text>
                 </TouchableOpacity>
               ))}
+              {searchable && filtered.length === 0 && (
+                <Text style={sel.empty}>{tRuntime('select.noResults')}</Text>
+              )}
             </ScrollView>
           </View>
         </View>
@@ -579,6 +618,24 @@ const sel = StyleSheet.create({
   },
   optionActive: {
     backgroundColor: Colors.greenBg, borderRadius: 8, paddingHorizontal: 8,
+  },
+  search: {
+    backgroundColor: Colors.bgInput,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    color: Colors.textPrimary,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    marginBottom: 10,
+    minHeight: Spacing.touchMin,
+  },
+  empty: {
+    color: Colors.textMuted,
+    fontSize: 14,
+    paddingVertical: 14,
+    textAlign: 'center',
   },
 });
 
