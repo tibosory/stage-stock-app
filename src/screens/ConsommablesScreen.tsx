@@ -267,10 +267,18 @@ export default function ConsommablesScreen() {
       {
         text: t('consumables.deleteTitle'), style: 'destructive',
         onPress: async () => {
-          await deleteConsommable(item.id);
-          invalidateInventorySnapshotCache();
-          load();
-          void triggerSyncAfterActionIfEnabled();
+          try {
+            await deleteConsommable(item.id);
+            invalidateInventorySnapshotCache();
+            load();
+            void triggerSyncAfterActionIfEnabled();
+          } catch (e: unknown) {
+            const raw = e instanceof Error ? e.message : String(e);
+            const msg = /foreign key|constraint/i.test(raw)
+              ? t('consumables.deleteFk')
+              : (raw || t('consumables.deleteError'));
+            Alert.alert(t('consumables.deleteError'), msg);
+          }
         }
       },
     ]);

@@ -252,17 +252,16 @@ export async function searchConsommables(query: string): Promise<Consommable[]> 
 export async function insertMaterielsSerieBatch(
   rows: Array<Omit<Materiel, 'id' | 'created_at' | 'updated_at' | 'synced'>>,
   database?: InventoryOpsDbExecutor
-): Promise<number> {
+): Promise<string[]> {
   const db = await resolveInventoryDb(database);
   const { insertMateriel } = await resolveInventoryFns();
-  let count = 0;
+  const ids: string[] = [];
   await db.withTransactionAsync(async () => {
     for (const data of rows) {
-      await insertMateriel(data);
-      count++;
+      ids.push(await insertMateriel(data));
     }
   });
-  return count;
+  return ids;
 }
 
 export async function deleteMateriel(id: string, database?: InventoryOpsDbExecutor): Promise<void> {
@@ -349,7 +348,10 @@ export async function deleteConsommable(id: string, database?: InventoryOpsDbExe
   const db = await resolveInventoryDb(database);
   const { logInventoryDeletion } = await import('./regieDeletionSyncDb');
   await logInventoryDeletion('consommables', id, db);
-  await db.runAsync('DELETE FROM consommables WHERE id = ?', [id]);
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM mouvements_stock WHERE consommable_id = ?', [id]);
+    await db.runAsync('DELETE FROM consommables WHERE id = ?', [id]);
+  });
 }
 
 export async function ajusterStock(

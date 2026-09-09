@@ -1,9 +1,12 @@
 // src/components/MaterielSerieModal.tsx
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Alert, TouchableOpacity, Image } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Colors } from '../theme/colors';
 import { insertMaterielsSerieBatch } from '../db/inventoryOpsDb';
 import { insertCategorie, insertLocalisation, categoryPathById } from '../db/catalogDb';
+import { ensureStockFlightcase, listStockFlightcaseLabels } from '../db/stockFlightcasesDb';
+import { finalizeMaterielMainPhoto } from '../application/usecases/SaveMaterialUseCase';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 import { Categorie, Localisation, Lieu, EtatMateriel, StatutMateriel } from '../types';
 import { Input, SelectPicker, BottomModal, FormButtons, DateField } from './UI';
@@ -74,6 +77,9 @@ export default function MaterielSerieModal({
   const [categorieId, setCategorieId] = useState('');
   const [lieuId, setLieuId] = useState('');
   const [localisationId, setLocalisationId] = useState('');
+  const [flightcase, setFlightcase] = useState('');
+  const [flightcaseLabels, setFlightcaseLabels] = useState<string[]>([]);
+  const [newFlightcaseName, setNewFlightcaseName] = useState('');
   const [etat, setEtat] = useState<EtatMateriel>('bon');
   const [statut, setStatut] = useState<StatutMateriel>('en stock');
   const [seriePrefix, setSeriePrefix] = useState('');
@@ -84,6 +90,7 @@ export default function MaterielSerieModal({
   const [nomMode, setNomMode] = useState<'dash' | 'paren' | 'index'>('dash');
   const [dateAchat, setDateAchat] = useState('');
   const [technicien, setTechnicien] = useState('');
+  const [photoLocal, setPhotoLocal] = useState('');
   const [saving, setSaving] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCatParentId, setNewCatParentId] = useState('');
@@ -97,6 +104,8 @@ export default function MaterielSerieModal({
     setCategorieId('');
     setLieuId('');
     setLocalisationId('');
+    setFlightcase('');
+    setNewFlightcaseName('');
     setEtat('bon');
     setStatut('en stock');
     setSeriePrefix('');
@@ -107,9 +116,25 @@ export default function MaterielSerieModal({
     setNomMode('dash');
     setDateAchat('');
     setTechnicien('');
+    setPhotoLocal('');
     setNewCategoryName('');
     setNewCatParentId('');
     setNewLocalisationName('');
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    void listStockFlightcaseLabels()
+      .then(labels => {
+        if (!cancelled) setFlightcaseLabels(labels);
+      })
+      .catch(() => {
+        if (!cancelled) setFlightcaseLabels([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [visible]);
 
   const handleAddLocalisation = async () => {
@@ -150,6 +175,52 @@ export default function MaterielSerieModal({
       const msg = e instanceof Error ? e.message : String(e);
       Alert.alert(t('scanner.error'), msg);
     }
+  };
+
+  const handleAddFlightcase = async () => {
+    const name = newFlightcaseName.trim();
+    if (!name) {
+      Alert.alert(t('stock.flightcase.label'), t('stock.flightcase.nameRequired'));
+      return;
+    }
+    try {
+      const row = await ensureStockFlightcase(localisationId || null, name);
+      setNewFlightcaseName('');
+      setFlightcase(row.label);
+      setFlightcaseLabels(await listStockFlightcaseLabels());
+      Alert.alert('✓', t('stock.flightcase.created'));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert(t('scanner.error'), msg);
+    }
+  };
+
+  const handlePhoto = () => {
+    Alert.alert(t('stock.serie.photoLabel'), t('stock.serie.photoSource'), [
+      {
+        text: t('stock.serie.photoCamera'),
+        onPress: async () => {
+          const perm = await ImagePicker.requestCameraPermissionsAsync();
+          if (!perm.granted) return;
+          const res = await ImagePicker.launchCameraAsync({
+            quality: 0.65,
+            allowsEditing: true,
+            aspect: [4, 3],
+          });
+          if (!res.canceled) setPhotoLocal(res.assets[0].uri);
+        },
+      },
+      {
+        text: t('stock.serie.photoGallery'),
+        onPress: async () => {
+          const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (!perm.granted) return;
+          const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.65 });
+          if (!res.canceled) setPhotoLocal(res.assets[0].uri);
+        },
+      },
+      { text: t('common.cancel'), style: 'cancel' },
+    ]);
   };
 
   const sortedCats = useMemo(
@@ -198,6 +269,18 @@ export default function MaterielSerieModal({
     const filtered = lieuId ? localisations.filter(l => l.lieu_id === lieuId) : [];
     return [{ label: 'Aucune', value: '' }, ...filtered.map(l => ({ label: l.nom, value: l.id }))];
   }, [localisations, lieuId]);
+
+  const flightcaseOptions = useMemo(() => {
+    const labels = [...flightcaseLabels];
+    const current = flightcase.trim();
+    if (current && !labels.some(l => l.toLowerCase() === current.toLowerCase())) {
+      labels.unshift(current);
+    }
+    return [
+      { label: t('common.none'), value: '' },
+      ...labels.map(l => ({ label: l, value: l })),
+    ];
+  }, [flightcaseLabels, flightcase, t]);
 
   const preview = (): string => {
     const start = parseInt(serieDebut, 10);
@@ -252,6 +335,7 @@ export default function MaterielSerieModal({
         categorie_id: categorieId || undefined,
         lieu_id: lieuId || undefined,
         localisation_id: localisationId || undefined,
+        flightcase: flightcase.trim() || undefined,
         etat,
         statut,
         date_achat: dateAchat || undefined,
@@ -268,8 +352,17 @@ export default function MaterielSerieModal({
 
     setSaving(true);
     try {
-      const n = await insertMaterielsSerieBatch(rows);
-      Alert.alert('✓ Série créée', `${n} matériel(s) ajouté(s).`);
+      const ids = await insertMaterielsSerieBatch(rows);
+      if (flightcase.trim()) {
+        await ensureStockFlightcase(localisationId || null, flightcase.trim());
+      }
+      const sharedPhoto = photoLocal.trim();
+      if (sharedPhoto) {
+        for (const id of ids) {
+          await finalizeMaterielMainPhoto(id, sharedPhoto);
+        }
+      }
+      Alert.alert('✓ Série créée', `${ids.length} matériel(s) ajouté(s).`);
       onSaved();
       void triggerSyncAfterActionIfEnabled();
       onClose();
@@ -284,7 +377,7 @@ export default function MaterielSerieModal({
     <BottomModal visible={visible} onClose={onClose} title="Série (même marque / modèle)">
       <Text style={styles.hint}>
         Même marque, modèle et réglages pour tous les articles. Les numéros de série et les QR sont
-        différents pour chaque ligne.
+        différents pour chaque ligne. Une photo commune (optionnelle) est copiée sur chaque fiche.
       </Text>
 
       <Input label="Nom de base (modèle)" value={nomBase} onChangeText={setNomBase} required />
@@ -297,6 +390,26 @@ export default function MaterielSerieModal({
           <Input label="Type / modèle" value={type} onChangeText={setType} />
         </View>
       </View>
+
+      <Text style={styles.photoLabel}>{t('stock.serie.photoLabel')}</Text>
+      <Text style={styles.photoHint}>{t('stock.serie.photoHint')}</Text>
+      <TouchableOpacity style={styles.photoBox} onPress={handlePhoto} activeOpacity={0.85}>
+        {photoLocal ? (
+          <Image source={{ uri: photoLocal }} style={styles.photo} />
+        ) : (
+          <View style={styles.photoPlaceholder}>
+            <Text style={{ fontSize: 28 }}>📷</Text>
+            <Text style={{ color: Colors.textMuted, fontSize: 12, marginTop: 6 }}>
+              {t('stock.serie.photoPick')}
+            </Text>
+          </View>
+        )}
+      </TouchableOpacity>
+      {photoLocal ? (
+        <TouchableOpacity style={styles.photoRemoveBtn} onPress={() => setPhotoLocal('')}>
+          <Text style={styles.photoRemoveText}>{t('stock.serie.photoRemove')}</Text>
+        </TouchableOpacity>
+      ) : null}
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
@@ -311,6 +424,29 @@ export default function MaterielSerieModal({
         <View style={{ flex: 1 }}>
           <SelectPicker label="Catégorie" value={categorieId} options={catOptions} onChange={setCategorieId} />
         </View>
+      </View>
+
+      <SelectPicker
+        label={t('stock.flightcase.label')}
+        value={flightcase}
+        options={flightcaseOptions}
+        onChange={setFlightcase}
+      />
+      <Text style={styles.hint}>{t('stock.flightcase.memorizeHint')}</Text>
+      <View style={styles.newCatRow}>
+        <View style={{ flex: 1 }}>
+          <Input
+            label={t('stock.flightcase.newName')}
+            value={newFlightcaseName}
+            onChangeText={setNewFlightcaseName}
+            placeholder={t('stock.flightcase.placeholder')}
+            onSubmitEditing={handleAddFlightcase}
+            returnKeyType="done"
+          />
+        </View>
+        <TouchableOpacity style={styles.newCatBtn} onPress={handleAddFlightcase}>
+          <Text style={styles.newCatBtnText}>{t('stock.flightcase.create')}</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.newCatBlock}>
@@ -461,4 +597,37 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     marginTop: -4,
   },
+  photoLabel: {
+    color: Colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 4,
+    marginTop: 4,
+  },
+  photoHint: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 8,
+  },
+  photoBox: { borderRadius: 12, overflow: 'hidden', marginBottom: 8, height: 140 },
+  photo: { width: '100%', height: '100%' },
+  photoPlaceholder: {
+    backgroundColor: Colors.bgInput,
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 12,
+    borderStyle: 'dashed',
+  },
+  photoRemoveBtn: {
+    alignSelf: 'flex-start',
+    marginBottom: 14,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  photoRemoveText: { color: Colors.textMuted, fontSize: 13, fontWeight: '600' },
 });

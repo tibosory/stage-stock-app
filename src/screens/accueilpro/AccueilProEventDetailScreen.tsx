@@ -231,6 +231,10 @@ export default function AccueilProEventDetailScreen() {
                 label={t('accueilpro.feuille.openEvent')}
                 onPress={() => navigation.navigate('AccueilProFeuilleRouteEvent', { eventId: event.id })}
               />
+              <AccueilProLinkButton
+                label={t('accueilpro.prep.open')}
+                onPress={() => navigation.navigate('AccueilProEventPrep', { eventId: event.id })}
+              />
               {event.capi_spectacle_ref_id ? (
                 <AccueilProLinkButton
                   label="Documents CAPI (fiche spectacle)"
@@ -317,6 +321,10 @@ export default function AccueilProEventDetailScreen() {
                   <Text style={apStyles.sectionLink}>{t('accueilpro.eventTeam.manage')}</Text>
                 </TouchableOpacity>
               </View>
+              <AccueilProLinkButton
+                label={t('accueilpro.prep.open')}
+                onPress={() => navigation.navigate('AccueilProEventPrep', { eventId: event.id })}
+              />
               <TouchableOpacity
                 style={[
                   apStyles.formCard,

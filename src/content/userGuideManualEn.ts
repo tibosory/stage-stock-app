@@ -8,7 +8,7 @@ export const USER_GUIDE_META_EN = {
   title: 'CATRACK Pro — User guide',
   subtitle: 'Step-by-step guide with practical examples',
   versionLabel:
-    'July 20, 2026 — v1.0.42 (show assignment vs loans, CAPI borrower sync)',
+    '9 Sep 2026 — v1.0.43 (Accueil Pro prep, inventory sync)',
 };
 
 export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
@@ -78,7 +78,9 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
     paragraphs: [
       'Filterable list by status and text search (equipment and consumables from the search bar). Tap a search result to open and edit its record. Long-press a row or 🗑️: selection mode (check rows, select all, bulk delete or export PDF).',
       'When creating a record, the Quantity field replaces the old type field. Quantity 1 = single item with its own QR. Quantity > 1 = lot (one QR, stock adjusted like a consumable, ± Adjust button and Scanner).',
+      'Series entry (Stock button): creates several records of the same model with distinct serial numbers. You can attach one shared photo; it is copied onto each item at creation.',
       'When adding or editing a record: pick an existing category or create one (optional parent for a subcategory, e.g. Lighting › LED). Below location (store, stage…), you can add a flightcase label (e.g. FC-Lighting 3) when several items are stored together.',
+      'Flightcases: pick a saved name from the list, or create one on the record (“New flightcase”). Names are kept so you can reuse them on other items.',
       'Each flightcase (same label in the same location) has a dedicated QR in the form SS-FC:fc_…, separate from each item’s QR. Scanning the flightcase QR opens the contents list; scanning an item’s QR always opens that item’s record.',
       'Print QR labels (Stock, Consumables, bulk print): each label shows the QR code, item name and reference; text size adapts so nothing is clipped.',
       'The detail view shows only filled fields.',
@@ -190,7 +192,8 @@ export const USER_GUIDE_SECTIONS_EN: UserGuideSection[] = [
       'Open event: Overview, Team and Agenda tabs. Team — “Manage team”: pick from directory or create a record. “SMS whole team” (Team tab or Manage team screen): write a message (e.g. meal break); Messages opens with all listed mobiles — you confirm sending on the phone. Contacts — venue, organization and external contacts. Agenda — time slots (who, what, where); trash icon to delete a slot.',
       'Day plan: Accueil Pro → Day plan (home shortcut). Each row has a trash icon on the right to delete (with confirmation). Tap the row to edit; “+” at top to add a slot.',
       'Run sheet: Accueil Pro → Run sheet. One sheet per event (title = name + dates), list sorted chronologically. Tap a row for the synthesis (organization, venue, spaces, times, equipment per space, team, agenda, agreements, inspections, regisseur notes) and PDF export. “Open run sheet” on the event record (Overview tab). Information sheet: from the event or run sheet, enter equipment needed per room (e.g. “Room A: 80 chairs, 2 wireless mics”) — text appears on the run sheet and PDF. Day schedule remains under Day plan.',
-      'Organization portal: Accueil Pro → Association portal. Lists organizations with at least one created event; events appear under each name. Tap an event to add PDF, audio or video files (programme, rider, sound tracks…). For association users (client portal), the profile form and general organization documents remain at the bottom.',
+      'AI prep (staff & shopping): from the event record (Overview or Team), open “AI prep”. The server analyzes the CAPI dossier (team, schedule, meals, technical needs, document titles) and proposes — after your validation — required staff, a provisional staff budget (editable €/h, accept / reject) and a shopping checklist (catering & supplies). Without a configured LLM, a heuristic estimate is still returned. Accueil Pro server pairing required.',
+      'Organization portal: Accueil Pro → Association portal. Lists organizations with at least one created event; events appear under each name. Tap an event to add any files needed for the show (PDF, Office, images, audio, video, ZIP, plans…) — multi-select supported. For association users (client portal), the profile form and general organization documents remain at the bottom.',
       'My day (staff): section on Accueil Pro home with readiness score per today’s event; tap → event record. Today banner → filtered list. Events: Today / Week / All filters; statuses Option, Confirmed, Cancelled, Completed (cancelled excluded from day counts). Each event has a fixed color (Planning calendar bubbles, list side stripe) for quick identification. Event record → “Ready to host” checklist (agreement, files, inspections, team + briefing and access toggles). “Compare check-in / check-out” link per space. Run sheet PDF includes readiness score.',
       'Portal invitations (staff, Supabase mode): Organization record → Invite to cloud portal.',
     ],

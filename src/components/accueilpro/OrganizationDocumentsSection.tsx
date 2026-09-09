@@ -16,14 +16,14 @@ import {
   listApOrganizationDocuments,
   saveDocument,
 } from '../../db/accueilProDb';
-import { uploadAccueilProOrganizationPdf } from '../../lib/accueilProOrgDocumentUpload';
+import { uploadAccueilProOrganizationDocument } from '../../lib/accueilProOrgDocumentUpload';
 import { resolveAccueilProSyncEndpoint, syncAccueilProBidirectional } from '../../lib/accueilProApiSync';
 import { logAccueilProAction } from '../../lib/accueilProActivityLog';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAppAuth } from '../../context/AuthContext';
 import { useConnection } from '../../context/ConnectionContext';
 
-const DOC_CATEGORIES = ['assurance', 'programme', 'rider', 'liste', 'autre'] as const;
+const DOC_CATEGORIES = ['assurance', 'programme', 'rider', 'liste', 'technique', 'contrat', 'autre'] as const;
 
 type Props = {
   organizationId: string | null;
@@ -31,16 +31,21 @@ type Props = {
   onDocumentsChange: (docs: ApOrganizationDocument[]) => void;
 };
 
-function docPickUri(pick: DocumentPicker.DocumentPickerResult): string | null {
-  if (pick.canceled) return null;
-  const p = pick as DocumentPicker.DocumentPickerSuccessResult;
-  return p.assets?.[0]?.uri ?? null;
+type PickedFile = { uri: string; name: string; mime: string };
+
+function docPickFiles(pick: DocumentPicker.DocumentPickerResult): PickedFile[] {
+  if (pick.canceled) return [];
+  return (pick.assets ?? [])
+    .filter(a => Boolean(a?.uri))
+    .map(a => ({
+      uri: a.uri,
+      name: a.name?.trim() || 'document',
+      mime: a.mimeType?.trim() || 'application/octet-stream',
+    }));
 }
 
-function fileBaseName(uri: string): string {
-  const parts = uri.split(/[/\\]/);
-  const name = parts[parts.length - 1] ?? 'document.pdf';
-  return name.replace(/\.pdf$/i, '') || 'Document';
+function fileBaseName(name: string): string {
+  return name.replace(/\.[^.]+$/, '') || 'Document';
 }
 
 export function OrganizationDocumentsSection(props: Props) {
@@ -86,70 +91,87 @@ export function OrganizationDocumentsSection(props: Props) {
 
     try {
       const pick = await DocumentPicker.getDocumentAsync({
-        type: 'application/pdf',
+        type: '*/*',
         copyToCacheDirectory: true,
+        multiple: true,
       });
-      const uri = docPickUri(pick);
-      if (!uri) return;
+      const files = docPickFiles(pick);
+      if (!files.length) return;
 
-      const docTitle = title.trim() || fileBaseName(uri);
+      const sharedTitle = title.trim();
       const docCategory = category === 'autre' ? null : category;
       setUploading(true);
 
-      const localId = generateApId();
-      const row: ApOrganizationDocument = {
-        id: localId,
-        organization_id: orgId,
-        title: docTitle,
-        category: docCategory,
-        local_uri: uri,
-        mime_type: 'application/pdf',
-        synced: false,
-        created_at: new Date().toISOString(),
-      };
-      await saveDocument(row);
+      let ok = 0;
+      for (const file of files) {
+        const docTitle =
+          (files.length === 1 ? sharedTitle : '') ||
+          fileBaseName(file.name);
 
-      if (connStatus === 'ok') {
-        const endpoint = await resolveAccueilProSyncEndpoint();
-        if (endpoint) {
-          const res = await uploadAccueilProOrganizationPdf({
-            organizationId: orgId,
-            fileUri: uri,
-            title: docTitle,
-            category: docCategory ?? undefined,
-            endpoint,
-          });
-          if (res.ok) {
-            const json = (await res.json()) as { id?: string; path?: string };
-            const serverId = json.id?.trim() || localId;
-            if (serverId !== localId) {
-              await deleteDocument(localId);
-            }
-            await saveDocument({
-              ...row,
-              id: serverId,
-              storage_path: json.path ?? null,
-              synced: true,
+        const localId = generateApId();
+        const row: ApOrganizationDocument = {
+          id: localId,
+          organization_id: orgId,
+          title: docTitle,
+          category: docCategory,
+          local_uri: file.uri,
+          mime_type: file.mime,
+          synced: false,
+          created_at: new Date().toISOString(),
+        };
+        await saveDocument(row);
+
+        if (connStatus === 'ok') {
+          const endpoint = await resolveAccueilProSyncEndpoint();
+          if (endpoint) {
+            const res = await uploadAccueilProOrganizationDocument({
+              organizationId: orgId,
+              fileUri: file.uri,
+              title: docTitle,
+              category: docCategory ?? undefined,
+              mimeType: file.mime,
+              filename: file.name,
+              endpoint,
             });
-            try {
-              await syncAccueilProBidirectional(endpoint);
-            } catch {
-              /* local copy ok */
+            if (res.ok) {
+              const json = (await res.json()) as { id?: string; path?: string };
+              const serverId = json.id?.trim() || localId;
+              if (serverId !== localId) {
+                await deleteDocument(localId);
+              }
+              await saveDocument({
+                ...row,
+                id: serverId,
+                storage_path: json.path ?? null,
+                synced: true,
+              });
+              try {
+                await syncAccueilProBidirectional(endpoint);
+              } catch {
+                /* local copy ok */
+              }
             }
           }
         }
+
+        void logAccueilProAction({
+          action: 'document.added',
+          entity: 'organization_document',
+          entityId: orgId,
+          summary: `Document ajouté : ${docTitle}`,
+          actorName: user?.nom,
+        });
+        ok += 1;
       }
 
       setTitle('');
       await reload();
-      void logAccueilProAction({
-        action: 'document.added',
-        entity: 'organization_document',
-        entityId: orgId,
-        summary: `Document ajouté : ${docTitle}`,
-        actorName: user?.nom,
-      });
-      Alert.alert(t('accueilpro.documents.addedTitle'), t('accueilpro.documents.addedBody'));
+      Alert.alert(
+        t('accueilpro.documents.addedTitle'),
+        ok > 1
+          ? t('accueilpro.portal.eventDocsAddedMany', { count: ok })
+          : t('accueilpro.documents.addedBody')
+      );
     } catch (e) {
       Alert.alert(t('accueilpro.orgs.errTitle'), e instanceof Error ? e.message : String(e));
     } finally {
@@ -201,7 +223,7 @@ export function OrganizationDocumentsSection(props: Props) {
       </View>
 
       <AccueilProPrimaryButton
-        label={t('accueilpro.documents.pickPdf')}
+        label={t('accueilpro.portal.pickAnyFiles')}
         onPress={() => void onPickAndUpload()}
         loading={uploading}
       />

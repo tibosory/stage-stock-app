@@ -977,7 +977,7 @@ export const insertMateriel = async (data: Omit<Materiel, 'id' | 'created_at' | 
 /** @deprecated Use `src/db/inventoryOpsDb.ts` */
 export const insertMaterielsSerieBatch = async (
   rows: Array<Omit<Materiel, 'id' | 'created_at' | 'updated_at' | 'synced'>>
-): Promise<number> => {
+): Promise<string[]> => {
   const mod = await import('./inventoryOpsDb');
   return mod.insertMaterielsSerieBatch(rows);
 };

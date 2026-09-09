@@ -35,7 +35,7 @@ export const USER_GUIDE_META = {
   subtitle: 'Guide pas à pas avec exemples concrets',
 
   versionLabel:
-    '20 juil. 2026 — v1.0.42 (affectation spectacle vs prêts, sync emprunteurs CAPI)',
+    '9 sept. 2026 — v1.0.43 (préparation Accueil Pro, sync inventaire)',
 };
 
 
@@ -174,7 +174,11 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'À la création d’une fiche : le champ « Quantité » remplace l’ancien type. Quantité 1 = pièce unitaire avec son QR. Quantité > 1 = lot (un QR, stock ajustable comme un consommable, bouton ± Ajuster et Scanner).',
 
+      'Saisie série (bouton Stock) : crée plusieurs fiches du même modèle avec des n° de série distincts. Vous pouvez joindre une photo commune : elle est copiée sur chaque article à la création.',
+
       'À l’ajout ou la modification d’une fiche : choisissez une catégorie existante ou créez-en une (parent optionnel pour une sous-catégorie, ex. Éclairage › LED). Sous la localisation (réserve, scène…), vous pouvez préciser un flightcase ou une caisse (ex. FC-Lumière 3) lorsque plusieurs pièces sont rangées ensemble.',
+
+      'Flightcases : sélectionnez un nom déjà mémorisé dans la liste, ou créez-en un sur la fiche (« Nouveau flightcase »). Les noms sont conservés pour les réutiliser sur d’autres articles.',
 
       'Chaque flightcase (même libellé dans la même localisation) possède un QR dédié au format SS-FC:fc_…, distinct du QR de chaque article. Scanner le QR flightcase ouvre la liste du contenu ; scanner le QR d’un article ouvre toujours sa fiche individuelle.',
 
@@ -394,7 +398,9 @@ export const USER_GUIDE_SECTIONS: UserGuideSection[] = [
 
       'Feuille de route : menu Accueil Pro → Feuille de route. Une feuille par événement (titre = nom + dates), liste triée chronologiquement. Touchez une ligne pour la synthèse (organisation, lieu, espaces, horaires, matériel par espace, équipe, agenda, conventions, EDL, notes régisseur) et l’export PDF. Lien « Ouvrir la feuille de route » aussi depuis la fiche événement (onglet Aperçu). Feuille information : depuis la fiche événement ou la feuille de route, renseignez le matériel nécessaire par salle (ex. « Salle A : 80 chaises, 2 micros HF ») — le texte apparaît sur la feuille de route et le PDF. Le planning du jour reste dans Planning du jour.',
 
-      'Portail organisation : menu Accueil Pro → Portail association. Liste des organisations ayant au moins un événement créé ; sous chaque nom, les événements concernés. Touchez un événement pour y ajouter des fichiers PDF, audio ou vidéo (programme, rider, bandes-son…). Côté association (portail client), la fiche et les documents généraux de l’organisation restent en bas de l’écran.',
+      'Préparation IA (personnel & courses) : depuis la fiche événement (aperçu ou équipe), « Préparation IA ». Le serveur analyse le dossier CAPI (équipe, planning, repas, besoins techniques, titres de documents) et propose — avec votre validation — le personnel à prévoir, un budget prévisionnel (€/h ajustable, accepter / refuser) et une liste de courses (catering & fournitures) à cocher. Sans modèle LLM configuré, une estimation heuristique est quand même renvoyée. Jumelage serveur Accueil Pro requis.',
+
+      'Portail organisation : menu Accueil Pro → Portail association. Liste des organisations ayant au moins un événement créé ; sous chaque nom, les événements concernés. Touchez un événement pour y ajouter tous les fichiers utiles au spectacle (PDF, Office, images, audio, vidéo, ZIP, plans…) — sélection multiple possible. Côté association (portail client), la fiche et les documents généraux de l’organisation restent en bas de l’écran.',
 
       'Ma journée (staff) : section sur l’accueil Accueil Pro avec le score de préparation de chaque événement du jour ; tap → fiche événement. Bannière « Aujourd’hui » → liste filtrée. Événements : filtres Aujourd’hui / Semaine / Tous ; statuts Option, Confirmé, Annulé, Terminé (les annulés sont exclus des comptages jour J). Chaque événement a une couleur fixe (bulles du calendrier Planning, bandeau latéral dans les listes) pour le repérer rapidement. Fiche événement → checklist « Prêt à accueillir » (convention, docs, EDL, équipe + cases briefing et accès). Lien « Comparer EDL entrée / sortie » par espace. Feuille de route PDF : inclut le score de préparation.',
 

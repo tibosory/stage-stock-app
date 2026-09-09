@@ -25,7 +25,7 @@ import { formatLieuPickerLabel } from '../lib/capiLieuxCatalog';
 import { useLanguage } from '../context/LanguageContext';
 import { isMaterielGestionLot, materielLotUnite, materielStockActuel } from '../lib/materielLot';
 import { stockFlightcaseKeyFromMateriel, assertMaterielQrNotFlightcase } from '../lib/stockFlightcase';
-import { ensureStockFlightcase } from '../db/stockFlightcasesDb';
+import { ensureStockFlightcase, listStockFlightcaseLabels } from '../db/stockFlightcasesDb';
 type DynamicAttrs = Record<string, string | number | boolean | null>;
 
 
@@ -109,6 +109,8 @@ export default function MaterielModal({
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCatParentId, setNewCatParentId] = useState('');
   const [newLocalisationName, setNewLocalisationName] = useState('');
+  const [flightcaseLabels, setFlightcaseLabels] = useState<string[]>([]);
+  const [newFlightcaseName, setNewFlightcaseName] = useState('');
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [selectedProfileVersion, setSelectedProfileVersion] = useState<number | null>(null);
@@ -166,9 +168,25 @@ export default function MaterielModal({
     setNewCategoryName('');
     setNewCatParentId('');
     setNewLocalisationName('');
+    setNewFlightcaseName('');
     setNoticePdfTouched(false);
     setNoticePhotoTouched(false);
   }, [visible, item, initialQr, initialNfc]);
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    void listStockFlightcaseLabels()
+      .then(labels => {
+        if (!cancelled) setFlightcaseLabels(labels);
+      })
+      .catch(() => {
+        if (!cancelled) setFlightcaseLabels([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible]);
 
   const statutLockedByTour = Boolean(item?.tracking_state === 'in_tour' && item?.current_tour_id);
 
@@ -248,6 +266,24 @@ export default function MaterielModal({
       await onMetaRefresh?.();
     } catch (e: any) {
       Alert.alert('Erreur', e?.message ?? 'Impossible de créer la localisation');
+    }
+  };
+
+  const handleAddFlightcase = async () => {
+    const name = newFlightcaseName.trim();
+    if (!name) {
+      Alert.alert(t('stock.flightcase.label'), t('stock.flightcase.nameRequired'));
+      return;
+    }
+    try {
+      const row = await ensureStockFlightcase(localisationId || null, name);
+      setNewFlightcaseName('');
+      setFlightcase(row.label);
+      setFlightcaseLabels(await listStockFlightcaseLabels());
+      Alert.alert('✓', t('stock.flightcase.created'));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert(t('scanner.error'), msg);
     }
   };
 
@@ -513,6 +549,18 @@ export default function MaterielModal({
     ];
   }, [localisations, lieuId]);
 
+  const flightcaseOptions = useMemo(() => {
+    const labels = [...flightcaseLabels];
+    const current = flightcase.trim();
+    if (current && !labels.some(l => l.toLowerCase() === current.toLowerCase())) {
+      labels.unshift(current);
+    }
+    return [
+      { label: t('common.none'), value: '' },
+      ...labels.map(l => ({ label: l, value: l })),
+    ];
+  }, [flightcaseLabels, flightcase, t]);
+
   const onLieuChange = (next: string) => {
     setLieuId(next);
     if (localisationId) {
@@ -605,14 +653,30 @@ export default function MaterielModal({
         </View>
       </View>
 
-      <Input
+      <SelectPicker
         label={t('stock.flightcase.label')}
         value={flightcase}
-        onChangeText={setFlightcase}
-        placeholder={t('stock.flightcase.placeholder')}
+        options={flightcaseOptions}
+        onChange={setFlightcase}
       />
       <Text style={s.lotHint}>{t('stock.flightcase.hint')}</Text>
+      <Text style={s.lotHint}>{t('stock.flightcase.memorizeHint')}</Text>
       <Text style={s.lotHint}>{t('stock.flightcase.qrSeparateHint')}</Text>
+      <View style={s.newCatRow}>
+        <View style={{ flex: 1 }}>
+          <Input
+            label={t('stock.flightcase.newName')}
+            value={newFlightcaseName}
+            onChangeText={setNewFlightcaseName}
+            placeholder={t('stock.flightcase.placeholder')}
+            onSubmitEditing={handleAddFlightcase}
+            returnKeyType="done"
+          />
+        </View>
+        <TouchableOpacity style={s.newCatBtn} onPress={handleAddFlightcase}>
+          <Text style={s.newCatBtnText}>{t('stock.flightcase.create')}</Text>
+        </TouchableOpacity>
+      </View>
       {item && flightcase.trim() ? (
         <TouchableOpacity
           style={s.fcOpenBtn}

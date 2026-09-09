@@ -199,6 +199,40 @@ export interface ApEvent {
   synced?: boolean;
 }
 
+/** Ligne de budget prévisionnel personnel (proposition IA ou saisie manuelle). */
+export type ApPersonnelBudgetStatus = 'proposed' | 'accepted' | 'rejected';
+
+export interface ApPersonnelBudgetLine {
+  id: string;
+  event_id: string;
+  role: string;
+  quantity: number;
+  hours: number;
+  rate_eur: number;
+  notes?: string | null;
+  status: ApPersonnelBudgetStatus;
+  source?: string | null;
+  updated_at?: string | null;
+  synced?: boolean;
+}
+
+export type ApShoppingCategory = 'catering' | 'fournitures' | 'autre';
+
+/** Article de liste de courses (catering / fournitures) pour un événement. */
+export interface ApShoppingListItem {
+  id: string;
+  event_id: string;
+  label: string;
+  quantity: number;
+  unit?: string | null;
+  category: ApShoppingCategory;
+  notes?: string | null;
+  checked: boolean;
+  source?: string | null;
+  updated_at?: string | null;
+  synced?: boolean;
+}
+
 export interface ApConvention {
   id: string;
   event_id?: string | null;

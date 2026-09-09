@@ -3,11 +3,26 @@ import { accueilProMultipartFetch } from './accueilProMultipart';
 import { getDataBackendMode } from './backendMode';
 import { uploadAccueilProFileToSupabase } from './accueilProSupabaseStorage';
 
-function extFromMime(mimeType: string): string {
+function extFromMime(mimeType: string, filename?: string): string {
+  const fromName = filename?.includes('.') ? filename.slice(filename.lastIndexOf('.')) : '';
+  if (fromName && fromName.length <= 8) return fromName;
   if (mimeType.includes('pdf')) return '.pdf';
-  if (mimeType.startsWith('audio/')) return mimeType.includes('mpeg') ? '.mp3' : '.audio';
-  if (mimeType.startsWith('video/')) return mimeType.includes('mp4') ? '.mp4' : '.video';
-  return '';
+  if (mimeType.startsWith('image/jpeg') || mimeType === 'image/jpg') return '.jpg';
+  if (mimeType.startsWith('image/png')) return '.png';
+  if (mimeType.startsWith('image/webp')) return '.webp';
+  if (mimeType.startsWith('image/')) return '.img';
+  if (mimeType.startsWith('audio/mpeg') || mimeType.includes('mp3')) return '.mp3';
+  if (mimeType.startsWith('audio/')) return '.audio';
+  if (mimeType.includes('mp4') || mimeType === 'video/mp4') return '.mp4';
+  if (mimeType.startsWith('video/')) return '.video';
+  if (mimeType.includes('sheet') || mimeType.includes('excel')) return '.xlsx';
+  if (mimeType.includes('msword')) return '.doc';
+  if (mimeType.includes('wordprocessingml')) return '.docx';
+  if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) return '.pptx';
+  if (mimeType.includes('zip') || mimeType.includes('compressed')) return '.zip';
+  if (mimeType.includes('dwg') || mimeType.includes('acad')) return '.dwg';
+  if (mimeType.includes('plain')) return '.txt';
+  return '.bin';
 }
 
 /**
@@ -24,7 +39,8 @@ export async function uploadAccueilProOrganizationDocument(args: {
   endpoint: InventorySyncEndpoint | null;
   fieldName?: string;
 }): Promise<Response> {
-  const ext = extFromMime(args.mimeType) || (args.filename.includes('.') ? '' : '.bin');
+  const hasExt = /\.[a-z0-9]{1,8}$/i.test(args.filename.trim());
+  const ext = hasExt ? '' : extFromMime(args.mimeType, args.filename);
   const safeName = args.filename.trim() || `${args.organizationId}-${Date.now().toString(36)}${ext}`;
 
   if ((await getDataBackendMode()) === 'supabase') {

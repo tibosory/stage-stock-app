@@ -86,6 +86,12 @@ async function testReconcileRemovesSyncedRowsMissingFromRemote() {
     db.calls.some(c => c.sql.includes('DELETE FROM consommables WHERE id = ?') && c.params?.[0] === 'c-gone'),
     'synced consommable absent from cloud should be deleted'
   );
+  assert.ok(
+    db.calls.some(
+      c => c.sql.includes('DELETE FROM mouvements_stock WHERE consommable_id = ?') && c.params?.[0] === 'c-gone'
+    ),
+    'stock movements must be cleared before deleting consommable'
+  );
 }
 
 async function testReconcileSkipsWipeWhenServerSnapshotEmpty() {

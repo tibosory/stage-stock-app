@@ -69,6 +69,7 @@ export async function reconcileInventoryFromSnapshot(
     if (unsyncedConsos.has(rowId)) continue;
     if (remoteConsoIds.has(rowId)) continue;
     if ((row.synced ?? 0) === 0) continue;
+    await database.runAsync('DELETE FROM mouvements_stock WHERE consommable_id = ?', [rowId]);
     await database.runAsync('DELETE FROM consommables WHERE id = ?', [rowId]);
   }
 }

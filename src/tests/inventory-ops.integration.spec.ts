@@ -71,6 +71,10 @@ async function testDeleteConsommableDeletesRow() {
     'should queue deletion for sync'
   );
   assert.ok(
+    db.calls.some(c => c.sql.includes('DELETE FROM mouvements_stock WHERE consommable_id = ?')),
+    'should delete stock movements before the consumable'
+  );
+  assert.ok(
     db.calls.some(c => c.sql.includes('DELETE FROM consommables WHERE id = ?')),
     'should delete consumable by id'
   );

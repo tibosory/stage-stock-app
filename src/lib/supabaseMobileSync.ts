@@ -235,6 +235,10 @@ async function applyInventoryDeletions(
   }
   if (consoIds.length > 0) {
     for (let attempt = 0; attempt < 4; attempt += 1) {
+      const { error: mvErr } = await sb.from('mouvements_stock').delete().in('consommable_id', consoIds);
+      if (mvErr && !isSchemaCacheError(mvErr.message)) {
+        return { ok: false, error: `Supabase suppression mouvements_stock: ${mvErr.message}` };
+      }
       const { error } = await sb.from('consommables').delete().in('id', consoIds);
       if (!error) break;
       if (isSchemaCacheError(error.message) && attempt < 3) {

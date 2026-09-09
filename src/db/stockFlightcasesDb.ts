@@ -47,6 +47,30 @@ async function computeStockFlightcaseId(
   return `fc_${hash.slice(0, 16)}`;
 }
 
+/** Libellés de flightcase mémorisés (réutilisables sur d’autres fiches). */
+export async function listStockFlightcaseLabels(database?: Db): Promise<string[]> {
+  const db = database ?? (await getDB());
+  const fromTable = await db.getAllAsync<{ label: string }>(`
+    SELECT label FROM stock_flightcases
+    ORDER BY label COLLATE NOCASE ASC
+  `);
+  const fromMateriels = await db.getAllAsync<{ label: string }>(`
+    SELECT DISTINCT trim(flightcase) AS label FROM materiels
+    WHERE flightcase IS NOT NULL AND trim(flightcase) != ''
+    ORDER BY label COLLATE NOCASE ASC
+  `);
+  const byNorm = new Map<string, string>();
+  for (const row of [...fromTable, ...fromMateriels]) {
+    const label = row.label?.trim();
+    if (!label) continue;
+    const norm = normalizeFlightcaseName(label);
+    if (!byNorm.has(norm)) byNorm.set(norm, label);
+  }
+  return [...byNorm.values()].sort((a, b) =>
+    a.localeCompare(b, 'fr', { sensitivity: 'base' })
+  );
+}
+
 export async function ensureStockFlightcase(
   localisationId: string | null,
   flightcase: string,

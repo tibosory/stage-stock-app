@@ -4,7 +4,8 @@ import { isSupabaseConfigured, pushMaterielNoticesToSupabaseAfterSave, uploadPho
 import type { Materiel } from '../../types';
 import { ValidationService } from '../services';
 
-async function finalizeMaterielMainPhoto(
+/** Copie la photo source vers le stockage local de la fiche (+ upload Supabase si configuré). */
+export async function finalizeMaterielMainPhoto(
   materialId: string,
   photoLocal?: string | null
 ): Promise<void> {

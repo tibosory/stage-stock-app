@@ -347,6 +347,38 @@ export async function ensureAccueilProSchema(database: SQLite.SQLiteDatabase): P
   await addCol('ap_spaces', 'capi_espace_ref_id', 'TEXT');
   await addCol('ap_organization_documents', 'event_id', 'TEXT');
 
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS ap_personnel_budget_lines (
+      id TEXT PRIMARY KEY,
+      event_id TEXT NOT NULL REFERENCES ap_events(id) ON DELETE CASCADE,
+      role TEXT NOT NULL,
+      quantity REAL NOT NULL DEFAULT 1,
+      hours REAL NOT NULL DEFAULT 8,
+      rate_eur REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+      status TEXT NOT NULL DEFAULT 'proposed',
+      source TEXT,
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_ap_budget_event ON ap_personnel_budget_lines(event_id);
+
+    CREATE TABLE IF NOT EXISTS ap_shopping_list_items (
+      id TEXT PRIMARY KEY,
+      event_id TEXT NOT NULL REFERENCES ap_events(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      quantity REAL NOT NULL DEFAULT 1,
+      unit TEXT,
+      category TEXT NOT NULL DEFAULT 'autre',
+      notes TEXT,
+      checked INTEGER NOT NULL DEFAULT 0,
+      source TEXT,
+      updated_at TEXT DEFAULT (datetime('now')),
+      synced INTEGER DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_ap_shop_event ON ap_shopping_list_items(event_id);
+  `);
+
   /** Bases créées avant l’ajout systématique de updated_at (sync Accueil Pro). */
   for (const table of [
     'ap_venues',

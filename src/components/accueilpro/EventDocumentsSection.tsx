@@ -23,9 +23,17 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useAppAuth } from '../../context/AuthContext';
 import { useConnection } from '../../context/ConnectionContext';
 
-const DOC_CATEGORIES = ['programme', 'rider', 'liste', 'audio', 'video', 'autre'] as const;
-
-type PickKind = 'pdf' | 'audio' | 'video';
+const DOC_CATEGORIES = [
+  'programme',
+  'rider',
+  'liste',
+  'audio',
+  'video',
+  'technique',
+  'contrat',
+  'plan',
+  'autre',
+] as const;
 
 type Props = {
   organizationId: string;
@@ -33,26 +41,38 @@ type Props = {
   onDocumentsChange?: (docs: ApOrganizationDocument[]) => void;
 };
 
-function docPickUri(pick: DocumentPicker.DocumentPickerResult): { uri: string; name: string; mime: string } | null {
-  if (pick.canceled) return null;
-  const asset = pick.assets?.[0];
-  if (!asset?.uri) return null;
-  return {
-    uri: asset.uri,
-    name: asset.name ?? 'document',
-    mime: asset.mimeType ?? 'application/octet-stream',
-  };
+type PickedFile = { uri: string; name: string; mime: string };
+
+function docPickFiles(pick: DocumentPicker.DocumentPickerResult): PickedFile[] {
+  if (pick.canceled) return [];
+  const assets = pick.assets ?? [];
+  return assets
+    .filter(a => Boolean(a?.uri))
+    .map(a => ({
+      uri: a.uri,
+      name: a.name?.trim() || 'document',
+      mime: a.mimeType?.trim() || 'application/octet-stream',
+    }));
 }
 
 function fileBaseName(name: string): string {
   return name.replace(/\.[^.]+$/, '') || 'Document';
 }
 
-function mimeLabel(mime?: string | null): string {
+function mimeLabel(mime?: string | null, fileName?: string | null): string {
+  if (fileName && fileName.includes('.')) {
+    const ext = fileName.split('.').pop()?.toUpperCase();
+    if (ext && ext.length <= 5) return ext;
+  }
   if (!mime) return '—';
   if (mime.includes('pdf')) return 'PDF';
   if (mime.startsWith('audio/')) return 'Audio';
   if (mime.startsWith('video/')) return 'Vidéo';
+  if (mime.startsWith('image/')) return 'Image';
+  if (mime.includes('sheet') || mime.includes('excel')) return 'Excel';
+  if (mime.includes('word') || mime.includes('msword')) return 'Word';
+  if (mime.includes('presentation') || mime.includes('powerpoint')) return 'PowerPoint';
+  if (mime.includes('zip') || mime.includes('compressed')) return 'ZIP';
   return mime.split('/').pop() ?? mime;
 }
 
@@ -82,79 +102,108 @@ export function EventDocumentsSection(props: Props) {
     void reload();
   }, [reload]);
 
-  const onPick = async (kind: PickKind) => {
-    const type =
-      kind === 'pdf' ? 'application/pdf'
-      : kind === 'audio' ? 'audio/*'
-      : 'video/*';
+  const importOneFile = async (file: PickedFile, sharedTitle: string, docCategory: string | null) => {
+    const docTitle =
+      sharedTitle ||
+      (file.name !== 'document' ? fileBaseName(file.name) : t('accueilpro.documents.titlePlaceholder'));
 
+    const localId = generateApId();
+    const row: ApOrganizationDocument = {
+      id: localId,
+      organization_id: organizationId,
+      event_id: eventId,
+      title: docTitle,
+      category: docCategory,
+      local_uri: file.uri,
+      mime_type: file.mime,
+      synced: false,
+      created_at: new Date().toISOString(),
+    };
+    await saveDocument(row);
+
+    if (connStatus === 'ok') {
+      const endpoint = await resolveAccueilProSyncEndpoint();
+      if (endpoint) {
+        const res = await uploadAccueilProOrganizationDocument({
+          organizationId,
+          eventId,
+          fileUri: file.uri,
+          title: docTitle,
+          category: docCategory ?? undefined,
+          mimeType: file.mime,
+          filename: file.name,
+          endpoint,
+        });
+        if (res.ok) {
+          const json = (await res.json()) as { id?: string; path?: string };
+          const serverId = json.id?.trim() || localId;
+          if (serverId !== localId) {
+            await deleteDocument(localId);
+          }
+          await saveDocument({
+            ...row,
+            id: serverId,
+            storage_path: json.path ?? null,
+            synced: true,
+          });
+          try {
+            await syncAccueilProBidirectional(endpoint);
+          } catch {
+            /* local copy ok */
+          }
+        }
+      }
+    }
+
+    void logAccueilProAction({
+      action: 'document.added',
+      entity: 'event_document',
+      entityId: eventId,
+      summary: `Document événement : ${docTitle}`,
+      actorName: user?.nom,
+    });
+  };
+
+  const onPickFiles = async () => {
     try {
-      const pick = await DocumentPicker.getDocumentAsync({ type, copyToCacheDirectory: true });
-      const file = docPickUri(pick);
-      if (!file) return;
+      const pick = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+        multiple: true,
+      });
+      const files = docPickFiles(pick);
+      if (!files.length) return;
 
-      const docTitle = title.trim() || fileBaseName(file.name);
+      const sharedTitle = title.trim();
       const docCategory = category === 'autre' ? null : category;
       setUploading(true);
 
-      const localId = generateApId();
-      const row: ApOrganizationDocument = {
-        id: localId,
-        organization_id: organizationId,
-        event_id: eventId,
-        title: docTitle,
-        category: docCategory,
-        local_uri: file.uri,
-        mime_type: file.mime,
-        synced: false,
-        created_at: new Date().toISOString(),
-      };
-      await saveDocument(row);
-
-      if (connStatus === 'ok') {
-        const endpoint = await resolveAccueilProSyncEndpoint();
-        if (endpoint) {
-          const res = await uploadAccueilProOrganizationDocument({
-            organizationId,
-            eventId,
-            fileUri: file.uri,
-            title: docTitle,
-            category: docCategory ?? undefined,
-            mimeType: file.mime,
-            filename: file.name,
-            endpoint,
-          });
-          if (res.ok) {
-            const json = (await res.json()) as { id?: string; path?: string };
-            const serverId = json.id?.trim() || localId;
-            if (serverId !== localId) {
-              await deleteDocument(localId);
-            }
-            await saveDocument({
-              ...row,
-              id: serverId,
-              storage_path: json.path ?? null,
-              synced: true,
-            });
-            try {
-              await syncAccueilProBidirectional(endpoint);
-            } catch {
-              /* local copy ok */
-            }
-          }
+      let ok = 0;
+      let fail = 0;
+      for (const file of files) {
+        try {
+          await importOneFile(file, files.length === 1 ? sharedTitle : '', docCategory);
+          ok += 1;
+        } catch {
+          fail += 1;
         }
       }
 
       setTitle('');
       await reload();
-      void logAccueilProAction({
-        action: 'document.added',
-        entity: 'event_document',
-        entityId: eventId,
-        summary: `Document événement : ${docTitle}`,
-        actorName: user?.nom,
-      });
-      Alert.alert(t('accueilpro.documents.addedTitle'), t('accueilpro.documents.addedBody'));
+      if (fail === 0) {
+        Alert.alert(
+          t('accueilpro.documents.addedTitle'),
+          ok > 1
+            ? t('accueilpro.portal.eventDocsAddedMany', { count: ok })
+            : t('accueilpro.documents.addedBody')
+        );
+      } else {
+        Alert.alert(
+          t('accueilpro.orgs.errTitle'),
+          t('accueilpro.portal.eventDocsPartial', { ok, fail })
+        );
+      }
     } catch (e) {
       Alert.alert(t('accueilpro.orgs.errTitle'), e instanceof Error ? e.message : String(e));
     } finally {
@@ -201,26 +250,11 @@ export function EventDocumentsSection(props: Props) {
         ))}
       </View>
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        <AccueilProPrimaryButton
-          style={{ flex: 1, minWidth: 100 }}
-          label={t('accueilpro.portal.pickPdf')}
-          onPress={() => void onPick('pdf')}
-          loading={uploading}
-        />
-        <AccueilProPrimaryButton
-          style={{ flex: 1, minWidth: 100 }}
-          label={t('accueilpro.portal.pickAudio')}
-          onPress={() => void onPick('audio')}
-          loading={uploading}
-        />
-        <AccueilProPrimaryButton
-          style={{ flex: 1, minWidth: 100 }}
-          label={t('accueilpro.portal.pickVideo')}
-          onPress={() => void onPick('video')}
-          loading={uploading}
-        />
-      </View>
+      <AccueilProPrimaryButton
+        label={t('accueilpro.portal.pickAnyFiles')}
+        onPress={() => void onPickFiles()}
+        loading={uploading}
+      />
       <AccueilProPrimaryButton
         style={{ marginTop: 10 }}
         label={t('accueilpro.documents.refresh')}
@@ -244,7 +278,11 @@ export function EventDocumentsSection(props: Props) {
             >
               <Text style={apStyles.rowTitle}>{doc.title}</Text>
               <Text style={apStyles.rowMeta}>
-                {[mimeLabel(doc.mime_type), doc.category, doc.synced ? t('accueilpro.documents.synced') : t('accueilpro.documents.pending')]
+                {[
+                  mimeLabel(doc.mime_type, doc.title),
+                  doc.category,
+                  doc.synced ? t('accueilpro.documents.synced') : t('accueilpro.documents.pending'),
+                ]
                   .filter(Boolean)
                   .join(' · ')}
               </Text>

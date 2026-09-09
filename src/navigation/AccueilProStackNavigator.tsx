@@ -32,6 +32,7 @@ import AccueilProActivityLogScreen from '../screens/accueilpro/AccueilProActivit
 import AccueilProPortalEventDocumentsScreen from '../screens/accueilpro/AccueilProPortalEventDocumentsScreen';
 import AccueilProCapiDocumentsScreen from '../screens/accueilpro/AccueilProCapiDocumentsScreen';
 import AccueilProEventInspectionCompareScreen from '../screens/accueilpro/AccueilProEventInspectionCompareScreen';
+import AccueilProEventPrepScreen from '../screens/accueilpro/AccueilProEventPrepScreen';
 import AccueilAssociationScreen from '../screens/AccueilAssociationScreen';
 
 export type AccueilProStackParamList = {
@@ -45,6 +46,7 @@ export type AccueilProStackParamList = {
   AccueilProEventEdit: { id?: string; selectOrganizationId?: string; selectOrganizationName?: string; selectVenueId?: string };
   AccueilProEventDetail: { id: string };
   AccueilProEventPersonnel: { eventId: string };
+  AccueilProEventPrep: { eventId: string };
   AccueilProInspections: undefined;
   AccueilProInspectionEdit: { id?: string; eventId?: string; spaceId?: string; type?: string };
   AccueilProPlanning: undefined;
@@ -97,6 +99,7 @@ export function AccueilProStackNavigator() {
       <Stack.Screen name="AccueilProEventEdit" component={AccueilProEventEditScreen} />
       <Stack.Screen name="AccueilProEventDetail" component={AccueilProEventDetailScreen} />
       <Stack.Screen name="AccueilProEventPersonnel" component={AccueilProEventPersonnelScreen} />
+      <Stack.Screen name="AccueilProEventPrep" component={AccueilProEventPrepScreen} />
       <Stack.Screen name="AccueilProInspections" component={AccueilProInspectionsScreen} />
       <Stack.Screen name="AccueilProInspectionEdit" component={AccueilProInspectionEditScreen} />
       <Stack.Screen name="AccueilProPlanning" component={AccueilProPlanningScreen} />
