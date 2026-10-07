@@ -1,5 +1,5 @@
 import { insertMateriel, updateMateriel } from '../../db/inventoryDb';
-import { persistMaterielMainPhotoCopy, syncMaterielNoticeAttachments } from '../../lib/materielAttachments';
+import { isPersistedMaterielPhoto, persistMaterielMainPhotoCopy, syncMaterielNoticeAttachments } from '../../lib/materielAttachments';
 import { isSupabaseConfigured, pushMaterielNoticesToSupabaseAfterSave, uploadPhoto } from '../../lib/supabase';
 import type { Materiel } from '../../types';
 import { ValidationService } from '../services';
@@ -48,8 +48,9 @@ export async function saveMaterialUseCase(input: {
   if (input.existingMaterialId) {
     const id = input.existingMaterialId;
     await updateMateriel(id, data);
-    if ('photo_local' in input.materialData) {
-      await finalizeMaterielMainPhoto(id, input.materialData.photo_local);
+    const photoLocal = input.materialData.photo_local?.trim();
+    if ('photo_local' in input.materialData && photoLocal && !isPersistedMaterielPhoto(photoLocal, id)) {
+      await finalizeMaterielMainPhoto(id, photoLocal);
     }
     const pdfArg = input.noticePdfTouched ? input.noticePdfUri : undefined;
     const photoArg = input.noticePhotoTouched ? input.noticePhotoUri : undefined;

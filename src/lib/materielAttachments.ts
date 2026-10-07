@@ -44,12 +44,23 @@ export async function mediaFileExists(uri: string | null | undefined): Promise<b
   }
 }
 
+/** Vrai si l'URI est déjà la photo principale persistée de ce matériel. */
+export function isPersistedMaterielPhoto(uri: string, materielId: string): boolean {
+  return norm(uri).includes(`${ROOT}/${materielId}/photo.jpg`);
+}
+
 export async function persistMaterielMainPhotoCopy(
   materielId: string,
   sourceUri: string
 ): Promise<string> {
-  await ensureMaterielAttachmentsDir(materielId);
   const dest = storedMaterielPhotoPath(materielId);
+  // Photo inchangée (déjà dans le stockage persistant) : ne rien copier.
+  // Sinon copyReplace supprimerait la destination puis échouerait à copier la source — qui est le même fichier.
+  if (isPersistedMaterielPhoto(sourceUri, materielId)) return dest;
+  if (!(await mediaFileExists(sourceUri))) {
+    throw new Error('Photo introuvable sur ce téléphone : reprenez ou rechoisissez la photo.');
+  }
+  await ensureMaterielAttachmentsDir(materielId);
   await copyReplace(dest, sourceUri);
   return dest;
 }
@@ -78,6 +89,7 @@ export async function ensureMaterielAttachmentsDir(materielId: string): Promise<
 }
 
 async function copyReplace(dest: string, fromUri: string): Promise<void> {
+  if (norm(fromUri) === norm(dest)) return; // même fichier : rien à faire
   const ex = await FileSystem.getInfoAsync(dest);
   if (ex.exists) {
     await FileSystem.deleteAsync(dest, { idempotent: true });
