@@ -19,6 +19,7 @@ import {
   insertPret,
   insertPretDemande,
   replacePretDemandeMateriels,
+  getQuantitesReserveesSurDemandes,
 } from '../db/loanDb';
 import { listAppUsersForLogin } from '../db/userDb';
 import {
@@ -38,11 +39,12 @@ import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 import { exportPretsIcs } from '../lib/csvExportImport';
 import SignaturePad from '../components/SignaturePad';
 import { useLanguage } from '../context/LanguageContext';
+import { isMaterielGestionLot, materielStockActuel } from '../lib/materielLot';
 import {
   buildPretMaterielNameGroups,
-  expandPretNameQtyToIds,
-  normPretMaterielName,
+  expandPretNameQtyToLignes,
   buildQtyByNameKeyFromMaterielIds,
+  buildQtyByNameKeyFromPretLignes,
 } from '../lib/pretMaterielGroups';
 
 const STATUTS_PRET_VALUES: StatutPret[] = ['en demande', 'en cours', 'retourné', 'en retard', 'annulé'];
@@ -333,7 +335,9 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
   const [valeurEstimee, setValeurEstimee] = useState('');
   const [commentaire, setCommentaire] = useState('');
   const [allMateriels, setAllMateriels] = useState<Materiel[]>([]);
-  /** Quantité demandée par « nom normalisé » (regroupe les fiches au même libellé). */
+  /** Quantités déjà réservées sur d’autres demandes (lots). */
+  const [reservedByMaterielId, setReservedByMaterielId] = useState<Record<string, number>>({});
+  /** Quantité demandée par clé de groupe (nom unitaire ou lot:id). */
   const [qtyByNameKey, setQtyByNameKey] = useState<Record<string, number>>({});
   const [saving, setSaving] = useState(false);
   const [lignesPret, setLignesPret] = useState<(PretMateriel & { materiel_nom?: string })[]>([]);
@@ -350,8 +354,8 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
   const [pendingScanMaterielIds, setPendingScanMaterielIds] = useState<string[] | null>(null);
 
   const nameGroups = useMemo(
-    () => buildPretMaterielNameGroups(allMateriels),
-    [allMateriels]
+    () => buildPretMaterielNameGroups(allMateriels, reservedByMaterielId),
+    [allMateriels, reservedByMaterielId]
   );
   const statutOptions = useMemo(
     () =>
@@ -386,8 +390,8 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
     [t]
   );
 
-  const resolvedMaterielIds = useMemo(
-    () => expandPretNameQtyToIds(nameGroups, qtyByNameKey),
+  const resolvedLignes = useMemo(
+    () => expandPretNameQtyToLignes(nameGroups, qtyByNameKey),
     [nameGroups, qtyByNameKey]
   );
 
@@ -435,17 +439,29 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
     listAppUsersForLogin().then(u =>
       setBorrowerAccounts(u.filter(x => x.role === 'emprunteur'))
     );
+    getQuantitesReserveesSurDemandes(item?.statut === 'en demande' ? item.id : null).then(
+      setReservedByMaterielId
+    );
     getMateriel().then(m => {
       const norm = (s: string | undefined | null) => (s ?? '').trim().toLowerCase();
-      let list = m.filter(mat => {
+      const eligible = (mat: Materiel) => {
         const st = norm(mat.statut);
+        if (isMaterielGestionLot(mat)) {
+          return st === 'en stock' && materielStockActuel(mat) > 0;
+        }
         return (
           st === 'en stock' ||
           (item && norm(item.statut) !== 'en demande' && st === 'en prêt')
         );
-      });
+      };
+      let list = m.filter(eligible);
       if (item && norm(item.statut) === 'en demande') {
-        list = m.filter(mat => norm(mat.statut) === 'en stock');
+        list = m.filter(mat => {
+          if (isMaterielGestionLot(mat)) {
+            return norm(mat.statut) === 'en stock' && materielStockActuel(mat) > 0;
+          }
+          return norm(mat.statut) === 'en stock';
+        });
       }
       setAllMateriels(list);
     });
@@ -496,15 +512,9 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
   useEffect(() => {
     if (!visible) return;
     if (!item || item.statut !== 'en demande') return;
-    if (lignesPret.length === 0) return;
-    const q: Record<string, number> = {};
-    for (const l of lignesPret) {
-      const k = normPretMaterielName(l.materiel_nom ?? '');
-      if (!k) continue;
-      q[k] = (q[k] ?? 0) + 1;
-    }
-    setQtyByNameKey(q);
-  }, [visible, item?.id, item?.statut, lignesPret]);
+    if (lignesPret.length === 0 || nameGroups.length === 0) return;
+    setQtyByNameKey(buildQtyByNameKeyFromPretLignes(nameGroups, lignesPret));
+  }, [visible, item?.id, item?.statut, lignesPret, nameGroups]);
 
   useEffect(() => {
     if (nameGroups.length === 0) return;
@@ -513,8 +523,8 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       let changed = false;
       for (const g of nameGroups) {
         const v = next[g.key];
-        if (v != null && v > g.ids.length) {
-          next[g.key] = g.ids.length;
+        if (v != null && v > g.available) {
+          next[g.key] = g.available;
           changed = true;
         }
       }
@@ -551,7 +561,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
 
   const bumpNameQty = (key: string, delta: number) => {
     const g = nameGroups.find(x => x.key === key);
-    const max = g?.ids.length ?? 0;
+    const max = g?.available ?? 0;
     const cur = qtyByNameKey[key] ?? 0;
     const next = Math.min(Math.max(0, cur + delta), max);
     setQtyByNameKey(p => {
@@ -651,13 +661,13 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
     if (!emprunteur.trim()) { Alert.alert(t('loans.field.required'), t('loans.field.borrowerRequired')); return; }
     if (!dateDepart) { Alert.alert(t('loans.field.required'), t('loans.field.startDateRequired')); return; }
     if (
-      resolvedMaterielIds.length === 0 &&
+      resolvedLignes.length === 0 &&
       (borrowerCreatingDemande || (!item && statut === 'en demande'))
     ) {
       Alert.alert(t('loans.material'), t('loans.material.selectAtLeastOneForRequest'));
       return;
     }
-    if (item?.statut === 'en demande' && statut === 'en cours' && resolvedMaterielIds.length === 0) {
+    if (item?.statut === 'en demande' && statut === 'en cours' && resolvedLignes.length === 0) {
       Alert.alert(t('loans.material'), t('loans.material.addBeforeValidation'));
       return;
     }
@@ -700,7 +710,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       }
       if (item) {
         if (item.statut === 'en demande') {
-          await replacePretDemandeMateriels(item.id, resolvedMaterielIds);
+          await replacePretDemandeMateriels(item.id, resolvedLignes);
         }
         const wasDemande = item.statut === 'en demande';
         await updatePret(
@@ -730,7 +740,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
           ins.signature_emprunteur_data = signatureB64;
           ins.signed_at = signedAt;
         }
-        const newId = await insertPretDemande(ins, resolvedMaterielIds);
+        const newId = await insertPretDemande(ins, resolvedLignes);
         const list = await getPrets();
         const created = list.find(x => x.id === newId);
         if (created) {
@@ -750,9 +760,9 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
         }
         let newId: string;
         if (demande) {
-          newId = await insertPretDemande(ins, resolvedMaterielIds);
+          newId = await insertPretDemande(ins, resolvedLignes);
         } else {
-          newId = await insertPret({ ...ins, statut: 'en cours' }, resolvedMaterielIds);
+          newId = await insertPret({ ...ins, statut: 'en cours' }, resolvedLignes);
         }
         if (demande) {
           const list = await getPrets();
@@ -985,7 +995,10 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
             {lignesPret.map(l => (
               <View key={l.id} style={[ms.matRowCol, { opacity: l.retourne ? 0.55 : 1 }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <Text style={{ color: Colors.white, flex: 1 }}>{l.materiel_nom ?? l.materiel_id}</Text>
+                  <Text style={{ color: Colors.white, flex: 1 }}>
+                    {l.materiel_nom ?? l.materiel_id}
+                    {Number(l.quantite) > 1 ? ` × ${l.quantite}` : ''}
+                  </Text>
                   {l.retourne ? (
                     <Text style={{ color: Colors.green, fontSize: 12 }}>{t('loans.material.returned')}</Text>
                   ) : (
@@ -1026,13 +1039,20 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
             {t('loans.materials.selectionHint')}
           </Text>
           <View style={ms.matBox}>
-            {allMateriels.length === 0 ? (
+            {nameGroups.length === 0 ? (
               <Text style={{ color: Colors.textMuted, fontSize: 13, paddingVertical: 8 }}>
                 {t('loans.materials.noneAvailable')}
               </Text>
             ) : (
               nameGroups.map(g => {
                 const q = qtyByNameKey[g.key] ?? 0;
+                const unit = (g.unite || 'pièce').trim();
+                const availableLabel = g.isLot
+                  ? t('loans.materials.availableChosenLot', {
+                      available: `${g.available} ${unit}`,
+                      chosen: `${q} ${unit}`,
+                    })
+                  : t('loans.materials.availableChosen', { available: g.available, chosen: q });
                 return (
                   <View key={g.key} style={ms.matGroupRow}>
                     <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
@@ -1040,7 +1060,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
                         {g.displayName}
                       </Text>
                       <Text style={{ color: Colors.textMuted, fontSize: 11, marginTop: 2 }}>
-                        {t('loans.materials.availableChosen', { available: g.ids.length, chosen: q })}
+                        {availableLabel}
                       </Text>
                     </View>
                     <View style={ms.qtyStepper}>
@@ -1055,9 +1075,9 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
                       </TouchableOpacity>
                       <Text style={ms.qtyValue}>{q}</Text>
                       <TouchableOpacity
-                        style={[ms.qtyStepBtn, q >= g.ids.length && ms.qtyStepBtnOff]}
+                        style={[ms.qtyStepBtn, q >= g.available && ms.qtyStepBtnOff]}
                         onPress={() => bumpNameQty(g.key, 1)}
-                        disabled={q >= g.ids.length}
+                        disabled={q >= g.available}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         accessibilityLabel={t('loans.a11y.increaseQty')}
                       >

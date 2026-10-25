@@ -897,10 +897,11 @@ const fr: Dict = {
   'loans.materials.requested': 'Matériels demandés',
   'loans.materials.loaned': 'Matériels prêtés',
   'loans.materials.selectionHint':
-    'Par nom d’article (insensible à la casse) : indiquez combien d’exemplaires emprunter, sans dépasser le nombre d’unités « en stock » partageant le même libellé (chaque fiche a son S/N / QR, non affichés ici).',
+    'Par nom d’article : indiquez combien emprunter. Pièces unitaires : max = nombre de fiches « en stock » au même libellé. Lots (ex. colliers × 20) : max = stock restant ; le prêt décrémente ce stock.',
   'loans.materials.noneAvailable':
     'Aucun matériel « en stock » disponible pour la sélection. Les fiches déjà en prêt ou en réparation n’apparaissent pas ici — vérifiez le stock ou contactez un technicien.',
   'loans.materials.availableChosen': '{available} exemplaire(s) disponible(s) · {chosen} choisi(s)',
+  'loans.materials.availableChosenLot': '{available} disponible(s) · {chosen} choisi(s)',
   'loans.a11y.decreaseQty': 'Diminuer la quantité',
   'loans.a11y.increaseQty': 'Augmenter la quantité',
   'loans.field.teamPrecision': 'Précision pour l’équipe (horaire, lieu de dépôt…)',
@@ -3019,10 +3020,11 @@ const en: Dict = {
   'loans.materials.requested': 'Requested equipment',
   'loans.materials.loaned': 'Loaned equipment',
   'loans.materials.selectionHint':
-    'By item name (case-insensitive): indicate how many units to borrow, without exceeding the number of “in stock” units sharing the same label (each record keeps its own S/N / QR, not shown here).',
+    'By item name: choose how many to borrow. Unit items: max = number of “in stock” records with the same label. Lots (e.g. collars × 20): max = remaining stock; lending decrements that stock.',
   'loans.materials.noneAvailable':
     'No “in stock” equipment is available for selection. Items already loaned or under repair are not shown here — check stock or contact a technician.',
   'loans.materials.availableChosen': '{available} unit(s) available · {chosen} selected',
+  'loans.materials.availableChosenLot': '{available} available · {chosen} selected',
   'loans.a11y.decreaseQty': 'Decrease quantity',
   'loans.a11y.increaseQty': 'Increase quantity',
   'loans.field.teamPrecision': 'Details for the team (time, drop-off location...)',

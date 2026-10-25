@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { deletePret, insertPret, updatePret } from '../db/loanDb';
+import { deletePret, insertPret, updatePret, normalizePretLignes } from '../db/loanDb';
 import type { Pret, PretMateriel } from '../types';
 
 /**
@@ -63,11 +63,32 @@ function samplePret(statut: Pret['statut'] = 'en cours'): Omit<Pret, 'id' | 'cre
   };
 }
 
+function unitMat(nom: string) {
+  return {
+    statut: 'en stock',
+    nom,
+    tracking_state: null,
+    current_tour_id: null,
+    gestion_lot: 0,
+    stock_actuel: 1,
+  };
+}
+
+function lotMat(nom: string, stock: number) {
+  return {
+    statut: 'en stock',
+    nom,
+    tracking_state: null,
+    current_tour_id: null,
+    gestion_lot: 1,
+    stock_actuel: stock,
+  };
+}
+
 async function testInsertPretWritesExpectedSql() {
   const db = new FakeLoanDb();
-  /** insertPret vérifie chaque matériel (en stock, pas en tournée) avant insertion. */
-  db.enqueueFirst(() => ({ statut: 'en stock', nom: 'Projecteur 1', tracking_state: null, current_tour_id: null }));
-  db.enqueueFirst(() => ({ statut: 'en stock', nom: 'Projecteur 2', tracking_state: null, current_tour_id: null }));
+  db.enqueueFirst(() => unitMat('Projecteur 1'));
+  db.enqueueFirst(() => unitMat('Projecteur 2'));
   const id = await insertPret(samplePret('en cours'), ['m-1', 'm-2'], db as any);
   assert.ok(id, 'insertPret should return generated id');
   assert.ok(db.calls.some(c => c.sql.includes('INSERT INTO prets')), 'should insert pret row');
@@ -85,16 +106,46 @@ async function testInsertPretWritesExpectedSql() {
   assert.ok(db.calls.some(c => c.sql.includes('COMMIT')), 'should commit transaction on success');
 }
 
+async function testInsertPretLotDecrementsStock() {
+  const db = new FakeLoanDb();
+  db.enqueueFirst(() => lotMat('Collier ortho', 20));
+  await insertPret(samplePret('en cours'), [{ materielId: 'lot-1', quantite: 10 }], db as any);
+
+  const pretLine = db.calls.find(c => c.sql.includes('INSERT INTO pret_materiels'));
+  assert.ok(pretLine, 'should insert pret_materiels');
+  assert.equal(pretLine!.params?.[3], 10, 'should persist quantite=10');
+
+  const stockUpd = db.calls.find(
+    c => c.sql.includes('UPDATE materiels SET stock_actuel') && c.params?.[0] === 10
+  );
+  assert.ok(stockUpd, 'should set remaining stock to 10');
+  assert.equal(stockUpd!.params?.[1], 'en stock', 'partial lot lend keeps statut en stock');
+  assert.equal(
+    db.calls.filter(c => c.sql.includes("UPDATE materiels SET statut = 'en prêt'")).length,
+    0,
+    'should not use unit-only en prêt update for partial lot'
+  );
+}
+
+async function testInsertPretLotFullGoesEnPret() {
+  const db = new FakeLoanDb();
+  db.enqueueFirst(() => lotMat('Collier ortho', 10));
+  await insertPret(samplePret('en cours'), [{ materielId: 'lot-1', quantite: 10 }], db as any);
+  const stockUpd = db.calls.find(c => c.sql.includes('UPDATE materiels SET stock_actuel'));
+  assert.equal(stockUpd?.params?.[0], 0);
+  assert.equal(stockUpd?.params?.[1], 'en prêt');
+}
+
 async function testUpdatePretPromotesDemandeToEnCours() {
   const db = new FakeLoanDb();
   db.enqueueFirst(() => ({ statut: 'en demande' }));
   db.enqueueFirst(() => samplePret('en cours'));
   db.enqueueAll(() => [
-    { materiel_id: 'm-1' } as PretMateriel,
-    { materiel_id: 'm-2' } as PretMateriel,
+    { materiel_id: 'm-1', quantite: 1 } as PretMateriel,
+    { materiel_id: 'm-2', quantite: 1 } as PretMateriel,
   ]);
-  db.enqueueFirst(() => ({ statut: 'en stock', nom: 'Projecteur 1' }));
-  db.enqueueFirst(() => ({ statut: 'en stock', nom: 'Projecteur 2' }));
+  db.enqueueFirst(() => unitMat('Projecteur 1'));
+  db.enqueueFirst(() => unitMat('Projecteur 2'));
 
   await updatePret('pret-1', { statut: 'en cours' }, undefined, db as any);
 
@@ -109,12 +160,31 @@ async function testUpdatePretPromotesDemandeToEnCours() {
   );
 }
 
-async function testDeletePretRestoresMaterials() {
+async function testUpdatePretReturnRestoresLotStock() {
   const db = new FakeLoanDb();
+  db.enqueueFirst(() => ({ statut: 'en cours' }));
+  db.enqueueAll(() => [{ materiel_id: 'lot-1', quantite: 10 } as PretMateriel]);
+  db.enqueueFirst(() => lotMat('Collier ortho', 10));
+
+  await updatePret('pret-1', { statut: 'retourné', retour_reel: '2026-04-22' }, undefined, db as any);
+
+  const stockUpd = db.calls.find(c => c.sql.includes('UPDATE materiels SET stock_actuel'));
+  assert.equal(stockUpd?.params?.[0], 20, 'should restore 10 into remaining 10');
+  assert.ok(
+    stockUpd?.sql.includes("statut = 'en stock'"),
+    'should restore lot statut to en stock'
+  );
+}
+
+async function testDeletePretRestoresActiveMaterials() {
+  const db = new FakeLoanDb();
+  db.enqueueFirst(() => ({ statut: 'en cours' }));
   db.enqueueAll(() => [
-    { materiel_id: 'm-1' } as PretMateriel,
-    { materiel_id: 'm-2' } as PretMateriel,
+    { materiel_id: 'm-1', quantite: 1 } as PretMateriel,
+    { materiel_id: 'm-2', quantite: 1 } as PretMateriel,
   ]);
+  db.enqueueFirst(() => unitMat('Projecteur 1'));
+  db.enqueueFirst(() => unitMat('Projecteur 2'));
 
   await deletePret('pret-2', db as any);
 
@@ -130,10 +200,24 @@ async function testDeletePretRestoresMaterials() {
   assert.ok(db.calls.some(c => c.sql.includes('DELETE FROM prets WHERE id = ?')), 'should delete pret row');
 }
 
+function testNormalizePretLignes() {
+  assert.deepEqual(normalizePretLignes(['a', 'b']), [
+    { materielId: 'a', quantite: 1 },
+    { materielId: 'b', quantite: 1 },
+  ]);
+  assert.deepEqual(normalizePretLignes([{ materielId: 'l1', quantite: 10.7 }]), [
+    { materielId: 'l1', quantite: 10 },
+  ]);
+}
+
 async function run() {
+  testNormalizePretLignes();
   await testInsertPretWritesExpectedSql();
+  await testInsertPretLotDecrementsStock();
+  await testInsertPretLotFullGoesEnPret();
   await testUpdatePretPromotesDemandeToEnCours();
-  await testDeletePretRestoresMaterials();
+  await testUpdatePretReturnRestoresLotStock();
+  await testDeletePretRestoresActiveMaterials();
   console.log('loan-db.integration.spec: OK');
 }
 

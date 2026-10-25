@@ -14,6 +14,19 @@ type LoanDbExecutor = {
   execAsync?: (sql: string) => Promise<void>;
 };
 
+export type PretMaterielLigneInput = { materielId: string; quantite?: number };
+
+type PretLigneNorm = { materielId: string; quantite: number };
+
+type MaterielLoanRow = {
+  statut: string;
+  nom: string;
+  tracking_state: string | null;
+  current_tour_id: string | null;
+  gestion_lot: number | boolean | null;
+  stock_actuel: number | null;
+};
+
 async function withLoanTransaction<T>(db: LoanDbExecutor, fn: () => Promise<T>): Promise<T> {
   if (!db.execAsync) {
     return fn();
@@ -44,6 +57,183 @@ async function resolveLoanDb(database?: LoanDbExecutor): Promise<LoanDbExecutor>
   if (database) return database;
   const { getDB } = await import('./coreDb');
   return (await getDB()) as unknown as LoanDbExecutor;
+}
+
+function isLotRow(m: Pick<MaterielLoanRow, 'gestion_lot'>): boolean {
+  return m.gestion_lot === 1 || m.gestion_lot === true;
+}
+
+function stockOf(m: Pick<MaterielLoanRow, 'stock_actuel'>): number {
+  const n = Number(m.stock_actuel ?? 0);
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
+}
+
+/** Accepte l’ancien tableau d’IDs (qty 1) ou des lignes { materielId, quantite }. */
+export function normalizePretLignes(
+  input: string[] | PretMaterielLigneInput[]
+): PretLigneNorm[] {
+  if (!input.length) return [];
+  if (typeof input[0] === 'string') {
+    return (input as string[]).map(materielId => ({ materielId, quantite: 1 }));
+  }
+  return (input as PretMaterielLigneInput[]).map(l => ({
+    materielId: l.materielId,
+    quantite: Math.max(1, Math.floor(Number(l.quantite) || 1)),
+  }));
+}
+
+/** Quantités déjà posées sur des demandes (stock pas encore décrémenté). */
+export async function getQuantitesReserveesSurDemandes(
+  excludePretId?: string | null,
+  database?: LoanDbExecutor
+): Promise<Record<string, number>> {
+  const db = await resolveLoanDb(database);
+  const rows = excludePretId
+    ? await db.getAllAsync<{ materiel_id: string; q: number | string }>(
+        `SELECT pm.materiel_id AS materiel_id, SUM(pm.quantite) AS q
+         FROM pret_materiels pm
+         JOIN prets p ON p.id = pm.pret_id
+         WHERE p.statut = 'en demande' AND p.id != ?
+         GROUP BY pm.materiel_id`,
+        [excludePretId]
+      )
+    : await db.getAllAsync<{ materiel_id: string; q: number | string }>(
+        `SELECT pm.materiel_id AS materiel_id, SUM(pm.quantite) AS q
+         FROM pret_materiels pm
+         JOIN prets p ON p.id = pm.pret_id
+         WHERE p.statut = 'en demande'
+         GROUP BY pm.materiel_id`
+      );
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    const q = Math.floor(Number(r.q) || 0);
+    if (q > 0) out[r.materiel_id] = q;
+  }
+  return out;
+}
+
+async function fetchMaterielLoanRow(
+  db: LoanDbExecutor,
+  materielId: string
+): Promise<MaterielLoanRow | null> {
+  return db.getFirstAsync<MaterielLoanRow>(
+    `SELECT statut, nom, tracking_state, current_tour_id, gestion_lot, stock_actuel
+     FROM materiels WHERE id = ?`,
+    [materielId]
+  );
+}
+
+async function assertLigneDisponiblePourPret(
+  db: LoanDbExecutor,
+  line: PretLigneNorm,
+  opts: { mode: 'pret' | 'demande'; excludePretId?: string | null }
+): Promise<MaterielLoanRow> {
+  const mat = await fetchMaterielLoanRow(db, line.materielId);
+  if (!mat) {
+    throw new Error(`Matériel introuvable (${line.materielId}).`);
+  }
+  if (mat.tracking_state === 'in_tour') {
+    throw new Error(`"${mat.nom}" n'est pas disponible au pret (en tournee).`);
+  }
+  if (isLotRow(mat)) {
+    const stock = stockOf(mat);
+    if (mat.statut !== 'en stock') {
+      throw new Error(
+        `"${mat.nom}" n'est pas disponible au pret (statut : ${mat.statut}).`
+      );
+    }
+    let reserved = 0;
+    if (opts.mode === 'demande') {
+      const map = await getQuantitesReserveesSurDemandes(opts.excludePretId, db);
+      reserved = map[line.materielId] ?? 0;
+    }
+    const available = Math.max(0, stock - reserved);
+    if (line.quantite > available) {
+      throw new Error(
+        `"${mat.nom}" : stock insuffisant (demandé ${line.quantite}, disponible ${available}).`
+      );
+    }
+    return mat;
+  }
+  if (mat.statut !== 'en stock') {
+    throw new Error(
+      `"${mat.nom}" n'est pas disponible au pret (statut : ${mat.statut ?? 'introuvable'}).`
+    );
+  }
+  if (line.quantite !== 1) {
+    throw new Error(`"${mat.nom}" est une pièce unitaire : quantité 1 uniquement.`);
+  }
+  return mat;
+}
+
+/** Décrémente le stock lot / passe la pièce unitaire « en prêt » + historique. */
+async function applyLendLine(
+  db: LoanDbExecutor,
+  line: PretLigneNorm,
+  pretMeta: {
+    pretId: string;
+    emprunteur: string;
+    organisation: string | null | undefined;
+    date_depart: string;
+    retour_prevu: string | null | undefined;
+  },
+  now: string
+): Promise<void> {
+  const mat = await assertLigneDisponiblePourPret(db, line, { mode: 'pret' });
+
+  await db.runAsync(
+    'INSERT INTO pret_materiels (id, pret_id, materiel_id, quantite, retourne, etat_au_retour) VALUES (?, ?, ?, ?, 0, NULL)',
+    [generateLoanId(), pretMeta.pretId, line.materielId, line.quantite]
+  );
+
+  if (isLotRow(mat)) {
+    const newStock = stockOf(mat) - line.quantite;
+    await db.runAsync(
+      `UPDATE materiels SET stock_actuel = ?, statut = ?, updated_at = ?, synced = 0 WHERE id = ?`,
+      [newStock, newStock <= 0 ? 'en prêt' : 'en stock', now, line.materielId]
+    );
+  } else {
+    await db.runAsync(
+      "UPDATE materiels SET statut = 'en prêt', updated_at = ?, synced = 0 WHERE id = ?",
+      [now, line.materielId]
+    );
+  }
+
+  await db.runAsync(
+    `INSERT INTO materiel_emprunt_historique (id, materiel_id, pret_id, emprunteur, organisation, date_depart, retour_prevu, retour_reel, etat_au_retour, statut_pret)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'en cours')`,
+    [
+      generateLoanId(),
+      line.materielId,
+      pretMeta.pretId,
+      pretMeta.emprunteur,
+      pretMeta.organisation ?? null,
+      pretMeta.date_depart,
+      pretMeta.retour_prevu ?? null,
+    ]
+  );
+}
+
+async function restoreLendLine(
+  db: LoanDbExecutor,
+  item: Pick<PretMateriel, 'materiel_id' | 'quantite'>,
+  now: string
+): Promise<void> {
+  const mat = await fetchMaterielLoanRow(db, item.materiel_id);
+  if (!mat) return;
+  const qty = Math.max(1, Math.floor(Number(item.quantite) || 1));
+  if (isLotRow(mat)) {
+    const newStock = stockOf(mat) + qty;
+    await db.runAsync(
+      `UPDATE materiels SET stock_actuel = ?, statut = 'en stock', updated_at = ?, synced = 0 WHERE id = ?`,
+      [newStock, now, item.materiel_id]
+    );
+  } else {
+    await db.runAsync(
+      "UPDATE materiels SET statut = 'en stock', updated_at = ?, synced = 0 WHERE id = ?",
+      [now, item.materiel_id]
+    );
+  }
 }
 
 export async function getPrets(database?: LoanDbExecutor): Promise<Pret[]> {
@@ -94,26 +284,24 @@ async function promoteDemandeMaterielsToPret(pretId: string, database: LoanDbExe
     throw new Error('Aucun materiel sur la demande : ajoutez au moins un article avant validation.');
   }
   for (const line of items) {
-    const mat = await database.getFirstAsync<{
-      statut: string;
-      nom: string;
-      tracking_state: string | null;
-      current_tour_id: string | null;
-    }>(
-      'SELECT statut, nom, tracking_state, current_tour_id FROM materiels WHERE id = ?',
-      [line.materiel_id]
+    const qty = Math.max(1, Math.floor(Number(line.quantite) || 1));
+    const mat = await assertLigneDisponiblePourPret(
+      database,
+      { materielId: line.materiel_id, quantite: qty },
+      { mode: 'pret' }
     );
-    if (!mat || mat.statut !== 'en stock' || mat.tracking_state === 'in_tour') {
-      throw new Error(
-        `"${mat?.nom ?? line.materiel_id}" n'est pas disponible au pret (statut : ${mat?.statut ?? 'introuvable'}${mat?.tracking_state === 'in_tour' ? ', en tournee' : ''}).`
+    if (isLotRow(mat)) {
+      const newStock = stockOf(mat) - qty;
+      await database.runAsync(
+        `UPDATE materiels SET stock_actuel = ?, statut = ?, updated_at = ?, synced = 0 WHERE id = ?`,
+        [newStock, newStock <= 0 ? 'en prêt' : 'en stock', now, line.materiel_id]
+      );
+    } else {
+      await database.runAsync(
+        "UPDATE materiels SET statut = 'en prêt', updated_at = ?, synced = 0 WHERE id = ?",
+        [now, line.materiel_id]
       );
     }
-  }
-  for (const line of items) {
-    await database.runAsync(
-      "UPDATE materiels SET statut = 'en prêt', updated_at = ?, synced = 0 WHERE id = ?",
-      [now, line.materiel_id]
-    );
     await database.runAsync(
       `INSERT INTO materiel_emprunt_historique (id, materiel_id, pret_id, emprunteur, organisation, date_depart, retour_prevu, retour_reel, etat_au_retour, statut_pret)
        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'en cours')`,
@@ -172,45 +360,29 @@ function pretInsertSqlAndParams(
 
 export async function insertPret(
   pret: Omit<Pret, 'id' | 'created_at' | 'updated_at' | 'synced'>,
-  materielIds: string[],
+  materielIdsOrLignes: string[] | PretMaterielLigneInput[],
   database?: LoanDbExecutor
 ): Promise<string> {
+  const lignes = normalizePretLignes(materielIdsOrLignes);
   const db = await resolveLoanDb(database);
   return withLoanTransaction(db, async () => {
     const id = generateLoanId();
     const now = new Date().toISOString();
-    for (const mid of materielIds) {
-      const mat = await db.getFirstAsync<{
-        statut: string;
-        nom: string;
-        tracking_state: string | null;
-        current_tour_id: string | null;
-      }>(
-        'SELECT statut, nom, tracking_state, current_tour_id FROM materiels WHERE id = ?',
-        [mid]
-      );
-      if (!mat || mat.statut !== 'en stock' || mat.tracking_state === 'in_tour') {
-        throw new Error(
-          `"${mat?.nom ?? mid}" n'est pas disponible au pret (statut : ${mat?.statut ?? 'introuvable'}${mat?.tracking_state === 'in_tour' ? ', en tournee' : ''}).`
-        );
-      }
-    }
     const { sql: pretSql, params: pretParams } = pretInsertSqlAndParams(pret, id, now);
     await db.runAsync(pretSql, pretParams);
 
-    for (const mid of materielIds) {
-      await db.runAsync(
-        'INSERT INTO pret_materiels (id, pret_id, materiel_id, quantite, retourne, etat_au_retour) VALUES (?, ?, ?, 1, 0, NULL)',
-        [generateLoanId(), id, mid]
-      );
-      await db.runAsync(
-        "UPDATE materiels SET statut = 'en prêt', updated_at = ?, synced = 0 WHERE id = ?",
-        [now, mid]
-      );
-      await db.runAsync(
-        `INSERT INTO materiel_emprunt_historique (id, materiel_id, pret_id, emprunteur, organisation, date_depart, retour_prevu, retour_reel, etat_au_retour, statut_pret)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'en cours')`,
-        [generateLoanId(), mid, id, pret.emprunteur, pret.organisation ?? null, pret.date_depart, pret.retour_prevu ?? null]
+    for (const line of lignes) {
+      await applyLendLine(
+        db,
+        line,
+        {
+          pretId: id,
+          emprunteur: pret.emprunteur,
+          organisation: pret.organisation,
+          date_depart: pret.date_depart,
+          retour_prevu: pret.retour_prevu,
+        },
+        now
       );
     }
 
@@ -220,22 +392,26 @@ export async function insertPret(
 
 export async function insertPretDemande(
   pret: Omit<Pret, 'id' | 'created_at' | 'updated_at' | 'synced'>,
-  materielIds: string[],
+  materielIdsOrLignes: string[] | PretMaterielLigneInput[],
   database?: LoanDbExecutor
 ): Promise<string> {
   if (pret.statut !== 'en demande') {
     throw new Error('Une demande de prêt doit avoir le statut "en demande".');
   }
+  const lignes = normalizePretLignes(materielIdsOrLignes);
   const db = await resolveLoanDb(database);
   return withLoanTransaction(db, async () => {
     const id = generateLoanId();
     const now = new Date().toISOString();
+    for (const line of lignes) {
+      await assertLigneDisponiblePourPret(db, line, { mode: 'demande' });
+    }
     const { sql: pretSql, params: pretParams } = pretInsertSqlAndParams(pret, id, now);
     await db.runAsync(pretSql, pretParams);
-    for (const mid of materielIds) {
+    for (const line of lignes) {
       await db.runAsync(
-        'INSERT INTO pret_materiels (id, pret_id, materiel_id, quantite, retourne, etat_au_retour) VALUES (?, ?, ?, 1, 0, NULL)',
-        [generateLoanId(), id, mid]
+        'INSERT INTO pret_materiels (id, pret_id, materiel_id, quantite, retourne, etat_au_retour) VALUES (?, ?, ?, ?, 0, NULL)',
+        [generateLoanId(), id, line.materielId, line.quantite]
       );
     }
     return id;
@@ -244,18 +420,22 @@ export async function insertPretDemande(
 
 export async function replacePretDemandeMateriels(
   pretId: string,
-  materielIds: string[],
+  materielIdsOrLignes: string[] | PretMaterielLigneInput[],
   database?: LoanDbExecutor
 ): Promise<void> {
+  const lignes = normalizePretLignes(materielIdsOrLignes);
   const db = await resolveLoanDb(database);
   await withLoanTransaction(db, async () => {
     const row = await db.getFirstAsync<{ statut: string }>('SELECT statut FROM prets WHERE id = ?', [pretId]);
     if (row?.statut !== 'en demande') return;
+    for (const line of lignes) {
+      await assertLigneDisponiblePourPret(db, line, { mode: 'demande', excludePretId: pretId });
+    }
     await db.runAsync('DELETE FROM pret_materiels WHERE pret_id = ?', [pretId]);
-    for (const mid of materielIds) {
+    for (const line of lignes) {
       await db.runAsync(
-        'INSERT INTO pret_materiels (id, pret_id, materiel_id, quantite, retourne, etat_au_retour) VALUES (?, ?, ?, 1, 0, NULL)',
-        [generateLoanId(), pretId, mid]
+        'INSERT INTO pret_materiels (id, pret_id, materiel_id, quantite, retourne, etat_au_retour) VALUES (?, ?, ?, ?, 0, NULL)',
+        [generateLoanId(), pretId, line.materielId, line.quantite]
       );
     }
   });
@@ -299,10 +479,7 @@ export async function updatePret(
           `UPDATE materiel_emprunt_historique SET retour_reel = ?, etat_au_retour = ?, statut_pret = 'retourné' WHERE pret_id = ? AND materiel_id = ?`,
           [retourReelFinal, etat, id, item.materiel_id]
         );
-        await db.runAsync(
-          "UPDATE materiels SET statut = 'en stock', updated_at = ?, synced = 0 WHERE id = ?",
-          [now, item.materiel_id]
-        );
+        await restoreLendLine(db, item, now);
       }
     }
   });
@@ -312,13 +489,26 @@ export async function deletePret(id: string, database?: LoanDbExecutor): Promise
   const db = await resolveLoanDb(database);
   await withLoanTransaction(db, async () => {
     await db.runAsync('DELETE FROM materiel_emprunt_historique WHERE pret_id = ?', [id]);
+    const pret = await db.getFirstAsync<{ statut: string }>('SELECT statut FROM prets WHERE id = ?', [id]);
     const items = await getPretMateriel(id, db);
     const now = new Date().toISOString();
-    for (const item of items) {
-      await db.runAsync(
-        "UPDATE materiels SET statut = 'en stock', updated_at = ?, synced = 0 WHERE id = ?",
-        [now, item.materiel_id]
-      );
+    const active = pret?.statut === 'en cours' || pret?.statut === 'en retard';
+    if (active) {
+      for (const item of items) {
+        await restoreLendLine(db, item, now);
+      }
+    } else {
+      // Demandes / retournés / annulés : pas de double restitution de stock lot.
+      for (const item of items) {
+        const mat = await fetchMaterielLoanRow(db, item.materiel_id);
+        if (!mat || isLotRow(mat)) continue;
+        if (mat.statut === 'en prêt') {
+          await db.runAsync(
+            "UPDATE materiels SET statut = 'en stock', updated_at = ?, synced = 0 WHERE id = ?",
+            [now, item.materiel_id]
+          );
+        }
+      }
     }
     await db.runAsync('DELETE FROM prets WHERE id = ?', [id]);
   });
