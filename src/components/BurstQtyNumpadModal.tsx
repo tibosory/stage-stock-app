@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../theme/colors';
+import { accordUniteFr } from '../lib/stockUniteLabel';
 
 const MAX_DIGITS = 5;
 const MAX_QTY = 99_999;
@@ -22,7 +23,12 @@ type Props = {
   productName: string;
   stockHint?: string;
   unite: string;
-  moveType: 'entrée' | 'sortie';
+  /** Mouvement stock (entrée/sortie). Ignoré si `assignMode`. */
+  moveType?: 'entrée' | 'sortie';
+  /** Attribution à un prêt / tournée : libellé sans +/−. */
+  assignMode?: boolean;
+  /** Plafond (ex. stock lot) — confirme refuse au-delà. */
+  maxQty?: number;
   /** Valeur de départ (ex. quantité préréglée sur l’écran d’accueil). */
   initialQtyString: string;
   onCancel: () => void;
@@ -41,7 +47,9 @@ export function BurstQtyNumpadModal({
   productName,
   stockHint,
   unite,
-  moveType,
+  moveType = 'sortie',
+  assignMode = false,
+  maxQty,
   initialQtyString,
   onCancel,
   onConfirm,
@@ -80,16 +88,23 @@ export function BurstQtyNumpadModal({
 
   const handleConfirm = () => {
     const n = Math.max(0, parseInt(digits || '0', 10));
-    if (n <= 0 || n > MAX_QTY) {
-      Alert.alert('Quantité invalide', 'Indiquez un nombre entre 1 et 99 999.');
+    const cap = maxQty != null && Number.isFinite(maxQty) ? Math.min(MAX_QTY, Math.max(0, maxQty)) : MAX_QTY;
+    if (n <= 0 || n > cap) {
+      Alert.alert(
+        'Quantité invalide',
+        cap < MAX_QTY
+          ? `Indiquez un nombre entre 1 et ${cap}.`
+          : 'Indiquez un nombre entre 1 et 99 999.'
+      );
       return;
     }
     onConfirm(n);
   };
 
-  const moveVerb = moveType === 'entrée' ? 'Entrée' : 'Sortie';
-  const sign = moveType === 'entrée' ? '+' : '−';
-  const preview = `${sign}${display} ${unite}`.trim();
+  const moveVerb = assignMode ? 'Prêt' : moveType === 'entrée' ? 'Entrée' : 'Sortie';
+  const sign = assignMode ? '' : moveType === 'entrée' ? '+' : '−';
+  const previewQty = parseInt(display, 10) || 0;
+  const preview = `${sign}${display} ${accordUniteFr(unite, previewQty)}`.trim();
 
   const pad = [
     ['1', '2', '3'],
@@ -164,7 +179,10 @@ export function BurstQtyNumpadModal({
               <Text style={styles.btnGhostText}>Annuler</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.btnOk} onPress={handleConfirm} activeOpacity={0.85}>
-              <Text style={styles.btnOkText}>Valider {sign}{display} {unite}</Text>
+              <Text style={styles.btnOkText}>
+                Valider {sign}
+                {display} {unite}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

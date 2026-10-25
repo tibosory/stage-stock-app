@@ -14,6 +14,7 @@ import {
   createMaterielStubWithScannedCode,
   createConsommableStubWithScannedCode,
   getMaterielsInStockFlightcase,
+  findMaterielForTourScan,
 } from '../db/inventoryOpsDb';
 import { getStats } from '../db/metadataDb';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
@@ -32,10 +33,16 @@ import { useLanguage } from '../context/LanguageContext';
 import { isMaterielGestionLot, materielLotUnite, materielStockActuel } from '../lib/materielLot';
 import { parseStockFlightcaseQr } from '../lib/stockFlightcase';
 import { resolveStockFlightcaseScan } from '../db/stockFlightcasesDb';
-import { isMaterielEligibleForPretScan, pretScanIneligibleReason } from '../lib/pretScanEligible';
+import {
+  isMaterielEligibleForPretScan,
+  pretScanIneligibleReason,
+  pretScanMaxQuantite,
+} from '../lib/pretScanEligible';
 import { openNewPretFromScan } from '../navigation/openPretFromScan';
+import { accordUniteFr, formatQuantiteUnite } from '../lib/stockUniteLabel';
 
 type Mode = 'home' | 'camera' | 'nfc' | 'batch' | 'pret';
+type PretDraftItem = { materiel: Materiel; quantite: number };
 type LastConsoMove = {
   id: string;
   nom: string;
@@ -66,7 +73,9 @@ export default function ScannerScreen() {
   const [manualConsoResults, setManualConsoResults] = useState<Consommable[]>([]);
   const [manualSearchActive, setManualSearchActive] = useState(false);
   const [batchResults, setBatchResults] = useState<Materiel[]>([]);
-  const [pretDraftItems, setPretDraftItems] = useState<Materiel[]>([]);
+  const [pretDraftItems, setPretDraftItems] = useState<PretDraftItem[]>([]);
+  /** Lot scanné en mode prêt : saisie quantité avant ajout au brouillon. */
+  const [pretLotAsk, setPretLotAsk] = useState<Materiel | null>(null);
   const [consoMoveItem, setConsoMoveItem] = useState<Consommable | null>(null);
   const [matLotMoveItem, setMatLotMoveItem] = useState<Materiel | null>(null);
   const [consoMoveQty, setConsoMoveQty] = useState('1');
@@ -84,7 +93,7 @@ export default function ScannerScreen() {
   const [lastLotMove, setLastLotMove] = useState<LastLotMove | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
   const [stats, setStats] = useState<Awaited<ReturnType<typeof getStats>> | null>(null);
-  const { nfcSupported, nfcEnabled, scanning: nfcScanning, readNfcTag } = useNfc();
+  const { nfcSupported, nfcEnabled, scanning: nfcScanning, readNfcTag, readNfcTagId } = useNfc();
   const manualInputRef = useRef<TextInput>(null);
   const manualSearchDidMount = useRef(false);
   const detectedBarcodesRef = useRef<Map<string, BarcodeScanningResult>>(new Map());
@@ -116,6 +125,26 @@ export default function ScannerScreen() {
     setRecentMat(results);
   };
 
+  const pushPretDraftLine = useCallback((mat: Materiel, quantite: number) => {
+    const qty = Math.max(1, Math.min(pretScanMaxQuantite(mat) || 1, Math.floor(quantite)));
+    setPretDraftItems(prev => {
+      const idx = prev.findIndex(x => x.materiel.id === mat.id);
+      const next = [...prev];
+      if (idx >= 0) {
+        next[idx] = {
+          materiel: mat,
+          quantite: isMaterielGestionLot(mat)
+            ? Math.min(pretScanMaxQuantite(mat), qty)
+            : 1,
+        };
+      } else {
+        next.push({ materiel: mat, quantite: isMaterielGestionLot(mat) ? qty : 1 });
+      }
+      return next;
+    });
+    void triggerScanMatchHaptic();
+  }, []);
+
   const addMatsToPretDraft = useCallback((mats: Materiel[]) => {
     const eligible = mats.filter(isMaterielEligibleForPretScan);
     const rejected = mats.filter(m => !isMaterielEligibleForPretScan(m));
@@ -127,12 +156,13 @@ export default function ScannerScreen() {
       setScanned(false);
       return;
     }
+    /** Flightcase / multi : lots à qty 1 (ajustables sur la feuille). */
     setPretDraftItems(prev => {
       const next = [...prev];
       let added = 0;
       for (const mat of eligible) {
-        if (next.find(m => m.id === mat.id)) continue;
-        next.push(mat);
+        if (next.find(x => x.materiel.id === mat.id)) continue;
+        next.push({ materiel: mat, quantite: 1 });
         added += 1;
       }
       if (added > 0) void triggerScanMatchHaptic();
@@ -156,8 +186,57 @@ export default function ScannerScreen() {
   }, [t]);
 
   const addMatToPretDraft = useCallback(
-    (mat: Materiel) => addMatsToPretDraft([mat]),
-    [addMatsToPretDraft]
+    (mat: Materiel) => {
+      if (!isMaterielEligibleForPretScan(mat)) {
+        Alert.alert(t('scanner.pretPrep.unavailableTitle'), pretScanIneligibleReason(mat));
+        setScanned(false);
+        return;
+      }
+      if (isMaterielGestionLot(mat)) {
+        const max = pretScanMaxQuantite(mat);
+        if (max <= 0) {
+          Alert.alert(t('scanner.pretPrep.unavailableTitle'), pretScanIneligibleReason(mat));
+          setScanned(false);
+          return;
+        }
+        Alert.alert(
+          t('scanner.pretPrep.lotQtyTitle'),
+          t('scanner.pretPrep.lotQtyBody', {
+            name: mat.nom,
+            stock: formatQuantiteUnite(max, materielLotUnite(mat)),
+          }),
+          [
+            { text: t('common.cancel'), style: 'cancel', onPress: () => setScanned(false) },
+            {
+              text: t('scanner.pretPrep.lotQtyAll', { qty: max }),
+              onPress: () => {
+                pushPretDraftLine(mat, max);
+                Alert.alert(
+                  t('scanner.pretPrep.addedTitle'),
+                  t('scanner.pretPrep.addedLotBody', {
+                    name: mat.nom,
+                    qty: formatQuantiteUnite(max, materielLotUnite(mat)),
+                  })
+                );
+                setTimeout(() => setScanned(false), 400);
+              },
+            },
+            {
+              text: t('scanner.pretPrep.lotQtyCustom'),
+              onPress: () => setPretLotAsk(mat),
+            },
+          ]
+        );
+        return;
+      }
+      pushPretDraftLine(mat, 1);
+      Alert.alert(
+        t('scanner.pretPrep.addedTitle'),
+        t('scanner.pretPrep.addedBody', { count: 1, total: pretDraftItems.length + 1 })
+      );
+      setTimeout(() => setScanned(false), 400);
+    },
+    [pretDraftItems.length, pushPretDraftLine, t]
   );
 
   const showPretDraftList = useCallback(() => {
@@ -167,7 +246,13 @@ export default function ScannerScreen() {
     }
     Alert.alert(
       t('scanner.pretPrep.listTitle', { count: pretDraftItems.length }),
-      pretDraftItems.map(m => m.nom).join('\n'),
+      pretDraftItems
+        .map(x =>
+          x.quantite > 1
+            ? `${x.materiel.nom} × ${x.quantite}`
+            : x.materiel.nom
+        )
+        .join('\n'),
       [
         { text: t('common.ok'), style: 'cancel' },
         {
@@ -184,13 +269,31 @@ export default function ScannerScreen() {
       Alert.alert(t('scanner.pretPrep.emptyListTitle'), t('scanner.pretPrep.finalizeNeedItems'));
       return;
     }
-    const ids = pretDraftItems.map(m => m.id);
+    const lignes = pretDraftItems.map(x => ({
+      materielId: x.materiel.id,
+      quantite: x.quantite,
+    }));
     setMode('home');
     setPretDraftItems([]);
     setScanned(false);
     detectedBarcodesRef.current.clear();
-    openNewPretFromScan(navigation, ids);
+    openNewPretFromScan(navigation, lignes);
   }, [pretDraftItems, navigation, t]);
+
+  const onPretNfcRead = useCallback(async () => {
+    let mat: Materiel | null = null;
+    const text = await readNfcTag();
+    if (text?.trim()) mat = await findMaterielForTourScan(text);
+    if (!mat) {
+      const hw = await readNfcTagId();
+      if (hw?.trim()) mat = await findMaterielForTourScan(hw);
+    }
+    if (!mat) {
+      Alert.alert(t('scanner.noTag'), t('scanner.pretPrep.nfcNotFound'));
+      return;
+    }
+    addMatToPretDraft(mat);
+  }, [addMatToPretDraft, readNfcTag, readNfcTagId, t]);
 
   const openConsoMove = useCallback((conso: Consommable) => {
     setConsoMoveItem(conso);
@@ -239,7 +342,7 @@ export default function ScannerScreen() {
           name: matLotMoveItem.nom,
           sign: type === 'entrée' ? '+' : '-',
           qty,
-          unit,
+          unit: accordUniteFr(unit, qty),
         })
       );
       closeMatLotMove();
@@ -269,14 +372,16 @@ export default function ScannerScreen() {
         unite: consoMoveItem.unite,
         delta,
       });
-      setConsoBurstLast(`${consoMoveItem.nom} ${delta > 0 ? '+' : ''}${delta} ${consoMoveItem.unite}`);
+      setConsoBurstLast(
+        `${consoMoveItem.nom} ${delta > 0 ? '+' : ''}${delta} ${accordUniteFr(consoMoveItem.unite, delta)}`
+      );
       Alert.alert(
         t('scanner.stockUpdatedTitle'),
         t('scanner.stockUpdatedBody', {
           name: consoMoveItem.nom,
           sign: type === 'entrée' ? '+' : '-',
           qty,
-          unit: consoMoveItem.unite,
+          unit: accordUniteFr(consoMoveItem.unite, qty),
         })
       );
       closeConsoMove();
@@ -305,7 +410,7 @@ export default function ScannerScreen() {
           unite: conso.unite,
           delta,
         });
-        setConsoBurstLast(`${conso.nom} ${type === 'entrée' ? '+' : '-'}${qty} ${conso.unite}`);
+        setConsoBurstLast(`${conso.nom} ${type === 'entrée' ? '+' : '-'}${qty} ${accordUniteFr(conso.unite, qty)}`);
         return true;
       } catch (e: any) {
         Alert.alert(t('scanner.moveError'), e?.message ?? 'Impossible de mettre à jour le stock.');
@@ -352,7 +457,7 @@ export default function ScannerScreen() {
       await ajusterStock(lastConsoMove.id, -lastConsoMove.delta);
       await getStats().then(setStats);
       setConsoBurstLast(
-        `Annulé: ${lastConsoMove.nom} ${lastConsoMove.delta > 0 ? '+' : ''}${lastConsoMove.delta} ${lastConsoMove.unite}`
+        `Annulé: ${lastConsoMove.nom} ${lastConsoMove.delta > 0 ? '+' : ''}${lastConsoMove.delta} ${accordUniteFr(lastConsoMove.unite, lastConsoMove.delta)}`
       );
       setLastConsoMove(null);
       Alert.alert(t('scanner.undoDone'), `Dernier mouvement annulé sur ${lastConsoMove.nom}.`);
@@ -730,7 +835,7 @@ export default function ScannerScreen() {
       productName={burstNumpadConso?.nom ?? ''}
       stockHint={
         burstNumpadConso
-          ? `Stock : ${burstNumpadConso.stock_actuel} ${burstNumpadConso.unite}`
+          ? `Stock : ${formatQuantiteUnite(burstNumpadConso.stock_actuel, burstNumpadConso.unite)}`
           : undefined
       }
       unite={burstNumpadConso?.unite ?? 'pièce'}
@@ -738,6 +843,42 @@ export default function ScannerScreen() {
       initialQtyString={consoBurstQty}
       onCancel={handleBurstNumpadCancel}
       onConfirm={handleBurstNumpadConfirm}
+    />
+  );
+
+  const renderPretLotQtyModal = () => (
+    <BurstQtyNumpadModal
+      visible={!!pretLotAsk}
+      productName={pretLotAsk?.nom ?? ''}
+      stockHint={
+        pretLotAsk
+          ? t('scanner.pretPrep.lotStockHint', {
+              stock: formatQuantiteUnite(pretScanMaxQuantite(pretLotAsk), materielLotUnite(pretLotAsk)),
+            })
+          : undefined
+      }
+      unite={pretLotAsk ? materielLotUnite(pretLotAsk) : 'pièce'}
+      assignMode
+      maxQty={pretLotAsk ? pretScanMaxQuantite(pretLotAsk) : undefined}
+      initialQtyString={pretLotAsk ? String(Math.min(1, pretScanMaxQuantite(pretLotAsk) || 1)) : '1'}
+      onCancel={() => {
+        setPretLotAsk(null);
+        setScanned(false);
+      }}
+      onConfirm={qty => {
+        const mat = pretLotAsk;
+        setPretLotAsk(null);
+        if (!mat) return;
+        pushPretDraftLine(mat, qty);
+        Alert.alert(
+          t('scanner.pretPrep.addedTitle'),
+          t('scanner.pretPrep.addedLotBody', {
+            name: mat.nom,
+            qty: formatQuantiteUnite(qty, materielLotUnite(mat)),
+          })
+        );
+        setTimeout(() => setScanned(false), 400);
+      }}
     />
   );
 
@@ -751,7 +892,10 @@ export default function ScannerScreen() {
         <>
           <Text style={{ color: Colors.white, fontSize: 16, fontWeight: '700' }}>{consoMoveItem.nom}</Text>
           <Text style={{ color: Colors.textSecondary, marginTop: 4, marginBottom: 10 }}>
-            {t('scanner.stockCurrent', { stock: consoMoveItem.stock_actuel, unit: consoMoveItem.unite })}
+            {t('scanner.stockCurrent', {
+              stock: consoMoveItem.stock_actuel,
+              unit: accordUniteFr(consoMoveItem.unite, consoMoveItem.stock_actuel),
+            })}
           </Text>
 
           <Input
@@ -808,7 +952,7 @@ export default function ScannerScreen() {
           <Text style={{ color: Colors.textSecondary, marginTop: 4, marginBottom: 10 }}>
             {t('stock.lot.stockCurrent', {
               stock: materielStockActuel(matLotMoveItem),
-              unit: materielLotUnite(matLotMoveItem),
+              unit: accordUniteFr(materielLotUnite(matLotMoveItem), materielStockActuel(matLotMoveItem)),
             })}
           </Text>
 
@@ -927,6 +1071,19 @@ export default function ScannerScreen() {
                 </Text>
               </View>
               <TouchableOpacity
+                style={[
+                  s.btnOutline,
+                  { marginBottom: 8, borderColor: Colors.border },
+                  (!nfcSupported || !nfcEnabled || nfcScanning) && { opacity: 0.5 },
+                ]}
+                onPress={() => void onPretNfcRead()}
+                disabled={!nfcSupported || !nfcEnabled || nfcScanning}
+              >
+                <Text style={{ color: Colors.white, fontWeight: '600' }}>
+                  {nfcScanning ? t('scanner.pretPrep.nfcReading') : t('scanner.pretPrep.readNfc')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={[s.btnGreen, { marginBottom: 8 }, pretDraftItems.length === 0 && { opacity: 0.5 }]}
                 onPress={finalizePretFromScan}
                 disabled={pretDraftItems.length === 0}
@@ -969,6 +1126,7 @@ export default function ScannerScreen() {
         {renderConsoMoveModal()}
         {renderMatLotMoveModal()}
         {renderBurstNumpadModal()}
+        {renderPretLotQtyModal()}
       </View>
     );
   }
@@ -1342,7 +1500,9 @@ export default function ScannerScreen() {
                       <Text style={s.matSub} numberOfLines={2}>
                         {[conso.categorie_nom?.trim(), conso.reference?.trim()].filter(Boolean).join(' · ') ||
                           ' '}
-                        {conso.stock_actuel != null ? ` · Stock ${conso.stock_actuel} ${conso.unite}` : ''}
+                        {conso.stock_actuel != null
+                          ? ` · Stock ${formatQuantiteUnite(conso.stock_actuel, conso.unite)}`
+                          : ''}
                       </Text>
                     </View>
                   </View>
@@ -1354,6 +1514,7 @@ export default function ScannerScreen() {
       </ScrollView>
       {renderConsoMoveModal()}
       {renderMatLotMoveModal()}
+      {renderPretLotQtyModal()}
     </TabScreenSafeArea>
   );
 }

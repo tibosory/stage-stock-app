@@ -111,20 +111,55 @@ export function buildQtyByNameKeyFromMaterielIds(
   materiels: Materiel[],
   ids: string[]
 ): Record<string, number> {
-  const idSet = new Set(ids);
-  const qty: Record<string, number> = {};
-  for (const mat of materiels) {
-    if (!idSet.has(mat.id)) continue;
-    if (isMaterielGestionLot(mat)) {
-      const key = lotPretGroupKey(mat.id);
-      qty[key] = Math.max(qty[key] ?? 0, 1);
-      continue;
-    }
-    const key = normPretMaterielName(mat.nom);
-    if (!key) continue;
-    qty[key] = (qty[key] ?? 0) + 1;
+  return buildQtyByNameKeyFromScanLignes(
+    materiels,
+    ids.map(materielId => ({ materielId, quantite: 1 }))
+  );
+}
+
+/**
+ * Fusionne une ligne scannée dans le stepper (lot : pose/écrase la qty ; unitaire : +1).
+ */
+export function applyScanLigneToQtyByNameKey(
+  prev: Record<string, number>,
+  groups: PretMaterielNameGroup[],
+  materielId: string,
+  quantite: number
+): Record<string, number> {
+  const g = groups.find(x => x.ids.includes(materielId));
+  if (!g || g.available <= 0) return prev;
+  const q = Math.max(1, Math.floor(Number(quantite) || 1));
+  const next = { ...prev };
+  if (g.isLot) {
+    next[g.key] = Math.min(g.available, q);
+  } else {
+    next[g.key] = Math.min(g.available, (next[g.key] ?? 0) + 1);
+  }
+  return next;
+}
+
+/** Lignes scannées (id + qty) → état initial des steppers. */
+export function buildQtyByNameKeyFromScanLignes(
+  materiels: Materiel[],
+  lignes: PretLigneQty[],
+  reservedByMaterielId: Record<string, number> = {}
+): Record<string, number> {
+  const groups = buildPretMaterielNameGroups(materiels, reservedByMaterielId);
+  let qty: Record<string, number> = {};
+  for (const l of lignes) {
+    qty = applyScanLigneToQtyByNameKey(qty, groups, l.materielId, l.quantite);
   }
   return qty;
+}
+
+/** Filtre les groupes affichés dans la feuille (recherche nom). */
+export function filterPretMaterielNameGroups(
+  groups: PretMaterielNameGroup[],
+  query: string
+): PretMaterielNameGroup[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return groups;
+  return groups.filter(g => g.displayName.toLowerCase().includes(q));
 }
 
 /** Quantités déjà sur une demande (lignes pret_materiels) → état du stepper. */

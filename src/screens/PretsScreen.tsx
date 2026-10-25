@@ -1,14 +1,16 @@
 // src/screens/PretsScreen.tsx
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, Pressable, Modal, Vibration,
   Alert, RefreshControl, ScrollView, ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { format, parseISO, isValid } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Colors } from '../theme/colors';
 import { getMateriel } from '../db/inventoryDb';
+import { findMaterielForTourScan } from '../db/inventoryOpsDb';
 import { getBeneficiaires, insertBeneficiaire, updateBeneficiaire } from '../db/metadataDb';
 import { isCapiBeneficiaireId, pushAccueilProContactToCapi } from '../lib/capiAccueilProApi';
 import {
@@ -29,22 +31,34 @@ import {
   PretStatutBadge, Card, ScreenHeader, BottomModal, Input, SelectPicker, FormButtons, DateField,
   BtnPrimary, BtnSecondary, TabScreenSafeArea,
 } from '../components/UI';
+import { BurstQtyNumpadModal } from '../components/BurstQtyNumpadModal';
 import { EyeIcon } from '../components/Icons';
 import { useAppAuth } from '../context/AuthContext';
+import { useNfc } from '../hooks/useNfc';
 import { notifyStaffAboutBorrowerReturn } from '../lib/notifyStaffPretReturn';
 import { notifyAdminsNewPretDemande, notifyBorrowerDemandeAcceptee } from '../lib/pretDemandeNotifications';
 import { exportFichePretPdf } from '../lib/pdfPretExport';
 import { reschedulePretReturnReminders } from '../lib/pretNotifications';
 import { triggerSyncAfterActionIfEnabled } from '../lib/syncAfterAction';
 import { exportPretsIcs } from '../lib/csvExportImport';
+import { triggerScanMatchHaptic } from '../lib/scanHaptic';
+import { pickBarcodeAtTap, rememberDetectedBarcode } from '../lib/tapToScanBarcode';
 import SignaturePad from '../components/SignaturePad';
 import { useLanguage } from '../context/LanguageContext';
-import { isMaterielGestionLot, materielStockActuel } from '../lib/materielLot';
+import { isMaterielGestionLot, materielLotUnite, materielStockActuel } from '../lib/materielLot';
+import {
+  isMaterielEligibleForPretScan,
+  pretScanIneligibleReason,
+  pretScanMaxQuantite,
+} from '../lib/pretScanEligible';
 import {
   buildPretMaterielNameGroups,
   expandPretNameQtyToLignes,
-  buildQtyByNameKeyFromMaterielIds,
   buildQtyByNameKeyFromPretLignes,
+  buildQtyByNameKeyFromScanLignes,
+  applyScanLigneToQtyByNameKey,
+  filterPretMaterielNameGroups,
+  type PretLigneQty,
 } from '../lib/pretMaterielGroups';
 
 const STATUTS_PRET_VALUES: StatutPret[] = ['en demande', 'en cours', 'retourné', 'en retard', 'annulé'];
@@ -80,7 +94,7 @@ export default function PretsScreen() {
   const [exportingIcs, setExportingIcs] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState<Pret | null>(null);
-  const [scanInitialMaterielIds, setScanInitialMaterielIds] = useState<string[] | undefined>();
+  const [scanInitialLignes, setScanInitialLignes] = useState<PretLigneQty[] | undefined>();
 
   const load = useCallback(async () => {
     const p = await getPrets();
@@ -121,16 +135,32 @@ export default function PretsScreen() {
     }, [route.params?.openPretEditId, navigation])
   );
 
-  /** Depuis le scanner : préparer un prêt avec matériels déjà scannés */
+  /** Depuis le scanner : préparer un prêt avec matériels déjà scannés (qty pour lots). */
   useFocusEffect(
     useCallback(() => {
+      const lignes = route.params?.openNewPretWithMaterielLignes as PretLigneQty[] | undefined;
       const ids = route.params?.openNewPretWithMaterielIds as string[] | undefined;
-      if (!ids?.length) return;
+      const resolved: PretLigneQty[] | undefined = lignes?.length
+        ? lignes.map(l => ({
+            materielId: l.materielId,
+            quantite: Math.max(1, Math.floor(Number(l.quantite) || 1)),
+          }))
+        : ids?.length
+          ? ids.map(materielId => ({ materielId, quantite: 1 }))
+          : undefined;
+      if (!resolved?.length) return;
       setEditItem(null);
-      setScanInitialMaterielIds(ids);
+      setScanInitialLignes(resolved);
       setShowModal(true);
-      navigation.setParams({ openNewPretWithMaterielIds: undefined } as never);
-    }, [route.params?.openNewPretWithMaterielIds, navigation])
+      navigation.setParams({
+        openNewPretWithMaterielLignes: undefined,
+        openNewPretWithMaterielIds: undefined,
+      } as never);
+    }, [
+      route.params?.openNewPretWithMaterielLignes,
+      route.params?.openNewPretWithMaterielIds,
+      navigation,
+    ])
   );
 
   const pretsFiltres = useMemo(() => {
@@ -299,27 +329,27 @@ export default function PretsScreen() {
 
       <PretModal
         visible={showModal}
-        onClose={() => { setShowModal(false); setEditItem(null); setScanInitialMaterielIds(undefined); }}
+        onClose={() => { setShowModal(false); setEditItem(null); setScanInitialLignes(undefined); }}
         onSaved={load}
         item={editItem}
         authUser={user}
         readOnly={isBorrower && !!editItem}
         borrowerNewDemand={isBorrower && !editItem}
-        initialMaterielIds={scanInitialMaterielIds}
+        initialMaterielLignes={scanInitialLignes}
       />
     </TabScreenSafeArea>
   );
 }
 
 // ── Modal Prêt ────────────────────────────────────────────────────────────────
-function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrowerNewDemand, initialMaterielIds }: {
+function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrowerNewDemand, initialMaterielLignes }: {
   visible: boolean; onClose: () => void; onSaved: () => void; item: Pret | null;
   authUser: AppUser | null;
   readOnly?: boolean;
   /** Emprunteur : création d’une demande (statut « en demande », sans sortir le stock). */
   borrowerNewDemand?: boolean;
-  /** Matériels pré-sélectionnés depuis le scanner (création de prêt). */
-  initialMaterielIds?: string[];
+  /** Matériels pré-sélectionnés depuis le scanner (création de prêt, qty lots). */
+  initialMaterielLignes?: PretLigneQty[];
 }) {
   const { t } = useLanguage();
   const borrowerCreatingDemande = !!borrowerNewDemand && !item;
@@ -351,11 +381,22 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
   const [beneficiaireRepId, setBeneficiaireRepId] = useState('');
   const [horairePrecision, setHorairePrecision] = useState('');
   const [notifyLoading, setNotifyLoading] = useState(false);
-  const [pendingScanMaterielIds, setPendingScanMaterielIds] = useState<string[] | null>(null);
+  const [pendingScanLignes, setPendingScanLignes] = useState<PretLigneQty[] | null>(null);
+  const [materielSearch, setMaterielSearch] = useState('');
+  const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [pretLotAsk, setPretLotAsk] = useState<Materiel | null>(null);
+  const [permission, requestPermission] = useCameraPermissions();
+  const { nfcSupported, nfcEnabled, scanning: nfcBusy, readNfcTag, readNfcTagId } = useNfc();
+  const scanLockRef = useRef(false);
+  const detectedBarcodesRef = useRef<Map<string, BarcodeScanningResult>>(new Map());
 
   const nameGroups = useMemo(
     () => buildPretMaterielNameGroups(allMateriels, reservedByMaterielId),
     [allMateriels, reservedByMaterielId]
+  );
+  const filteredNameGroups = useMemo(
+    () => filterPretMaterielNameGroups(nameGroups, materielSearch),
+    [nameGroups, materielSearch]
   );
   const statutOptions = useMemo(
     () =>
@@ -413,21 +454,26 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
   useEffect(() => {
     if (!visible) {
       setQtyByNameKey({});
-      setPendingScanMaterielIds(null);
+      setPendingScanLignes(null);
+      setMaterielSearch('');
+      setQrModalOpen(false);
+      setPretLotAsk(null);
     }
   }, [visible]);
 
   useEffect(() => {
-    if (visible && initialMaterielIds?.length && !item) {
-      setPendingScanMaterielIds(initialMaterielIds);
+    if (visible && initialMaterielLignes?.length && !item) {
+      setPendingScanLignes(initialMaterielLignes);
     }
-  }, [visible, initialMaterielIds, item]);
+  }, [visible, initialMaterielLignes, item]);
 
   useEffect(() => {
-    if (!pendingScanMaterielIds?.length || allMateriels.length === 0) return;
-    setQtyByNameKey(buildQtyByNameKeyFromMaterielIds(allMateriels, pendingScanMaterielIds));
-    setPendingScanMaterielIds(null);
-  }, [pendingScanMaterielIds, allMateriels]);
+    if (!pendingScanLignes?.length || allMateriels.length === 0) return;
+    setQtyByNameKey(
+      buildQtyByNameKeyFromScanLignes(allMateriels, pendingScanLignes, reservedByMaterielId)
+    );
+    setPendingScanLignes(null);
+  }, [pendingScanLignes, allMateriels, reservedByMaterielId]);
 
   useEffect(() => {
     if (!visible) return;
@@ -491,7 +537,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       setDateDepart(format(new Date(), 'yyyy-MM-dd'));
       setRetourPrevu(''); setRetourReel(''); setValeurEstimee('');
       setCommentaire('');
-      if (!initialMaterielIds?.length) setQtyByNameKey({});
+      if (!initialMaterielLignes?.length) setQtyByNameKey({});
       setSignatureB64(null);
       setEmprunteurUserId('');
       setRappelJoursAvant('');
@@ -503,7 +549,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
         setEmprunteur('');
       }
     }
-  }, [visible, item, authUser]);
+  }, [visible, item, authUser, initialMaterielLignes]);
 
   useEffect(() => {
     if (visible && readOnly && !item && !borrowerNewDemand) onClose();
@@ -571,6 +617,124 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
       return n;
     });
   };
+
+  const commitScannedMateriel = useCallback(
+    (mat: Materiel, quantite: number) => {
+      if (!isMaterielEligibleForPretScan(mat)) {
+        Alert.alert(t('scanner.pretPrep.unavailableTitle'), pretScanIneligibleReason(mat));
+        return;
+      }
+      setQtyByNameKey(prev =>
+        applyScanLigneToQtyByNameKey(prev, nameGroups, mat.id, quantite)
+      );
+      void triggerScanMatchHaptic();
+    },
+    [nameGroups, t]
+  );
+
+  const proposeScannedMateriel = useCallback(
+    (mat: Materiel) => {
+      if (!isMaterielEligibleForPretScan(mat)) {
+        Alert.alert(t('scanner.pretPrep.unavailableTitle'), pretScanIneligibleReason(mat));
+        return;
+      }
+      if (isMaterielGestionLot(mat)) {
+        const max = pretScanMaxQuantite(mat);
+        Alert.alert(
+          t('scanner.pretPrep.lotQtyTitle'),
+          t('scanner.pretPrep.lotQtyBody', {
+            name: mat.nom,
+            stock: `${max} ${materielLotUnite(mat)}`,
+          }),
+          [
+            { text: t('common.cancel'), style: 'cancel' },
+            {
+              text: t('scanner.pretPrep.lotQtyAll', { qty: max }),
+              onPress: () => commitScannedMateriel(mat, max),
+            },
+            {
+              text: t('scanner.pretPrep.lotQtyCustom'),
+              onPress: () => setPretLotAsk(mat),
+            },
+          ]
+        );
+        return;
+      }
+      commitScannedMateriel(mat, 1);
+    },
+    [commitScannedMateriel, t]
+  );
+
+  const openQrScanner = useCallback(async () => {
+    if (!permission?.granted) {
+      const r = await requestPermission();
+      if (!r.granted) {
+        Alert.alert(t('loans.scan.cameraTitle'), t('loans.scan.cameraBody'));
+        return;
+      }
+    }
+    setQrModalOpen(true);
+  }, [permission?.granted, requestPermission, t]);
+
+  useEffect(() => {
+    if (qrModalOpen) scanLockRef.current = false;
+    else detectedBarcodesRef.current.clear();
+  }, [qrModalOpen]);
+
+  const processPretModalScan = useCallback(
+    async (res: BarcodeScanningResult) => {
+      const data = res.data?.trim() ?? '';
+      const mat = await findMaterielForTourScan(data);
+      setQrModalOpen(false);
+      if (!mat) {
+        Alert.alert(t('scanner.unknownCode'), t('scanner.pretPrep.unknownBody', { code: data }));
+        return;
+      }
+      proposeScannedMateriel(mat);
+    },
+    [proposeScannedMateriel, t]
+  );
+
+  const onPretCameraTap = useCallback(
+    (locationX: number, locationY: number) => {
+      if (!qrModalOpen || scanLockRef.current) return;
+      const picked = pickBarcodeAtTap(
+        Array.from(detectedBarcodesRef.current.values()),
+        locationX,
+        locationY
+      );
+      if (!picked) {
+        Vibration.vibrate(40);
+        return;
+      }
+      scanLockRef.current = true;
+      void (async () => {
+        try {
+          await processPretModalScan(picked);
+        } finally {
+          setTimeout(() => {
+            scanLockRef.current = false;
+          }, 600);
+        }
+      })();
+    },
+    [processPretModalScan, qrModalOpen]
+  );
+
+  const onPretNfcAssign = useCallback(async () => {
+    let mat: Materiel | null = null;
+    const text = await readNfcTag();
+    if (text?.trim()) mat = await findMaterielForTourScan(text);
+    if (!mat) {
+      const hw = await readNfcTagId();
+      if (hw?.trim()) mat = await findMaterielForTourScan(hw);
+    }
+    if (!mat) {
+      Alert.alert(t('scanner.noTag'), t('scanner.pretPrep.nfcNotFound'));
+      return;
+    }
+    proposeScannedMateriel(mat);
+  }, [proposeScannedMateriel, readNfcTag, readNfcTagId, t]);
 
   const onBeneficiaireSelect = (id: string) => {
     setBeneficiaireRepId(id);
@@ -793,6 +957,7 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
   const formLocked = !!readOnly && !borrowerCreatingDemande;
 
   return (
+    <>
     <BottomModal
       visible={visible}
       onClose={onClose}
@@ -1038,13 +1203,45 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
           <Text style={{ color: Colors.textMuted, fontSize: 12, marginBottom: 8, lineHeight: 18 }}>
             {t('loans.materials.selectionHint')}
           </Text>
+          <Input
+            label={t('loans.materials.search')}
+            value={materielSearch}
+            onChangeText={setMaterielSearch}
+            placeholder={t('loans.materials.searchPlaceholder')}
+          />
+          <View style={ms.scanRow}>
+            <TouchableOpacity style={ms.scanBtn} onPress={() => void openQrScanner()} accessibilityRole="button">
+              <Text style={ms.scanBtnTxt}>{t('loans.scan.qr')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[ms.scanBtn, (!nfcSupported || !nfcEnabled || nfcBusy) && ms.scanBtnOff]}
+              onPress={() => void onPretNfcAssign()}
+              disabled={!nfcSupported || !nfcEnabled || nfcBusy}
+              accessibilityRole="button"
+            >
+              {nfcBusy ? (
+                <ActivityIndicator color={Colors.white} size="small" />
+              ) : (
+                <Text style={ms.scanBtnTxt}>{t('loans.scan.nfc')}</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+          {!nfcSupported ? (
+            <Text style={{ color: Colors.textMuted, fontSize: 11, marginBottom: 8 }}>{t('loans.scan.nfcUnavailable')}</Text>
+          ) : !nfcEnabled ? (
+            <Text style={{ color: Colors.textMuted, fontSize: 11, marginBottom: 8 }}>{t('loans.scan.nfcEnableHint')}</Text>
+          ) : null}
           <View style={ms.matBox}>
             {nameGroups.length === 0 ? (
-              <Text style={{ color: Colors.textMuted, fontSize: 13, paddingVertical: 8 }}>
+              <Text style={{ color: Colors.textMuted, fontSize: 13, paddingVertical: 8, paddingHorizontal: 12 }}>
                 {t('loans.materials.noneAvailable')}
               </Text>
+            ) : filteredNameGroups.length === 0 ? (
+              <Text style={{ color: Colors.textMuted, fontSize: 13, paddingVertical: 8, paddingHorizontal: 12 }}>
+                {t('loans.materials.searchEmpty')}
+              </Text>
             ) : (
-              nameGroups.map(g => {
+              filteredNameGroups.map(g => {
                 const q = qtyByNameKey[g.key] ?? 0;
                 const unit = (g.unite || 'pièce').trim();
                 const availableLabel = g.isLot
@@ -1118,6 +1315,55 @@ function PretModal({ visible, onClose, onSaved, item, authUser, readOnly, borrow
         </>
       )}
     </BottomModal>
+
+    <Modal visible={qrModalOpen} animationType="slide" onRequestClose={() => setQrModalOpen(false)}>
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        <Pressable
+          style={{ flex: 1 }}
+          onPress={e => {
+            const { locationX, locationY } = e.nativeEvent;
+            onPretCameraTap(locationX, locationY);
+          }}
+          accessibilityLabel={t('loans.scan.modalHint')}
+        >
+          <CameraView
+            style={StyleSheet.absoluteFillObject}
+            facing="back"
+            barcodeScannerSettings={{ barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39'] }}
+            onBarcodeScanned={res => rememberDetectedBarcode(detectedBarcodesRef.current, res)}
+          />
+        </Pressable>
+        <View style={{ position: 'absolute', bottom: 40, left: 20, right: 20 }}>
+          <Text style={{ color: Colors.white, textAlign: 'center', marginBottom: 12 }}>
+            {t('loans.scan.modalHint')}
+          </Text>
+          <BtnSecondary label={t('common.close')} onPress={() => setQrModalOpen(false)} />
+        </View>
+      </View>
+    </Modal>
+
+    <BurstQtyNumpadModal
+      visible={!!pretLotAsk}
+      productName={pretLotAsk?.nom ?? ''}
+      stockHint={
+        pretLotAsk
+          ? t('scanner.pretPrep.lotStockHint', {
+              stock: `${pretScanMaxQuantite(pretLotAsk)} ${materielLotUnite(pretLotAsk)}`,
+            })
+          : undefined
+      }
+      unite={pretLotAsk ? materielLotUnite(pretLotAsk) : 'pièce'}
+      assignMode
+      maxQty={pretLotAsk ? pretScanMaxQuantite(pretLotAsk) : undefined}
+      initialQtyString={pretLotAsk ? String(Math.min(1, pretScanMaxQuantite(pretLotAsk) || 1)) : '1'}
+      onCancel={() => setPretLotAsk(null)}
+      onConfirm={qty => {
+        const mat = pretLotAsk;
+        setPretLotAsk(null);
+        if (mat) commitScannedMateriel(mat, qty);
+      }}
+    />
+    </>
   );
 }
 
@@ -1203,4 +1449,18 @@ const ms = StyleSheet.create({
   qtyStepBtnOff: { backgroundColor: Colors.bgCardAlt, opacity: 0.5 },
   qtyStepTxt: { color: Colors.white, fontSize: 22, fontWeight: '700', marginTop: -2 },
   qtyValue: { color: Colors.textPrimary, fontSize: 16, fontWeight: '800', minWidth: 22, textAlign: 'center' },
+  scanRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  scanBtn: {
+    flex: 1,
+    backgroundColor: Colors.bgCardAlt,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  scanBtnOff: { opacity: 0.45 },
+  scanBtnTxt: { color: Colors.white, fontWeight: '700', fontSize: 13 },
 });

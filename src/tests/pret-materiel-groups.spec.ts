@@ -4,9 +4,12 @@ import {
   buildPretMaterielNameGroups,
   buildQtyByNameKeyFromMaterielIds,
   buildQtyByNameKeyFromPretLignes,
+  buildQtyByNameKeyFromScanLignes,
   expandPretNameQtyToLignes,
+  filterPretMaterielNameGroups,
   lotPretGroupKey,
 } from '../lib/pretMaterielGroups';
+import { isMaterielEligibleForPretScan } from '../lib/pretScanEligible';
 
 function unit(partial: Partial<Materiel> & { id: string; nom: string }): Materiel {
   return {
@@ -70,6 +73,22 @@ function testScanAndDemandeQtyRestore() {
   assert.equal(fromLignes[lotPretGroupKey('l1')], 10);
 }
 
+function testScanLignesLotQty() {
+  const mats = [lot({ id: 'l1', nom: 'Collier ortho', stock_actuel: 20 })];
+  const qty = buildQtyByNameKeyFromScanLignes(mats, [{ materielId: 'l1', quantite: 10 }]);
+  assert.equal(qty[lotPretGroupKey('l1')], 10);
+}
+
+function testFilterSearch() {
+  const groups = buildPretMaterielNameGroups([
+    lot({ id: 'l1', nom: 'Collier ortho', stock_actuel: 5 }),
+    unit({ id: 'u1', nom: 'Projecteur LED' }),
+  ]);
+  const filtered = filterPretMaterielNameGroups(groups, 'coll');
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].displayName, 'Collier ortho');
+}
+
 function testLotWithZeroAvailableHidden() {
   const groups = buildPretMaterielNameGroups(
     [lot({ id: 'l1', nom: 'Collier', stock_actuel: 3 })],
@@ -78,11 +97,25 @@ function testLotWithZeroAvailableHidden() {
   assert.equal(groups.length, 0);
 }
 
+function testEligibilityEmptyLot() {
+  assert.equal(
+    isMaterielEligibleForPretScan(lot({ id: 'l1', nom: 'Collier', stock_actuel: 0 })),
+    false
+  );
+  assert.equal(
+    isMaterielEligibleForPretScan(lot({ id: 'l1', nom: 'Collier', stock_actuel: 5 })),
+    true
+  );
+}
+
 function run() {
   testLotAvailableUsesStockMinusReserved();
   testExpandLotWritesSingleLineWithQty();
   testScanAndDemandeQtyRestore();
+  testScanLignesLotQty();
+  testFilterSearch();
   testLotWithZeroAvailableHidden();
+  testEligibilityEmptyLot();
   console.log('pret-materiel-groups.spec: OK');
 }
 
