@@ -125,3 +125,23 @@ Write-Host "APK: $dest"
 Write-Host "Bureau: $(Join-Path $env:USERPROFILE 'Desktop\CATRACK-Pro-release.apk')"
 Write-Host ("Taille: {0:N1} Mo" -f ($apk.Length / 1MB))
 Write-Host "Build root: $ShortRoot"
+
+# Sync vers Regie-Tech (Stock / Telecharger CATRACK Pro).
+$syncCandidates = @(
+    (Join-Path $ProjectRoot '..\..\CAPI-Regie\scripts\Sync-CatrackApk.ps1'),
+    (Join-Path $ProjectRoot '..\..\capi-regie\scripts\Sync-CatrackApk.ps1'),
+    'C:\dev\CAPI-Regie\scripts\Sync-CatrackApk.ps1'
+)
+$syncScript = $syncCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+if ($syncScript) {
+    Write-Host ''
+    Write-Host 'Sync APK vers Regie-Tech mobile/ ...' -ForegroundColor Cyan
+    & $syncScript -Source $dest -StageStockDir $ProjectRoot
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host 'Avertissement : Sync-CatrackApk a echoue (APK local OK).' -ForegroundColor Yellow
+    }
+} else {
+    Write-Host ''
+    Write-Host 'Sync Regie-Tech ignoree (scripts\Sync-CatrackApk.ps1 introuvable).' -ForegroundColor Yellow
+    Write-Host '  Copiez manuellement vers CAPI-Regie\mobile\CATRACK-Pro.apk' -ForegroundColor Yellow
+}

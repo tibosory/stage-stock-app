@@ -132,6 +132,7 @@ npm run android:assemble-release
 ```
 
 APK : `build-output\CATRACK-Pro-release.apk` + copie sur le Bureau.
+En fin de build, sync auto vers Régie-Tech `mobile/` (`CAPI-Regie\scripts\Sync-CatrackApk.ps1`) pour le bouton **Télécharger CATRACK Pro**.
 
 Build complet (changement natif / première fois) :
 
